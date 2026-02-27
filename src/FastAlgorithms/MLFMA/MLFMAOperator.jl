@@ -333,6 +333,8 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
                              Z_mfie = @MMatrix zeros(ComplexF64, 3, 3)
                              mfie_interaction!(Z_mfie, operator.mfie, tri_test, tri_src)
                              Z_local .= operator.alpha .* Z_local .+ (1.0 - operator.alpha) .* Z_mfie
+                        elseif operator isa MFIE
+                             mfie_interaction!(Z_local, operator, tri_test, tri_src)
                         else
                              efie_interaction!(Z_local, operator, tri_test, tri_src)
                         end

@@ -181,6 +181,7 @@ function add_received_field_rwg!(ZI, bfID, basis, bf, elem_info, gq, operator, k
     
     # Determine factors
     is_cfie = (operator isa CFIE) || (operator isa SCFIE)
+    is_mfie = operator isa MFIE
     alpha = 0.5
     efie_factor = 1.0 + 0im
     
@@ -192,6 +193,9 @@ function add_received_field_rwg!(ZI, bfID, basis, bf, elem_info, gq, operator, k
     elseif operator isa SCFIE
         alpha = operator.alpha
         # Same ×4 correction as CFIE
+        efie_factor = 4 * im * operator.k * operator.eta / (16 * π)
+    elseif is_mfie
+        # MFIE standalone: same Green's function factor as EFIE, applied here
         efie_factor = 4 * im * operator.k * operator.eta / (16 * π)
     else
         # EFIE - factor applied in mul!, not here
@@ -256,6 +260,11 @@ function add_received_field_rwg!(ZI, bfID, basis, bf, elem_info, gq, operator, k
                     # The η in front and 1/η in H_inc cancel, so:
                     # CFIE_test = efie_factor * [α*(ρ·E) + (1-α)*(ρ×n̂)·(k̂×E)]
                     val += (alpha * term_efie + (1 - alpha) * eta * term_mfie) * efie_factor * factor_vec
+                elseif is_mfie
+                    # MFIE standalone: magnetic field testing (ρ × n̂) · H
+                    H_inc = (E_theta * ϕhat - E_phi * θhat) * (phase / eta)
+                    term_mfie = dot(cross(rho, normal), H_inc)
+                    val += eta * term_mfie * efie_factor * factor_vec
                 else
                     # EFIE only
                     # Note: const_factor (jk*eta) is usually applied in operator or here.
