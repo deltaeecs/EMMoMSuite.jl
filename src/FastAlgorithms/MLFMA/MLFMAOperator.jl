@@ -19,7 +19,7 @@ using ....IntegralEquations.EFIEModule: efie_interaction!, EFIE
 using ....IntegralEquations.MFIEModule: mfie_interaction!, MFIE
 using ....IntegralEquations.CFIEModule: CFIE
 using ....IntegralEquations.VEFIEModule: vefie_element_interaction, vefie_element_interaction_kernel, precompute_vefie_basis, vefie_mass_matrix_cached, TetBasisCache, get_tetrahedra_info, VEFIE
-using ....IntegralEquations.SCFIEModule: SCFIE, scfie_coupling_interaction
+using ....IntegralEquations.SCFIEModule: SCFIE, scfie_coupling_interaction, assemble_fss_boundary_correction_sparse
 
 export MLFMAOperator, mul!
 
@@ -69,6 +69,23 @@ function MLFMAOperator(operator::AbstractIntegralOperator, bases::Vector{<:Abstr
     # Cast bases to Vector{AbstractBasisFunction}
     abstract_bases = Vector{AbstractBasisFunction}(bases)
     Z_near = assemble_near_field(operator, abstract_bases, basis_offsets, octree, sorted_ids, inv_sorted_ids)
+    
+    # Add Fss boundary correction for SCFIE operators
+    if operator isa SCFIE && length(bases) >= 2
+        surf_basis = nothing
+        vol_basis = nothing
+        for b in bases
+            if b isa RWGBasis
+                surf_basis = b
+            elseif b isa SWGBasis
+                vol_basis = b
+            end
+        end
+        if surf_basis !== nothing && vol_basis !== nothing
+            Z_fss = assemble_fss_boundary_correction_sparse(operator, surf_basis, vol_basis)
+            Z_near = Z_near + Z_fss
+        end
+    end
     
     FT = eltype(bases[1].mesh.node)
     CT = eltype(Z_near)
