@@ -167,7 +167,7 @@ function run_A_sefie(subtests::Vector{String}=["A1","A2","A3"])
     mesh = read_nas_mesh(mesh_file, scale=1.0)
     set_frequency!(freq)
     basis = RWGBasis(mesh)
-    println("  基函数数: $(basis.nbf)")
+    println("  基函数数: $(num_basis(basis))")
     
     efie = EFIE(freq)
     source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
@@ -350,7 +350,7 @@ function run_B_smfie(subtests::Vector{String}=["B1","B2"])
         mesh = read_nas_mesh(mesh_file, scale=1.0)
         set_frequency!(freq)
         basis = RWGBasis(mesh)
-        println("  基函数数: $(basis.nbf)")
+        println("  基函数数: $(num_basis(basis))")
         
         mfie = MFIE(freq)
         source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
@@ -405,9 +405,9 @@ function run_C_scfie(subtests::Vector{String}=["C1"])
     mesh = read_nas_mesh(mesh_file, scale=1.0)
     set_frequency!(freq)
     basis = RWGBasis(mesh)
-    println("  基函数数: $(basis.nbf)")
-    
-    cfie = CFIE(freq, 0.5)
+    println("  基函数数: $(num_basis(basis))")
+
+    cfie= CFIE(freq, 0.5)
     source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
     V = excitation_vector(cfie, source, basis)
     
@@ -474,7 +474,7 @@ function run_D_vefie(subtests::Vector{String}=["D1","D2","D3"])
     mesh = read_nas_mesh(mesh_file, scale=1.0)
     set_frequency!(freq)
     basis = SWGBasis(mesh)
-    println("  SWG 基函数数: $(basis.nbf)")
+    println("  SWG 基函数数: $(num_basis(basis))")
     
     # 介电常数: Legacy 使用 2(1 - 0.0002im) 
     n_tet = EMSuite.CoreModule.num_elements(mesh)
@@ -604,8 +604,8 @@ function run_E_vsefie(subtests::Vector{String}=["E1","E2","E3"])
     set_frequency!(freq)
     rwg_basis = RWGBasis(surf_mesh)
     swg_basis = SWGBasis(vol_mesh)
-    n_surf = rwg_basis.nbf
-    n_vol  = swg_basis.nbf
+    n_surf = num_basis(rwg_basis)
+    n_vol  = num_basis(swg_basis)
     println("  RWG 基函数数: $n_surf, SWG 基函数数: $n_vol, 总计: $(n_surf + n_vol)")
     
     # 介电常数
