@@ -1,0 +1,317 @@
+module Excitation
+
+using ..CoreModule
+using ..Geometry
+using ..BasisFunctions
+using ..EFIEModule
+using ..MFIEModule
+using ..CFIEModule
+using ..VEFIEModule
+using LinearAlgebra
+using StaticArrays
+
+using ..CoreModule: AbstractSource, PlaneWave, DeltaGapSource
+
+import ..CoreModule: excitation_vector
+
+export excitation_vector
+
+# Default to EFIE if no operator provided (Backward compatibility)
+excitation_vector(source::AbstractSource, basis::RWGBasis) = excitation_vector(EFIE(0.0), source, basis)
+
+function excitation_vector(op::EFIE, source::PlaneWave, basis::RWGBasis{IT, FT}) where {IT, FT}
+    N = num_basis(basis)
+    V = zeros(Complex{FT}, N)
+    
+    # Use 3-point quadrature for triangles
+    quad = GaussQuadratureInfo(:Triangle, 3, FT)
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+    
+    for n in 1:N
+        bf = basis.functions[n]
+        val = zero(Complex{FT})
+        
+        # Loop over support triangles
+        for k in 1:2
+            tri_idx = bf.support[k]
+            if tri_idx == 0 continue end
+            
+            sign = bf.signs[k]
+            local_edge = bf.local_edge_idx[k]
+            
+            # Get triangle vertices
+            v_indices = elems[:, tri_idx]
+            r1 = verts[:, v_indices[1]]
+            r2 = verts[:, v_indices[2]]
+            r3 = verts[:, v_indices[3]]
+            
+            # Triangle area
+            cross_prod = cross(r2 - r1, r3 - r1)
+            area = 0.5 * norm(cross_prod)
+            
+            # Opposite vertex
+            v_op = verts[:, v_indices[local_edge]]
+            
+            # Integration
+            for q in 1:num_q
+                # Barycentric coordinates
+                u = quad.coordinate[1, q]
+                v = quad.coordinate[2, q]
+                w = quad.coordinate[3, q]
+                
+                # Real coordinate
+                r = u * r1 + v * r2 + w * r3
+                
+                # Basis function value
+                # f(r) = sign * (l / 2A) * (r - v_op)
+                rho = r - v_op
+                f_val = sign * (bf.edge_length / (2 * area)) * rho
+                
+                # Incident field
+                E_inc = incident_field(source, r)
+                
+                # Dot product
+                # Note: dot(a, b) conjugates a. We want E_inc . f_val.
+                # Since f_val is real, dot(f_val, E_inc) is correct.
+                integrand = dot(f_val, E_inc)
+                
+                # Accumulate (Area * weight * integrand)
+                val += area * quad.weight[q] * integrand
+            end
+        end
+        V[n] = val
+    end
+    return V
+end
+
+function excitation_vector(op::MFIE, source::PlaneWave, basis::RWGBasis{IT, FT}) where {IT, FT}
+    N = num_basis(basis)
+    V = zeros(Complex{FT}, N)
+    
+    quad = GaussQuadratureInfo(:Triangle, 3, FT)
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+    
+    # H_inc = (k x E_inc) / eta
+    # k_hat = (sin t cos p, sin t sin p, cos t)
+    st, ct = sincos(source.theta)
+    sp, cp = sincos(source.phi)
+    k_hat = SVector{3, FT}(st*cp, st*sp, ct)
+    eta = op.eta
+    
+    for n in 1:N
+        bf = basis.functions[n]
+        val = zero(Complex{FT})
+        
+        for k in 1:2
+            tri_idx = bf.support[k]
+            if tri_idx == 0 continue end
+            
+            sign = bf.signs[k]
+            local_edge = bf.local_edge_idx[k]
+            
+            v_indices = elems[:, tri_idx]
+            r1 = verts[:, v_indices[1]]
+            r2 = verts[:, v_indices[2]]
+            r3 = verts[:, v_indices[3]]
+            
+            cross_prod = cross(r2 - r1, r3 - r1)
+            area = 0.5 * norm(cross_prod)
+            normal = normalize(cross_prod)
+            
+            v_op = verts[:, v_indices[local_edge]]
+            
+            for q in 1:num_q
+                u = quad.coordinate[1, q]
+                v = quad.coordinate[2, q]
+                w = quad.coordinate[3, q]
+                r = u * r1 + v * r2 + w * r3
+                
+                rho = r - v_op
+                f_val = sign * (bf.edge_length / (2 * area)) * rho
+                
+                E_inc = incident_field(source, r)
+                H_inc = cross(k_hat, E_inc) / eta
+                
+                # n x H_inc
+                nxH = cross(normal, H_inc)
+                
+                integrand = dot(f_val, nxH)
+                val += area * quad.weight[q] * integrand
+            end
+        end
+        V[n] = val * eta
+    end
+    return V
+end
+
+function excitation_vector(op::CFIE, source::PlaneWave, basis::RWGBasis)
+    V_efie = excitation_vector(op.efie, source, basis)
+    V_mfie = excitation_vector(op.mfie, source, basis)
+    
+    # V_cfie = alpha * V_efie + (1-alpha) * V_mfie
+    # Note: V_mfie is already scaled by eta in excitation_vector(MFIE)
+    return op.alpha * V_efie + (1 - op.alpha) * V_mfie
+end
+
+# Delta Gap (Same for all operators usually, as it forces V)
+excitation_vector(op::AbstractIntegralOperator, source::DeltaGapSource, basis::RWGBasis) = excitation_vector(source, basis)
+
+function excitation_vector(source::DeltaGapSource, basis::RWGBasis{IT, FT}) where {IT, FT}
+    N = num_basis(basis)
+    V = zeros(Complex{FT}, N)
+    
+    # Delta gap source is applied directly to the edge
+    # V_n = V_source * L_n
+    
+    for idx in source.edge_indices
+        if 1 <= idx <= N
+            # Access edge length from the basis function struct
+            edge_len = basis.functions[idx].edge_length
+            V[idx] = source.voltage * edge_len
+        else
+            @warn "Delta gap source edge index $idx out of bounds (1:$N)"
+        end
+    end
+    
+    return V
+end
+
+function excitation_vector(op::VEFIE, source::PlaneWave, basis::SWGBasis{IT, FT}, permittivities::Vector{ComplexF64}) where {IT, FT}
+    N = num_basis(basis)
+    V = zeros(Complex{FT}, N)
+    
+    quad = op.gq_info
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+    
+    for n in 1:N
+        bf = basis.functions[n]
+        val = zero(Complex{FT})
+        
+        for k in 1:2
+            tet_idx = bf.support[k]
+            if tet_idx == 0 continue end
+            
+            sign = bf.signs[k]
+            local_face = bf.local_face_idx[k]
+            
+            v_indices = elems[:, tet_idx]
+            v1 = verts[:, v_indices[1]]
+            v2 = verts[:, v_indices[2]]
+            v3 = verts[:, v_indices[3]]
+            v4 = verts[:, v_indices[4]]
+            
+            # Volume
+            vol = abs(dot(v2-v1, cross(v3-v1, v4-v1))) / 6.0
+            
+            # Opposite vertex (assuming Face i is opposite to Vertex i)
+            v_op = verts[:, v_indices[local_face]]
+            
+            # Factor A / 3V
+            # bf.area is A.
+            factor = bf.area / (3.0 * vol)
+            
+            for q in 1:num_q
+                u = quad.coordinate[1, q]
+                v = quad.coordinate[2, q]
+                w = quad.coordinate[3, q]
+                t = quad.coordinate[4, q]
+                
+                r = u*v1 + v*v2 + w*v3 + t*v4
+                
+                # f(r) = sign * factor * (r - v_op)
+                f_val = sign * factor * (r - v_op)
+                
+                E_inc = incident_field(source, r)
+                
+                integrand = dot(f_val, E_inc)
+                
+                val += vol * quad.weight[q] * integrand
+            end
+        end
+        V[n] = val
+    end
+    return V
+end
+
+function excitation_vector(source::PlaneWave, basis::SWGBasis{IT, FT}) where {IT, FT}
+    N = num_basis(basis)
+    V = zeros(Complex{FT}, N)
+    
+    # Use 4-point quadrature for tetrahedra
+    quad = GaussQuadratureInfo(:Tetrahedron, 4, FT)
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+    
+    for n in 1:N
+        bf = basis.functions[n]
+        val = zero(Complex{FT})
+        
+        for k in 1:2
+            tet_idx = bf.support[k]
+            if tet_idx == 0 continue end
+            
+            sign = bf.signs[k]
+            local_face = bf.local_face_idx[k]
+            
+            v_indices = elems[:, tet_idx]
+            v1 = verts[:, v_indices[1]]
+            v2 = verts[:, v_indices[2]]
+            v3 = verts[:, v_indices[3]]
+            v4 = verts[:, v_indices[4]]
+            
+            # Volume
+            vol = abs(dot(v2-v1, cross(v3-v1, v4-v1))) / 6.0
+            
+            # Opposite vertex (assuming Face i is opposite to Vertex i)
+            v_op = verts[:, v_indices[local_face]]
+            
+            # Factor A / 3V
+            # bf.area is A.
+            factor = bf.area / (3.0 * vol)
+            
+            for q in 1:num_q
+                u = quad.coordinate[1, q]
+                v = quad.coordinate[2, q]
+                w = quad.coordinate[3, q]
+                t = quad.coordinate[4, q]
+                
+                r = u*v1 + v*v2 + w*v3 + t*v4
+                
+                # f(r) = sign * factor * (r - v_op)
+                f_val = sign * factor * (r - v_op)
+                
+                E_inc = incident_field(source, r)
+                
+                integrand = dot(f_val, E_inc)
+                
+                val += vol * quad.weight[q] * integrand
+            end
+        end
+        V[n] = val
+    end
+    return V
+end
+
+function excitation_vector(source::AbstractSource, surface_basis::RWGBasis, volume_basis::SWGBasis)
+    V_surf = excitation_vector(source, surface_basis)
+    V_vol = excitation_vector(source, volume_basis)
+    return [V_surf; V_vol]
+end
+
+end
+
