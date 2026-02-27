@@ -186,13 +186,15 @@ function add_received_field_rwg!(ZI, bfID, basis, bf, elem_info, gq, operator, k
     
     if operator isa CFIE
         alpha = operator.alpha
-        efie_factor = operator.efie.factor
+        # Factor ×4: aggregation/disaggregation produce l/2 each (l²/4),
+        # but efie.factor already includes 1/4 from RWG normalization.
+        efie_factor = 4 * operator.efie.factor
     elseif operator isa SCFIE
         alpha = operator.alpha
-        # SCFIE surface part uses the same EFIE factor as standalone EFIE: jkη/(16π)
-        efie_factor = im * operator.k * operator.eta / (16 * π)
+        # Same ×4 correction as CFIE
+        efie_factor = 4 * im * operator.k * operator.eta / (16 * π)
     else
-        # EFIE
+        # EFIE - factor applied in mul!, not here
         if hasfield(typeof(operator), :factor)
             efie_factor = operator.factor
         end
