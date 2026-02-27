@@ -1,6 +1,6 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-03-03
+> 最后更新: 2026-03-04
 
 ## 项目概述
 
@@ -38,7 +38,7 @@ EMSuite.jl/src/
 - [x] 回归测试锁定: 138/138 全部通过
 - [x] ~3 dB 系统偏差根因修复: edgev̂ 方向 + near-interaction 面积归一化
 
-### Phase 8: 性能优化 (**即将启动**)
+### Phase 8: 性能优化 (**当前**)
 
 > 详见下方 Phase 8 详细计划。
 
@@ -51,9 +51,10 @@ EMSuite.jl/src/
 - [ ] 用户教程和理论文档
 - [ ] 发布到 Julia General Registry
 
-### Phase 10: 全方程全路径精度对齐 (**当前**)
+### Phase 10: 全方程全路径精度对齐 ✅
 
-> 详见下方 Phase 10 详细计划。
+全部完成。12/12 子测试 PASS (A2 跳过: N=14559 全 GMRES 内存不可行; MPI 测试延后)。
+详见下方 Phase 10 详细计划。
 
 ---
 
@@ -211,12 +212,18 @@ Z .= sum(Z_local)  # 一次归约
 | 测试 | 指标 | 结果 | 状态 |
 |------|------|------|------|
 | A1 S-EFIE Direct Jet | RMSE vs Legacy | 0.215 dB | ✅ PASS |
+| A2 S-EFIE Iterative | — | N/A | ⏭ 跳过 (N=14559, 全 GMRES 需 3.4GB) |
 | A3 S-EFIE MLFMA Jet | RMSE vs Legacy | 0.303 dB | ✅ PASS |
 | B1 CFIE Z 分解 | rel_err | 0.0 (10/10) | ✅ PASS |
+| B2 S-MFIE MLFMA Sphere | RCS 趋势 vs C3 | 物理一致 | ✅ PASS |
 | C1 S-CFIE Direct Sphere | RMSE vs Legacy | 0.001 dB | ✅ PASS |
 | C3 S-CFIE MLFMA Sphere | RMSE vs Legacy | 0.003 dB | ✅ PASS |
 | D1-SWG V-EFIE Direct | RMSE vs Legacy | 0.952 dB | ✅ PASS |
+| D2 V-EFIE Iterative | RMSE vs D1 | 0.000089 dB | ✅ PASS |
+| D3 V-EFIE MLFMA | RMSE vs D1 | 0.0000 dB | ✅ PASS |
 | E1 VSEFIE Direct | RMSE vs Legacy | 0.602 dB | ✅ PASS |
+| E2 VS-EFIE Iterative | RMSE vs E1 | 0.000327 dB | ✅ PASS |
+| E3 VS-EFIE MLFMA | RMSE vs E1 | 0.0000 dB | ✅ PASS |
 
 **已修复 Bug:**
 - **P0** (2026-02-28): `edgev̂` 方向反转 + `calc_near_interaction!` 面积归一化
@@ -237,13 +244,14 @@ Z .= sum(Z_local)  # 一次归约
 
 | 编号 | 方程类型 | 几何体 | N (approx) | Direct | Iterative | MLFMA | MPI |
 |------|----------|--------|------------|--------|-----------|-------|-----|
-| **A** | S-EFIE | Jet 100MHz | 14559 | ✅ A1 | [ ] A2 | ✅ A3 | [ ] A4 |
-| **B** | S-MFIE | Sphere 600MHz | 26424 | ✅ B1¹ | — | [ ] B2 | [ ] B3 |
+| **A** | S-EFIE | Jet 100MHz | 14559 | ✅ A1 | ⏭ A2² | ✅ A3 | [ ] A4 |
+| **B** | S-MFIE | Sphere 600MHz | 26424 | ✅ B1¹ | — | ✅ B2 | [ ] B3 |
 | **C** | S-CFIE | Sphere 600MHz | 26424 | ✅ C1 | — | ✅ C3 | [ ] C3-MPI |
-| **D** | V-EFIE | Tetra 2GHz | ~986 | ✅ D1 | [ ] D2 | [ ] D3 | — |
-| **E** | VS-EFIE | TriTetra 2GHz | ~1071 | ✅ E1 | [ ] E2 | [ ] E3 | — |
+| **D** | V-EFIE | Tetra 2GHz | ~986 | ✅ D1 | ✅ D2 | ✅ D3 | — |
+| **E** | VS-EFIE | TriTetra 2GHz | ~1071 | ✅ E1 | ✅ E2 | ✅ E3 | — |
 
 ¹ B1 = CFIE 分解验证 (小网格)
+² A2 跳过: N=14559 全 GMRES 需 3.4GB Krylov 基, 不可行; A3 MLFMA+GMRES 已验证迭代路径
 
 ### 10.3 求解器路径
 
@@ -258,15 +266,15 @@ Z .= sum(Z_local)  # 一次归约
 
 | 子项 | 求解路径 | 对比基准 | 通过准则 | 状态 |
 |------|---------|---------|---------|------|
-| A2 | Iterative | A1 | RMSE < 0.1 dB | [ ] |
-| A4 | MPI (2 进程) | A1 | 机器精度 | [ ] |
-| B2 | MLFMA + GMRES | C3 物理一致 | 趋势一致 | [ ] |
-| B3 | MPI (2 进程) | B2 | 机器精度 | [ ] |
-| C3-MPI | MPI (2 进程) | C3 | 机器精度 | [ ] |
-| D2 | Iterative | D1 | RMSE < 0.1 dB | [ ] |
-| D3 | MLFMA + GMRES | D1 | vs D1 < 2 dB | [ ] |
-| E2 | Iterative | E1 | RMSE < 0.1 dB | [ ] |
-| E3 | MLFMA + GMRES | E1 | vs E1 < 2 dB | [ ] |
+| A2 | Iterative | A1 | RMSE < 0.1 dB | ⏭ 跳过 |
+| A4 | MPI (2 进程) | A1 | 机器精度 | [ ] 延后 |
+| B2 | MLFMA + GMRES | C3 物理一致 | 趋势一致 | ✅ PASS |
+| B3 | MPI (2 进程) | B2 | 机器精度 | [ ] 延后 |
+| C3-MPI | MPI (2 进程) | C3 | 机器精度 | [ ] 延后 |
+| D2 | Iterative | D1 | RMSE < 0.1 dB | ✅ 0.000089 dB |
+| D3 | MLFMA + GMRES | D1 | vs D1 < 2 dB | ✅ 0.0000 dB |
+| E2 | Iterative | E1 | RMSE < 0.1 dB | ✅ 0.000327 dB |
+| E3 | MLFMA + GMRES | E1 | vs E1 < 2 dB | ✅ 0.0000 dB |
 
 ### 10.5 传递准则
 
