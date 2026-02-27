@@ -1,155 +1,57 @@
-# Refactoring Prompts for EMSuite.jl
+# EMSuite.jl Copilot Instructions
 
-This file contains a checklist of tasks for the refactoring process, based on `REFACTORING_PLAN.md`.
-Use this as a guide for the AI assistant to track progress.
+## 计划与进度文件
 
-## Phase 1: Infrastructure Setup (Completed)
+- **重构路线图**: [REFACTORING_ROADMAP.md](.github/REFACTORING_ROADMAP.md)
+- **重构进度**: [REFACTORING_PROGRESS.md](.github/REFACTORING_PROGRESS.md)
 
-### 1.1 Project Initialization
-- [x] Create new project directory `EMSuite`
-- [x] Initialize `Project.toml` with basic dependencies
-- [x] Set up Git repository (init)
-- [x] Create `.gitignore`
-- [x] Create `README.md` with project overview
-- [x] Create `LICENSE` file
-- [x] Create `.github/workflows/CI.yml` for CI/CD
+> **原则**: 每次完成具有实质意义的进展后，必须同步更新上述两个文件。
 
-### 1.2 Core Module Design
-- [x] Create `src/EMSuite.jl` (Main entry point)
-- [x] Create `src/Core/` directory
-- [x] Implement `src/Core/Interfaces.jl` (Abstract types: `AbstractMesh`, `AbstractBasisFunction`, etc.)
-- [x] Implement `src/Core/Types.jl` (Common types)
-- [x] Implement `src/Core/Constants.jl` (Physical constants)
-- [x] Create `src/Utilities/` directory
-- [x] Implement `src/Utilities/Logging.jl` (Logging system)
-- [x] Implement `src/Utilities/Parameters.jl` (Parameter management)
+---
 
-### 1.3 Documentation Framework
-- [x] Create `docs/` directory structure
-- [x] Set up `docs/make.jl` using Documenter.jl
-- [x] Create `docs/src/index.md`
-- [x] Create `docs/Project.toml`
+## 核心开发原则
 
-## Phase 2: Geometry and Basis Functions (3-4 Weeks)
+### 1. TDD 工作流 (必须遵循)
+1. **RED**: 先写失败测试，定义期望接口和行为
+2. **GREEN**: 写最简代码使测试通过
+3. **REFACTOR**: 改善结构，保持测试绿色
 
-### 2.1 Geometry Module Refactoring
-- [x] Create `src/Geometry/` directory
-- [x] Migrate mesh types from `MoM_Basics` to `src/Geometry/MeshTypes.jl`
-- [x] Migrate mesh I/O (Nastran, etc.) to `src/Geometry/MeshIO.jl`
-- [x] Implement `src/Geometry/CoordinateTransforms.jl`
-- [x] Implement `src/Geometry/GaussQuadrature.jl`
-- [x] Add tests for Geometry module in `test/test_geometry.jl`
+### 2. 严格 Legacy 对齐
+- **唯一真相源**: Legacy 代码 (`MoM_Kernels`, `MoM_Basics`, `MoM_AllinOne`)
+- **禁止**: 使用 Mie 级数或其他解析解作为调试基准
+- **禁止**: 添加经验常数 (`1/23π`, `22.0/k²` 等) 来校准结果
+- 结果不匹配时，算法有误，必须在 Legacy 代码中找到根源
 
-### 2.2 Basis Functions Module Refactoring
-- [x] Create `src/BasisFunctions/` directory
-- [x] Migrate RWG basis functions to `src/BasisFunctions/RWG.jl`
-- [x] Migrate SWG basis functions to `src/BasisFunctions/SWG.jl`
-- [x] Migrate other basis functions (RBF, PWC)
-- [x] Implement `src/BasisFunctions/BasisUtilities.jl`
-- [x] Add tests for BasisFunctions module in `test/test_basis_functions.jl`
+### 3. 差异排查流程
+当结果与 Legacy 不一致时，逐项比较:
+1. **几何**: 顶点坐标、边长、基函数定义 (符号、支撑)
+2. **常数**: $k$, $\eta$, $1/4\pi$ vs $1/16\pi$
+3. **积分**:
+   - 矢量势项: $\int \mathbf{f} \cdot \mathbf{f}' G$
+   - 标量势项: $\int (\nabla \cdot \mathbf{f}) (\nabla \cdot \mathbf{f}') G$
+   - 奇异项: $F_1$ (1/R), $F_2$ (Rho·Rho/R)
+4. **组装**: 矩阵元素幅度和相位
 
-## Phase 3: Integral Equations and Matrix Assembly (4-5 Weeks)
+### 4. 进度同步原则
+- 每次有实质进展 (功能实现、验证通过、Bug 修复) 后，**必须**更新:
+  - `REFACTORING_ROADMAP.md` 中对应任务的勾选状态
+  - `REFACTORING_PROGRESS.md` 中的详细状态和更新日志
+- 不在本提示词文件中直接记录进度
 
-### 3.1 Integral Equations
-- [x] Create `src/IntegralEquations/` directory
-- [x] Implement `src/IntegralEquations/EFIE.jl`
-- [x] Implement `src/IntegralEquations/MFIE.jl`
-- [x] Implement `src/IntegralEquations/CFIE.jl`
-- [x] Implement `src/IntegralEquations/Impedance.jl` (Matrix assembly)
-- [x] Add tests in `test/test_integral_equations.jl`
+### 5. Git 提交规范 (必须遵循)
+- **每次对源码的修改确认成功后，必须立即提交代码**
+- 提交粒度: 一个逻辑完整的修改 = 一次提交 (Bug 修复、功能新增、测试添加、文档更新等)
+- 提交信息格式: `<type>: <简要描述>`
+  - `fix:` Bug 修复
+  - `feat:` 新功能
+  - `test:` 测试添加/修改
+  - `docs:` 文档更新
+  - `refactor:` 重构
+  - `bench:` 基准测试脚本
+  - `chore:` 杂项 (配置、脚本等)
+- 禁止积累大量未提交的修改；禁止将不相关的修改混入同一次提交
 
-### 3.2 Direct Solvers
-- [x] Create `src/Solvers/` directory
-- [x] Implement `src/Solvers/DirectSolvers.jl`
-- [x] Add tests in `test/test_solvers.jl`
-
-## Phase 4: MLFMA Fast Algorithm (5-6 Weeks)
-
-### 4.1 MLFMA Core
-- [x] Create `src/FastAlgorithms/MLFMA/` directory
-- [x] Implement Octree structure in `src/FastAlgorithms/MLFMA/Octree.jl`
-- [x] Implement Aggregation in `src/FastAlgorithms/MLFMA/Aggregation.jl`
-- [x] Implement Translation in `src/FastAlgorithms/MLFMA/Translation.jl`
-- [x] Implement Disaggregation in `src/FastAlgorithms/MLFMA/Disaggregation.jl`
-- [x] Add tests in `test/test_mlfma.jl`
-
-### 4.2 Lebedev Integration
-- [x] Migrate Lebedev code to `src/FastAlgorithms/Lebedev/`
-- [x] Integrate with MLFMA
-
-## Phase 5: Solvers and Parallel Computing (4-5 Weeks)
-
-### 5.1 Iterative Solvers
-- [x] Integrate `IterativeSolvers.jl` functionality
-- [x] Implement GMRES, BiCGSTAB wrappers in `src/Solvers/IterativeSolvers/`
-- [x] Implement Preconditioners
-
-### 5.2 Parallel Computing
-- [x] Create `src/Parallel/` directory
-- [x] Implement MPI support in `src/Parallel/MPI/`
-- [x] Implement Threading support in `src/Parallel/Threading.jl`
-- [x] Add tests in `test/test_parallel.jl`
-
-## Phase 6: Post-Processing and Visualization (3-4 Weeks)
-
-### 6.1 Post-Processing
-- [x] Create `src/PostProcessing/` directory
-- [x] Implement RCS calculation in `src/PostProcessing/RCS.jl`
-- [x] Implement Near/Far field calculation
-- [x] Add tests in `test/test_postprocessing.jl`
-
-### 6.2 Visualization (Replaced with VTK Export)
-- [x] Remove `src/Visualization/` (Decoupled visualization)
-- [x] Implement VTK export in `src/IO/VTKExport.jl`
-
-## Phase 7: I/O and Utilities (Completed)
-
-### 7.1 I/O
-- [x] Create `src/IO/` directory
-- [x] Implement Result I/O (HDF5, CSV, VTK)
-
-### 7.2 Utilities
-- [x] Finalize Utility modules
-
-## Phase 10: Workflow and Configuration (Restructuring) (New)
-
-### 10.1 Configuration Management
-- [x] Design `Configuration` structs in `src/Core/Configuration.jl`
-- [x] Implement `load_config` with `TOML`
-- [x] Integrate `Configuration` into `EMSuite` module
-
-### 10.2 Logging & Diagnostics
-- [x] Refactor `src/Utilities/Logging.jl` to support file output and structured logging
-- [x] Integrate `ProgressMeter.jl` for long-running tasks
-
-### 10.3 Data Management
-- [x] Create `SimulationResult` struct in `src/Core/Types.jl` or `src/IO/Results.jl`
-- [x] Implement `save_result` function (Migrated to HDF5)
-
-### 10.4 Workflow Orchestration
-- [x] Create `src/Driver.jl` or `src/App.jl`
-- [x] Implement `run_simulation(config_path::String)`
-
-## Phase 11: Dependency Optimization (Completed)
-
-- [x] Replace `JLD2` with `HDF5` for language-agnostic data storage
-- [x] Remove heavy dependencies (`Distributions`, `LaTeXStrings`)
-- [x] Migrate interpolation weights to HDF5 format
-
-## Phase 8: Integration and Testing (3-4 Weeks)
-
-- [x] Run full integration tests
-- [ ] Perform benchmarks
-- [ ] Complete documentation
-
-### 8.1 Comprehensive Verification
-- [ ] Verify RCS with finer mesh (Sphere)
-- [ ] Verify SWG basis functions (Dielectric)
-- [ ] Verify PWC basis functions
-- [ ] Verify RBF basis functions
-- [ ] Verify Mixed Basis scenarios
-
-## Phase 9: Release Preparation (2 Weeks)
-
-- [ ] Finalize CHANGELOG and README
-- [ ] Prepare for registration
+### 6. 其他约定
+- **跳过 Lebedev 测试**: 除非关键问题，假设 Lebedev 路径正确
+- **量级检查**: 用数量级检查因子 ($4\pi$, $k^2$) 而非完整解析推导
+- **代码规范**: PascalCase 类型, snake_case 函数, UPPER_SNAKE_CASE 常量
