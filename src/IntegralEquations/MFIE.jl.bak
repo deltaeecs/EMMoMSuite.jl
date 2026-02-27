@@ -1,0 +1,212 @@
+﻿module MFIEModule
+
+using ..CoreModule
+using ..Geometry
+using ..BasisFunctions
+using ..Kernels
+using ..Impedance
+using StaticArrays
+using LinearAlgebra
+using SparseArrays
+
+import ..CoreModule: assemble_impedance_matrix
+
+export MFIE, assemble_impedance_matrix
+
+"""
+    MFIE{FT, CT} <: AbstractIntegralOperator
+
+Magnetic Field Integral Equation (MFIE) operator.
+
+Solves for the surface current density \$\\mathbf{J}\$ on a closed PEC object by enforcing the boundary condition \$\\hat{n} \\times \\mathbf{H}^{total} = \\mathbf{J}\$.
+
+# Mathematical Formulation
+
+The MFIE is given by:
+```math
+\\frac{1}{2}\\mathbf{J}(\\mathbf{r}) - \\hat{n}(\\mathbf{r}) \\times \\int_S \\mathbf{J}(\\mathbf{r}') \\times \\nabla' G(\\mathbf{r}, \\mathbf{r}') dS' = \\hat{n}(\\mathbf{r}) \\times \\mathbf{H}^{inc}(\\mathbf{r})
+```
+
+The impedance matrix element \$Z_{mn}\$ consists of a mass matrix term and the K-operator term:
+
+```math
+Z_{mn} = \\frac{1}{2} \\int_S \\mathbf{f}_m(\\mathbf{r}) \\cdot \\mathbf{f}_n(\\mathbf{r}) dS - \\int_S \\mathbf{f}_m(\\mathbf{r}) \\cdot \\left( \\hat{n}(\\mathbf{r}) \\times \\int_{S'} \\mathbf{f}_n(\\mathbf{r}') \\times \\nabla' G(\\mathbf{r}, \\mathbf{r}') dS' \\right) dS
+```
+
+For flat triangles, the K-operator term vanishes when the observation and source points are on the same triangle (self-term), as \$\\nabla' G\$ is in the plane of the triangle and \$\\mathbf{f}_n \\times \\nabla' G\$ is normal to it.
+
+# Fields
+- `freq`: Operating frequency (Hz).
+- `k`: Wavenumber.
+- `eta`: Intrinsic impedance.
+- `gq_info`: Gauss quadrature information.
+- `factor`: Precomputed scaling factor \$1/(4\\pi)\$.
+"""
+struct MFIE{FT<:AbstractFloat, CT<:Complex} <: AbstractIntegralOperator
+    freq::FT
+    k::FT
+    eta::FT
+    gq_info::GaussQuadratureInfoStruct{FT}
+    factor::Complex{FT}
+end
+
+function MFIE(freq::FT) where {FT}
+    c0 = 299792458.0
+    mu0 = 4π * 1e-7
+    eps0 = 1.0 / (c0^2 * mu0)
+    k = 2π * freq / c0
+    eta = sqrt(mu0 / eps0)
+    
+    gq_info = GaussQuadratureInfo(:Triangle, 3, FT)
+    factor = 1.0 / (4 * π) # For K term
+    
+    return MFIE{FT, Complex{FT}}(freq, k, eta, gq_info, factor)
+end
+
+"""
+    assemble_impedance_matrix(mfie::MFIE, basis::RWGBasis)
+
+Assemble the impedance matrix Z for the MFIE using RWG basis functions.
+Z = 0.5 * M - K
+"""
+function assemble_impedance_matrix(mfie::MFIE{FT, CT}, basis::RWGBasis{IT, FT}) where {IT, FT, CT}
+    return assemble_generic(mfie, basis, mfie_interaction)
+end
+
+function mfie_interaction(mfie::MFIE{FT, CT}, tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}) where {IT, FT, CT}
+    # Mass matrix part (0.5 * <fm, fn>)
+    M_local = calc_mass_matrix(tri_test, tri_source)
+    
+    # Interaction part (K operator)
+    if tri_test.triID == tri_source.triID
+        # Self-term for K operator is zero for flat triangles (R . n = 0)
+        K_local = zeros(CT, 3, 3)
+    else
+        K_local = calc_k_interaction(mfie, tri_test, tri_source)
+    end
+    
+    # Combine: Z = 0.5 * M + K
+    # Note: The MFIE equation is 0.5*J + n x int(J x grad G) = n x H_inc
+    # K_local computes <fm, n x (fn x grad G)>, so we add it.
+    Z_local = 0.5 * M_local + K_local .* mfie.factor
+    
+    return Z_local
+end
+
+function calc_mass_matrix(tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}) where {IT, FT}
+    # <fm, fn> = \int (lm/2A rho_m) . (ln/2A rho_n) dS
+    # Only non-zero if tri_test == tri_source
+    
+    M_local = zeros(Complex{FT}, 3, 3)
+    
+    if tri_test.triID == tri_source.triID
+        gq = GaussQuadratureInfo(:Triangle, 3, FT)
+        
+        r_quad = get_global_quad_points(tri_test, gq)
+        w_quad = gq.weight
+        
+        for k in 1:length(w_quad)
+            rk = r_quad[k]
+            wk = w_quad[k] * tri_test.area
+            
+            rho_1 = rk - tri_test.vertices[:, 1]
+            rho_2 = rk - tri_test.vertices[:, 2]
+            rho_3 = rk - tri_test.vertices[:, 3]
+            rhos = (rho_1, rho_2, rho_3)
+            
+            for m in 1:3
+                for n in 1:3
+                    val = dot(rhos[m], rhos[n])
+                    M_local[m, n] += val * wk
+                end
+            end
+        end
+        
+        factor = 1.0 / (4 * tri_test.area^2)
+        for m in 1:3
+            lm = tri_test.edgel[m]
+            for n in 1:3
+                ln = tri_test.edgel[n]
+                M_local[m, n] *= factor * lm * ln
+            end
+        end
+    end
+    
+    return M_local
+end
+
+function calc_k_interaction(mfie::MFIE{FT, CT}, tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}) where {IT, FT, CT}
+    K_local = zeros(CT, 3, 3)
+    gq = mfie.gq_info
+    
+    r_src = get_global_quad_points(tri_source, gq)
+    w_src = gq.weight
+    
+    r_test = get_global_quad_points(tri_test, gq)
+    w_test = gq.weight
+    
+    for j in 1:length(w_src)
+        rj = r_src[j]
+        wj = w_src[j] * tri_source.area
+        
+        for i in 1:length(w_test)
+            ri = r_test[i]
+            wi = w_test[i] * tri_test.area
+            
+            gradG = grad_green_function_free_space(ri, rj, mfie.k)
+            
+            rho_src_1 = rj - tri_source.vertices[:, 1]
+            rho_src_2 = rj - tri_source.vertices[:, 2]
+            rho_src_3 = rj - tri_source.vertices[:, 3]
+            rhos_src = (rho_src_1, rho_src_2, rho_src_3)
+            
+            rho_test_1 = ri - tri_test.vertices[:, 1]
+            rho_test_2 = ri - tri_test.vertices[:, 2]
+            rho_test_3 = ri - tri_test.vertices[:, 3]
+            rhos_test = (rho_test_1, rho_test_2, rho_test_3)
+            
+            for n in 1:3 # Source
+                term_src = cross(rhos_src[n], gradG)
+                
+                for m in 1:3 # Test
+                    term_test = cross(rhos_test[m], tri_test.facen̂)
+                    val = dot(term_test, term_src)
+                    K_local[m, n] += val * wi * wj
+                end
+            end
+        end
+    end
+    
+    factor = 1.0 / (4 * tri_source.area * tri_test.area)
+    
+    for n in 1:3
+        ln = tri_source.edgel[n]
+        for m in 1:3
+            lm = tri_test.edgel[m]
+            K_local[m, n] *= factor * lm * ln
+        end
+    end
+    
+    return K_local
+end
+
+function get_global_quad_points(tri::TriangleInfo{IT, FT}, gq::GaussQuadratureInfoStruct{FT}) where {IT, FT}
+    N = length(gq.weight)
+    points = Vector{SVector{3, FT}}(undef, N)
+    
+    v1 = tri.vertices[:, 1]
+    v2 = tri.vertices[:, 2]
+    v3 = tri.vertices[:, 3]
+    
+    for i in 1:N
+        l1 = gq.coordinate[1, i]
+        l2 = gq.coordinate[2, i]
+        l3 = gq.coordinate[3, i]
+        
+        points[i] = v1 * l1 + v2 * l2 + v3 * l3
+    end
+    
+    return points
+end
+
+end

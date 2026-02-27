@@ -1,0 +1,107 @@
+
+"""
+    generate_sphere_mesh(radius, n_theta, n_phi)
+
+Generate a UV sphere mesh.
+radius: Sphere radius
+n_theta: Number of segments along theta (latitude).
+n_phi: Number of segments along phi (longitude).
+"""
+function generate_sphere_mesh(radius::FT, n_theta::Int, n_phi::Int) where {FT <: Real}
+    # Vertices
+    # North Pole + (n_theta - 1) rings * n_phi + South Pole
+    num_nodes = 1 + (n_theta - 1) * n_phi + 1
+    nodes = zeros(FT, 3, num_nodes)
+    
+    # North Pole
+    nodes[1, 1] = 0.0
+    nodes[2, 1] = 0.0
+    nodes[3, 1] = radius
+    
+    # Rings
+    idx = 2
+    for i in 1:(n_theta - 1)
+        theta = i * FT(π) / n_theta
+        sin_theta = sin(theta)
+        cos_theta = cos(theta)
+        
+        for j in 0:(n_phi - 1)
+            phi = j * 2 * FT(π) / n_phi
+            nodes[1, idx] = radius * sin_theta * cos(phi)
+            nodes[2, idx] = radius * sin_theta * sin(phi)
+            nodes[3, idx] = radius * cos_theta
+            idx += 1
+        end
+    end
+    
+    # South Pole
+    nodes[1, num_nodes] = 0.0
+    nodes[2, num_nodes] = 0.0
+    nodes[3, num_nodes] = -radius
+    
+    # Elements
+    # Top cap: n_phi
+    # Bands: (n_theta - 2) * 2 * n_phi
+    # Bottom cap: n_phi
+    num_elems = 2 * n_phi * (n_theta - 1)
+    elements = zeros(Int, 3, num_elems)
+    
+    elem_idx = 1
+    
+    # Top Cap
+    # North Pole is 1
+    # First ring starts at 2
+    for j in 0:(n_phi - 1)
+        n1 = 1
+        n2 = 2 + j
+        n3 = 2 + (j + 1) % n_phi
+        
+        elements[1, elem_idx] = n1
+        elements[2, elem_idx] = n2
+        elements[3, elem_idx] = n3
+        elem_idx += 1
+    end
+    
+    # Middle Bands
+    for i in 1:(n_theta - 2)
+        s_curr = 2 + (i - 1) * n_phi
+        s_next = s_curr + n_phi
+        
+        for j in 0:(n_phi - 1)
+            p1 = s_curr + j
+            p2 = s_curr + (j + 1) % n_phi
+            p3 = s_next + j
+            p4 = s_next + (j + 1) % n_phi
+            
+            # Triangle 1
+            elements[1, elem_idx] = p1
+            elements[2, elem_idx] = p3
+            elements[3, elem_idx] = p2
+            elem_idx += 1
+            
+            # Triangle 2
+            elements[1, elem_idx] = p2
+            elements[2, elem_idx] = p3
+            elements[3, elem_idx] = p4
+            elem_idx += 1
+        end
+    end
+    
+    # Bottom Cap
+    s_last = 2 + (n_theta - 2) * n_phi
+    n_sp = num_nodes
+    
+    for j in 0:(n_phi - 1)
+        p1 = s_last + j
+        p2 = s_last + (j + 1) % n_phi
+        p3 = n_sp
+        
+        # Triangle (p1, p3, p2) for outward normal
+        elements[1, elem_idx] = p1
+        elements[2, elem_idx] = p3
+        elements[3, elem_idx] = p2
+        elem_idx += 1
+    end
+    
+    return TriangleMesh(num_elems, nodes, elements)
+end

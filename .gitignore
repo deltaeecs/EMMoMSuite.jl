@@ -1,0 +1,14 @@
+# Julia
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+/Manifest.toml
+/docs/build/
+/docs/site/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
