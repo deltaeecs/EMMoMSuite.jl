@@ -1,8 +1,8 @@
 # EMSuite 重构进度
 
-> 最后更新: 2026-03-02
+> 最后更新: 2026-03-03
 
-## 当前阶段: Phase 10 — 全方程全路径精度对齐
+## 当前阶段: Phase 10 (精度对齐) + Phase 8 (性能优化)
 
 ---
 
@@ -122,7 +122,22 @@
 | B1 CFIE 分解 | rel_err | 0.0 (10/10) |
 | C1 S-CFIE Direct Sphere | RMSE vs Legacy | 0.001 dB |
 | C3 S-CFIE MLFMA Sphere | RMSE vs Legacy | **0.003 dB** |
+| D1-SWG V-EFIE Direct | RMSE vs Legacy | 0.952 dB |
+| E1 VSEFIE Direct | RMSE vs Legacy | **0.602 dB** |
 | EFIE MLFMA Sphere | RMSE vs Legacy SCFIE | 0.041 dB |
+
+### Phase 10.B: SCFIE Fss 边界修正 (2026-03-03) ✅
+
+**Bug — 缺失半基函数边界面积分修正 (Fss)** (`SCFIE.jl`, `MLFMAOperator.jl`):
+- 根因: 边界 SWG 基函数（半基函数，仅有一个四面体支撑）的标量势缺失表面积分修正项
+- Legacy 在 `EFIEVSIERWGSWG.jl` 中通过 `Fss` 项处理：
+  - `isbdn=true` 时: Z_VS[n,m] += jωμ₀/(4πk²) × l_m × |A_n| × ∫∫ G dS_tri dS_face
+  - `δκ≠0` 时: Z_SV[m,n] += δκ × (同上)
+- EMSuite 完全缺失此修正 → 耦合矩阵 Z_SV/Z_VS 偏差 22%, Z_VV 偏差 48%
+- 修复: 在 `SCFIE.jl` 中添加 `assemble_fss_boundary_correction!` 和 `assemble_fss_boundary_correction_sparse`
+  - 直接求解路径: 在 `assemble_coupling_blocks!` 后调用
+  - MLFMA 路径: 以稀疏矩阵形式加到 Z_near
+- 验证: E1-VSEFIE RMSE 从 **5.3 dB → 0.60 dB** (PASS), 138/138 测试全通过
 
 ### 验证里程碑
 - [x] **SEFIE Direct**: `verify_SEFIE_direct.jl` (18.8s 4线程 / 30.3s 1线程, Legacy 31.2s)
@@ -153,11 +168,11 @@
 
 | 编号 | 方程 | 几何 | Direct | Iterative | MLFMA | MPI |
 |------|------|------|--------|-----------|-------|-----|
-| A | S-EFIE | Jet 100MHz | [ ] A1 | [ ] A2 | [ ] A3 | [ ] A4 |
-| B | S-MFIE | Sphere 600MHz | [ ] B1³ | — | [ ] B2 | [ ] B3 |
-| C | S-CFIE | Sphere 600MHz | — | — | [ ] C1 | [ ] C3 |
-| D | V-EFIE | plate 1.2GHz | [ ] D1 | [ ] D2 | [ ] D3 | — |
-| E | VS-EFIE | plate+metal 1.2GHz | [ ] E1 | [ ] E2 | [ ] E3 | — |
+| A | S-EFIE | Jet 100MHz | ✅ A1 | [ ] A2 | ✅ A3 | [ ] A4 |
+| B | S-MFIE | Sphere 600MHz | ✅ B1³ | — | [ ] B2 | [ ] B3 |
+| C | S-CFIE | Sphere 600MHz | ✅ C1 | — | ✅ C3 | [ ] C3-MPI |
+| D | V-EFIE | Tetra 2GHz | ✅ D1 | [ ] D2 | [ ] D3 | — |
+| E | VS-EFIE | TriTetra 2GHz | ✅ E1 | [ ] E2 | [ ] E3 | — |
 
 ³ B1 = CFIE 分解验证 (小网格), 非 Direct 求解
 
@@ -196,11 +211,55 @@
 
 ## 待开始 📋
 
-### Phase 8: 性能优化 (延期)
-- [ ] Signed Geometric Properties (消除 `bfsSign` 数组, 减少内循环分支) — 收益小风险高
-- [ ] VEFIE 组装: element-based loop + SpinLock 优化 (已完成初版)
-- [ ] MLFMA 大规模问题扩展性优化
-- [ ] 内存使用分析与优化
+### Phase 8: 性能优化 (即将启动)
+
+> **目标**: 相同用例全流程耗时 ≤ Legacy (保底一致)，争取 ≤ 0.5× Legacy (2× 加速)
+
+#### 8.0 性能基线测量
+- [ ] 创建 `benchmark/performance_baseline.jl`
+- [ ] Legacy vs EMSuite 分阶段计时 (6 用例 × 4~5 阶段)
+- [ ] 输出 `test_results/PERFORMANCE_BASELINE.md`
+
+#### 8.1 Z 组装去锁 — P0 (SpinLock → 行分块无锁并行)
+- [ ] `Impedance.jl` 去除 SpinLock，改为按行范围分块
+- [ ] 验证: 4 线程加速比 ≥ 3×, 138/138 测试通过
+
+#### 8.2 CFIE 合并遍历 — P0 (EFIE+MFIE 共享 Green 函数)
+- [ ] CFIE 模式下 EFIE/MFIE 合并为单遍历，G/∇G 只算一次
+- [ ] 目标: CFIE 组装 ≤ 2.5× EFIE (180s → ≤ 50s)
+
+#### 8.3 MLFMA Z_near 去锁 + CSC 预分配
+- [ ] 近场稀疏矩阵组装并行化
+- [ ] CSC 格式 nnz 预估 + 预分配
+
+#### 8.4 内存分配热点消除
+- [ ] `@allocated` + `--track-allocation` 定位
+- [ ] 高斯积分点/Green 函数零分配
+
+#### 8.5 类型稳定性审查
+- [ ] `@code_warntype` 审查关键路径
+- [ ] 消除 `Any` 类型和动态派发
+
+#### 8.6 SIMD / LoopVectorization
+- [ ] 评估 `@turbo` 在 ComplexF64 上的适用性
+- [ ] 标量势/矢量势内循环 SIMD 化
+
+#### 8.7 预条件器优化
+- [ ] Block Jacobi 替代或补充 SAI/ILU
+- [ ] 预条件构建时间 -50%
+
+#### 8.8 最终复测
+- [ ] 全部用例重新计时，对比 Phase 8.0 基线
+- [ ] 生成 `test_results/PERFORMANCE_REPORT.md`
+
+**已知数据点** (Phase 10 期间实测, 4 线程, Windows 11):
+
+| 用例 | N | EMSuite 组装 (s) | EMSuite 求解 (s) | EMSuite 总计 (s) |
+|------|---|----------------|----------------|----------------|
+| Jet EFIE Direct | 14559 | 20.3 | 34.5 | 54.8 |
+| Jet CFIE Direct | 14559 | 180.5 | 16.0 | 196.5 |
+| Jet EFIE MLFMA | 14559 | 56.2 (setup) | 7.3 | 63.4 |
+| Sphere CFIE MLFMA | 26424 | 131.0 (setup) | 7.6 | 138.6 |
 
 ### Phase 9: 代码质量与发布 (剩余)
 - [x] 测试套件清理: 138/138 全部通过
@@ -242,6 +301,8 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-03-03 | **Phase 8 性能优化计划** — 加入性能优化路线: 6 热点 (SpinLock去锁/CFIE合并/MLFMA Z_near/内存/SIMD/类型稳定), 8 步骤, 目标 ≤ Legacy 保底, ≤ 0.5× Legacy 挑战 |
+| 2026-03-03 | **SCFIE Fss 边界修正** — 半基函数边界面积分修正。E1-VSEFIE RMSE 5.3→0.60 dB. D1-SWG VEFIE RMSE 0.95 dB. 138/138 测试通过 |
 | 2026-03-02 | **MLFMA 因子修复×2** — (1) EFIE far-field ×4 因子: 系数误差 65.7%→0.30%, RMSE 3.1→0.028 dB; (2) CFIE MFIE 符号: ∇_{r'}G 给出 +jk k̂ (非 -jk k̂), RMSE 3.45→0.003 dB, GMRES 50→7 迭代 |
 | 2026-03-01 | **Phase 10 计划** — 全方程全路径精度对齐设计完成: 5 方程 (S-EFIE/S-MFIE/S-CFIE/V-EFIE/VS-EFIE) × 4 路径 (Direct/Iterative/MLFMA/MPI), 全球面 1314 点采样, 共 17 子测试项 |
 | 2026-02-28 | **精度效率报告 v2** — 全面基准测试: SEFIE Direct(RMSE 0.29dB), CFIE Direct, SEFIE MLFMA, SCFIE MLFMA(Sphere N=26424). 见 `test_results/ACCURACY_EFFICIENCY_REPORT.md` |
