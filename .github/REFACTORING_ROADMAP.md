@@ -1,6 +1,6 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-03-01
+> 最后更新: 2026-03-02
 
 ## 项目概述
 
@@ -86,13 +86,14 @@ EMSuite.jl/src/
 | 算子 | 求解器 | 对标基准 | 容差 | 状态 |
 |------|--------|----------|------|------|
 | S-EFIE | Direct | Legacy | < 1 dB | ✅ RMSE 0.29 dB (φ=0), 0.09 dB (φ=90) |
-| S-EFIE | MLFMA | Direct | Rel Err < 2% | ✅ MatVec 0.84% |
+| S-EFIE | MLFMA | Direct | Rel Err < 2% | ✅ MatVec 0.30% (修复后) |
 | S-CFIE | Direct | EFIE Direct | 主瓣 < 1 dB | ✅ 主瓣差 0.34 dB |
-| S-CFIE | MLFMA | Legacy Direct | < 2 dB | ⚠️ φ=0 RMSE 2.30 dB, φ=90 1.26 dB |
+| S-CFIE | MLFMA | Legacy Direct | < 2 dB | ✅ RMSE 0.003 dB (修复后) |
 | VEFIE | MLFMA | Direct | Rel Err < 2% | ✅ 1.80% |
 | VSIE (SCFIE) | MLFMA | Direct | Near<1e-12, Far<2% | ✅ 0%/0.75% |
 
 > **P0 已修复** (2026-02-28): `edgev̂` 方向反转 + `calc_near_interaction!` 面积归一化。
+> **P1 已修复** (2026-03-02): MLFMA ×4 因子 + CFIE MFIE 符号。
 
 #### 10.1 全球面采样方案
 

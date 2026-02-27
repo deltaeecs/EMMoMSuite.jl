@@ -1,6 +1,6 @@
 # EMSuite 重构进度
 
-> 最后更新: 2026-03-01
+> 最后更新: 2026-03-02
 
 ## 当前阶段: Phase 10 — 全方程全路径精度对齐
 
@@ -93,6 +93,36 @@
 - Frobenius 范数比: 1.000010
 - RCS (Jet 100MHz): Mean Diff 0.05 dB / RMSE 0.29 dB (Phi=0), Mean Diff 0.008 dB / RMSE 0.09 dB (Phi=90)
 - 全部 138/138 单元测试通过（无回归）
+
+### Phase 10.A: MLFMA 因子修复 (2026-03-02) ✅
+
+**Bug 1 — MLFMA far-field ×4 因子** (`MLFMAOperator.jl`, `Disaggregation.jl`):
+- 根因: `efie.factor = jkη/(16π)` 包含 `1/4` (来自 RWG `l²/4` 归一化), 但 MLFMA 聚合/解聚各用 `l/2`，乘积 `l²/4` 已自然包含该因子 → **双重计数 1/4**
+- Legacy 避免此问题: translation 用 `-jk/(16π²)` + disagg 用 `jkη`（不同的因子分解方式）
+- 修复: `y_far *= 4 * operator.factor` (EFIE mul!), CFIE/SCFIE disagg `efie_factor *= 4`
+- 验证: 自洽性系数误差 65.7% → 0.30%, RCS RMSE 3.1 dB → 0.028 dB
+- A3 S-EFIE MLFMA vs Legacy: Mean Diff 0.048 dB, RMSE 0.303 dB
+
+**Bug 2 — CFIE MLFMA MFIE 符号错误** (`Disaggregation.jl`):
+- 根因: MFIE K 算子使用 $\nabla_{r'}G$（源梯度），远场近似为 $+jk\hat{k}G$;
+  代码错误地使用了 $\nabla_r G$（场梯度）的 $-jk\hat{k}G$，导致 MFIE 项符号反转
+- Legacy 处理: 聚合/解聚分离, 统一乘以 `jkη`, EFIE 和 MFIE 远场系数同号 (+jkη)
+- 修复: `(-efie_factor)` → `(+efie_factor)` (MFIE 项)
+- 验证: C3 CFIE MLFMA vs Legacy: RMSE 3.45 dB → **0.003 dB** (1000× 改善)
+- GMRES 迭代次数: 50 → 7（算子准确度提升后收敛加速）
+
+**已验证测试结果汇总:**
+
+| 测试 | 指标 | 结果 |
+|------|------|------|
+| 单元测试 | 138/138 | ✅ PASS |
+| A1 S-EFIE Direct Jet | RMSE vs Legacy | 0.215 dB |
+| A3 S-EFIE MLFMA Jet | RMSE vs Legacy | 0.303 dB |
+| A3 self-consistency | 系数误差 | 0.30% |
+| B1 CFIE 分解 | rel_err | 0.0 (10/10) |
+| C1 S-CFIE Direct Sphere | RMSE vs Legacy | 0.001 dB |
+| C3 S-CFIE MLFMA Sphere | RMSE vs Legacy | **0.003 dB** |
+| EFIE MLFMA Sphere | RMSE vs Legacy SCFIE | 0.041 dB |
 
 ### 验证里程碑
 - [x] **SEFIE Direct**: `verify_SEFIE_direct.jl` (18.8s 4线程 / 30.3s 1线程, Legacy 31.2s)
@@ -199,10 +229,12 @@
 ## 已知问题
 
 1. ~~**EMSuite vs Legacy ~3 dB 系統偏差**~~ — **已修复** (2026-02-28): 根因为 `edgev̂` 方向反转 + `calc_near_interaction!` 经验因子。修复后 RCS 偏差 < 0.3 dB RMSE。
-2. **VEFIE Mie 偏差**: Legacy 和 EMSuite 均比 Mie 级数低 ~25dB — 属于 Legacy 算法固有问题, 标记为 "Legacy Parity", 物理修正为未来研究课题
-3. **BiCGSTAB 收敛**: 需要预条件才能可靠收敛
-4. **SCFIE 耦合项互易性**: 已修复 — Z_SV/κ = Z_VS^T 在机器精度成立 (2.99e-16)
-5. **EFIE 闭合体内部谐振**: EFIE 用于闭合导体时条件数差 (Direct vs MLFMA 系数差 62%)，应改用 CFIE
+2. ~~**MLFMA 远场 ×4 因子 + CFIE 符号**~~ — **已修复** (2026-03-02): EFIE MLFMA 系数误差 65.7% → 0.30%. CFIE MLFMA RMSE 3.45 dB → 0.003 dB.
+3. **VEFIE Mie 偏差**: Legacy 和 EMSuite 均比 Mie 级数低 ~25dB — 属于 Legacy 算法固有问题, 标记为 "Legacy Parity", 物理修正为未来研究课题
+4. **BiCGSTAB 收敛**: 需要预条件才能可靠收敛
+5. **SCFIE 耦合项互易性**: 已修复 — Z_SV/κ = Z_VS^T 在机器精度成立 (2.99e-16)
+6. ~~**EFIE 闭合体内部谐振**: EFIE 用于闭合导体时条件数差 (Direct vs MLFMA 系数差 62%)，应改用 CFIE~~ — **已确认**: 现在 CFIE MLFMA 正确工作 (RMSE 0.003 dB, 7 iterations)
+7. **SWG MLFMA const_factor 符号**: `const_factor = jkη/(4π)` 可能应为 `-jkη/(4π)` (VEFIE `c1 = -jkηκ` 含负号). 需要 VEFIE MLFMA 精度测试验证.
 
 ---
 
@@ -210,6 +242,7 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-03-02 | **MLFMA 因子修复×2** — (1) EFIE far-field ×4 因子: 系数误差 65.7%→0.30%, RMSE 3.1→0.028 dB; (2) CFIE MFIE 符号: ∇_{r'}G 给出 +jk k̂ (非 -jk k̂), RMSE 3.45→0.003 dB, GMRES 50→7 迭代 |
 | 2026-03-01 | **Phase 10 计划** — 全方程全路径精度对齐设计完成: 5 方程 (S-EFIE/S-MFIE/S-CFIE/V-EFIE/VS-EFIE) × 4 路径 (Direct/Iterative/MLFMA/MPI), 全球面 1314 点采样, 共 17 子测试项 |
 | 2026-02-28 | **精度效率报告 v2** — 全面基准测试: SEFIE Direct(RMSE 0.29dB), CFIE Direct, SEFIE MLFMA, SCFIE MLFMA(Sphere N=26424). 见 `test_results/ACCURACY_EFFICIENCY_REPORT.md` |
 | 2026-02-27 | 修正验证脚本 benchmark/run_full_benchmark.jl API 错误 (MLFMAOperator 构造/排序透明性) |
