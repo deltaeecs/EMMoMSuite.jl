@@ -249,8 +249,13 @@ function add_received_field_rwg!(ZI, bfID, basis, bf, elem_info, gq, operator, k
                     H_inc = (E_theta * ϕhat - E_phi * θhat) * (phase / eta)
                     term_mfie = dot(cross(rho, normal), H_inc)
                     
-                    # Combine
-                    val += (alpha * term_efie * efie_factor + (1 - alpha) * eta * term_mfie * (-efie_factor)) * factor_vec
+                    # Combine: CFIE = α*EFIE + (1-α)*MFIE
+                    # Both EFIE and MFIE far-field have the SAME sign coefficient (+jkη)
+                    # because the MFIE K-operator uses ∇_{r'}G (source gradient),
+                    # which gives +jk k̂ in far field (NOT -jk k̂ from ∇_r G).
+                    # The η in front and 1/η in H_inc cancel, so:
+                    # CFIE_test = efie_factor * [α*(ρ·E) + (1-α)*(ρ×n̂)·(k̂×E)]
+                    val += (alpha * term_efie + (1 - alpha) * eta * term_mfie) * efie_factor * factor_vec
                 else
                     # EFIE only
                     # Note: const_factor (jk*eta) is usually applied in operator or here.
