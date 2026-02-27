@@ -123,8 +123,13 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
     disaggregate_leaf!(leafLevel, A.bases, A.basis_offsets, A.operator, y_far, A.sorted_ids)
     
     # Apply EFIE factor to Far Field part if needed
+    # Note: The factor is multiplied by 4 because the aggregation/disaggregation
+    # each use l/2 (giving l²/4), but efie.factor = jkη/(16π) already includes
+    # a 1/4 from the RWG normalization in the Direct solver code path.
+    # Without the ×4 correction, the far-field would be 4× too small.
+    # Legacy code avoids this by using -jk/(16π²) in translation + jkη in disagg.
     if hasfield(typeof(A.operator), :factor)
-        y_far .*= A.operator.factor
+        y_far .*= (4 * A.operator.factor)
     end
     
     # Add to y
