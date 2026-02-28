@@ -268,7 +268,7 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
     
     # 4. Assembly Loop
     n_threads = Threads.nthreads()
-    max_tid = max(n_threads, 16)
+    max_tid = Threads.maxthreadid()
     Is = [Int[] for _ in 1:max_tid]
     Js = [Int[] for _ in 1:max_tid]
     Vs = [ComplexF64[] for _ in 1:max_tid]
@@ -290,7 +290,6 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
     
     Threads.@threads for i_cube in 1:n_cubes
         tid = Threads.threadid()
-        if tid > length(Is) continue end
         
         # Progress update
         c = Threads.atomic_add!(counter, 1)
