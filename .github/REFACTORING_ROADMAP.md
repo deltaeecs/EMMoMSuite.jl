@@ -1,6 +1,6 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-02-28
+> 最后更新: 2026-02-28 (Phase 12 完成)
 
 ## 项目概述
 
@@ -63,6 +63,28 @@ EMSuite.jl/src/
 ### Phase 10: 全方程全路径精度对齐 ✅
 
 > 详见下方 Phase 10 详细计划。
+
+### Phase 11: PWC 基函数支持 (四面体) ✅
+
+- [x] PWCBasis 数据结构 + 构造函数
+- [x] VEFIE + PWC 直接装配
+- [x] SCFIE + RWG + PWC 耦合
+- [x] PWC 激励向量 + RCS 计算
+- [x] 178/178 测试通过
+- Commits: `fc37542`, `35808ff`
+
+### Phase 12: 六面体完整支持 (PWCHex + RBF) ✅
+
+- [x] 12.1 GaussQuadrature: 六面体 (8点) 和四边形 (4点) GQ 规则
+- [x] 12.2 MeshTypes: HexahedraInfo + Quads4Hexa 结构体 + 辅助函数
+- [x] 12.3 MeshIO: CHEXA Nastran 网格读取 (含续行)
+- [x] 12.4 BasisFunctions: PWCHexBasis (3 DOF/hex), RBF evaluate + 边界面
+- [x] 12.5 VEFIE: PWCHex, RBF, 混合 TetraHex 装配 (6 个新方法)
+- [x] 12.6 SCFIE: RWG+PWCHex (并矢 L) 和 RWG+RBF (标量势) 耦合
+- [x] 12.7 Excitation: PWCHex 和 RBF 平面波激励向量
+- [x] 12.8 RadiationIntegral + RCS: PWCHex 和 RBF 辐射积分/RCS
+- [x] 179/179 测试通过, +2296 行
+- Commit: `099385b`
 
 ---
 
@@ -293,11 +315,21 @@ Z .= sum(Z_local)  # 一次归约
 
 | 功能 | EFIE | MFIE | CFIE | VEFIE | SCFIE |
 |------|------|------|------|-------|-------|
-| 直接装配 | ✅ RWG | ✅ RWG | ✅ RWG | ✅ SWG | ✅ RWG+SWG |
-| 激励向量 | ✅ | ✅ | ✅ | ✅ | ✅ (拼接) |
-| MLFMAOperator | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 直接装配 | ✅ RWG | ✅ RWG | ✅ RWG | ✅ SWG/PWC/PWCHex/RBF/Mixed | ✅ RWG+SWG/PWC/PWCHex/RBF |
+| 激励向量 | ✅ | ✅ | ✅ | ✅ SWG/PWC/PWCHex/RBF | ✅ (拼接 RWG+SWG/PWC/PWCHex/RBF) |
+| MLFMAOperator | ✅ | ✅ | ✅ | ✅ SWG | ✅ RWG+SWG |
 | MPI 并行装配 | ✅ | ✅ | ✅ | ❌ | ❌ |
-| RCS 计算 | ✅ RWG | ✅ RWG | ✅ RWG | ✅ SWG | ⚠️ 需手动拆分 |
+| RCS 计算 | ✅ RWG | ✅ RWG | ✅ RWG | ✅ SWG/PWC/PWCHex/RBF | ⚠️ 需手动拆分 |
+
+### 10.7 基函数支持矩阵
+
+| 基函数 | 网格类型 | DOFs/元素 | 支持的IE | 状态 |
+|--------|---------|-----------|---------|------|
+| RWG | 三角形 (Surface) | 1/内部边 | EFIE, MFIE, CFIE, SCFIE(S) | ✅ |
+| SWG | 四面体 (Volume) | 1/内部面 | VEFIE, SCFIE(V) | ✅ |
+| PWC | 四面体 (Volume) | 3/四面体 (x,y,z) | VEFIE, SCFIE(V) | ✅ Phase 11 |
+| PWCHex | 六面体 (Volume) | 3/六面体 (x,y,z) | VEFIE, SCFIE(V) | ✅ Phase 12 |
+| RBF | 六面体 (Volume) | 1/面 (含边界) | VEFIE, SCFIE(V) | ✅ Phase 12 |
 
 ---
 

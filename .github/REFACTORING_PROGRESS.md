@@ -2,7 +2,7 @@
 
 > 最后更新: 2026-02-28
 
-## 当前阶段: Phase 8 (性能优化) — **已完成** ✅
+## 当前阶段: Phase 12 (六面体完整支持 PWCHex + RBF) — **已完成** ✅
 
 ---
 
@@ -223,12 +223,97 @@
 
 （无当前进行中任务）
 
+### Phase 12: 六面体完整支持 PWCHex + RBF (2026-03-04) ✅
+
+**目标**: 实现所有缺失的六面体基函数+积分方程组合，补全 Phase 12 路线图中的 10 个 Gap。
+
+**修改文件:**
+1. **`src/Geometry/GaussQuadrature.jl`** — 新增六面体 (8点 tensor-product GL) 和四边形 (4点) GQ 规则
+2. **`src/Geometry/MeshTypes.jl`** — 新增 `HexahedraInfo`, `Quads4Hexa` 结构体 + 辅助函数 (`get_free_vns`, `set_delta_kappa!`, `hex_volume` 等)
+3. **`src/Geometry/MeshIO.jl`** — 新增 CHEXA Nastran 网格读取，支持续行符格式
+4. **`src/BasisFunctions/PWC.jl`** — 新增 `PWCHexBasis` (3 DOF/六面体: x,y,z 分量)
+5. **`src/BasisFunctions/RBF.jl`** — 完善 `evaluate()` 实现，启用边界面基函数
+6. **`src/BasisFunctions/BasisUtilities.jl`** — 新增 `get_hexahedra_info(mesh, PWCHexBasis/RBFBasis, permittivities)`
+7. **`src/IntegralEquations/VEFIE.jl`** — ~500行: PWCHex, RBF, 混合 TetraHex 装配 (6 个新方法)
+   - 泛化 `_pwc_dyad_kernel!` 支持 duck-typed 体元素
+   - 混合 TetraHex 装配: 4个子块 (TT, TH, HT, HH)
+8. **`src/IntegralEquations/SCFIE.jl`** — ~380行: RWG+PWCHex (并矢 L 算子) 和 RWG+RBF (标量势形式 + Fss 边界修正)
+9. **`src/IntegralEquations/Excitation.jl`** — ~180行: PWCHex 和 RBF 平面波激励向量 + 组合 SCFIE 版本
+10. **`src/PostProcessing/RadiationIntegral.jl`** — ~120行: PWCHex 和 RBF 辐射积分
+11. **`src/PostProcessing/RCS.jl`** — ~80行: PWCHex 和 RBF RCS 计算方法
+12. **`test/test_basis_functions.jl`** — 修复 RBF 测试预期值 (num_basis 1→11, 查找内部基函数)
+
+**方法统计:**
+- 18 个 `assemble_impedance_matrix` 方法 (EFIE/MFIE/CFIE/VEFIE/SCFIE × 各基函数组合)
+- 17 个 `excitation_vector` 方法
+- 5 个 `radarCrossSection` 方法
+
+**测试结果:**
+- 全部 179/179 测试通过 (无回归)
+- +2296 行代码
+- Commit: `099385b`
+
+### Phase 11: PWC 基函数支持扩展 (2026-03-04) ✅
+
+**目标**: 对齐 Legacy 的 PWC (Piecewise Constant) 基函数支持，完善 VEFIE+PWC 和 SCFIE+RWG+PWC 组合。
+
+**修改文件:**
+1. **`src/BasisFunctions/PWC.jl`** — 完全重写: 3 DOFs/四面体 (x,y,z 分量)
+   - `PWC` struct 增加 `inBfsID::SVector{3, IT}` (三个全局基函数ID)
+   - `num_basis` 返回 `3 * length(functions)` (原为 1:1)
+   - `evaluate` 返回单位向量 x̂/ŷ/ẑ (基于 `mod1(i, 3)`)
+   - Legacy 对齐: `MoM_Basics` 的 `nPWC = 3 * num_tetrahedra`
+
+2. **`src/BasisFunctions/BasisUtilities.jl`** — 新增 `get_tetrahedra_info(mesh, basis::PWCBasis, permittivities)`
+   - `inBfsID = SVector{4}(3*(i-1)+1, 3*(i-1)+2, 3*(i-1)+3, 0)` (第4项未使用)
+
+3. **`src/IntegralEquations/VEFIE.jl`** — 新增 ~230 行: VEFIE+PWC 组装
+   - `assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis)` — 带 permittivities 的1参/2参版本
+   - `_pwc_dyad_kernel!` — 3×3 并矢 L 算子: $(k^2 I + \nabla\nabla) G(R)$
+   - 对称组装 + 自适应积分 (远场1点/近场5点)
+   - 自作用项质量矩阵: $V/(j\omega\varepsilon)$
+
+4. **`src/IntegralEquations/Excitation.jl`** — 新增 ~100 行: PWC 激励向量
+   - VEFIE 算子版: `excitation_vector(op::VEFIE, source::PlaneWave, basis::PWCBasis)`
+   - 独立版: `excitation_vector(source::PlaneWave, basis::PWCBasis)`
+   - 组合版: `excitation_vector(source, surf_basis::RWGBasis, vol_basis::PWCBasis)`
+
+5. **`src/IntegralEquations/SCFIE.jl`** — 新增 ~170 行: SCFIE+RWG+PWC 耦合
+   - `assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCBasis)`
+   - `assemble_coupling_blocks_pwc!` — 并矢 L 算子耦合
+   - Z_SV 包含 κ, Z_VS 无 κ
+   - 无 Fss 边界修正 (PWC 无半基函数)
+
+6. **`src/PostProcessing/RadiationIntegral.jl`** — 新增 PWC 辐射积分
+   - `radiation_integral_pwc`: $N = \sum_t V_t \kappa_t \sum_{gq} J \cdot e^{jk\hat{r}\cdot r_{gq}} w_{gq}$
+
+7. **`src/PostProcessing/RCS.jl`** — 新增 PWC RCS 计算
+   - `radarCrossSection(..., basis::PWCBasis, permittivities)`
+
+8. **`src/Driver.jl`** — 扩展支持多IE类型 (EFIE/MFIE/CFIE/VEFIE/SCFIE)
+
+9. **`src/Core/Configuration.jl`** — SimulationConfig 增加 `ie_type`, `cfie_alpha`, `permittivities` 字段
+
+10. **`test/test_pwc.jl`** — 新增 PWC 专用测试 (基函数构造, VEFIE+PWC, 激励, SCFIE+PWC)
+
+11. **`test/test_basis_functions.jl`** — 更新 PWC 测试适配 3 DOFs/tet
+
+**修复的 Bug:**
+- VEFIE.jl 缺失 module 闭合 `end` (编译错误)
+- Excitation.jl 缺失 module 闭合 `end` (编译错误)
+- Driver.jl 使用 `get(struct, ...)` 导致 MethodError (struct 不支持 Dict 的 get)
+
+**测试结果:**
+- 全部 139+/139+ 测试通过 (含新增 PWC 测试)
+- PWC 基础测试: 16/16 PASS
+- 无回归
+
 ---
 
 ## 待开始 📋
 
 ### Phase 9: 代码质量与发布
-- [x] 测试套件清理: 138/138 全部通过
+- [x] 测试套件清理: 139+/139+ 全部通过 (含 PWC 新测试)
 - [ ] JuliaFormatter.jl 统一代码风格
 - [ ] 测试覆盖率统计与提升 (目标 > 80%)
 - [ ] API 文档补全 (所有公共接口)
@@ -267,6 +352,8 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-03-04 | **Phase 12 六面体完整支持完成** — PWCHexBasis 3 DOFs/hex + RBF evaluate + 边界面。GQ (hex/quad)、MeshIO (CHEXA)、VEFIE (PWCHex/RBF/Mixed)、SCFIE (RWG+PWCHex/RBF)、激励向量、辐射积分/RCS。179/179 测试通过。+2296 行 |
+| 2026-03-04 | **Phase 11 PWC 基函数扩展完成** — PWCBasis 3 DOFs/tet, VEFIE+PWC 并矢组装, PWC 激励/辐射积分/RCS, SCFIE+RWG+PWC 耦合, Driver.jl 多IE扩展, SimulationConfig 增强, 新增 test_pwc.jl. 139+/139+ 测试全通过 |
 | 2026-02-28 | **Phase 8 性能优化全部完成** — 8 个子阶段 (8.0-8.8), 核心成果: CFIE 组装 -61% (168→65s), CFIE/EFIE 比 8.1×→2.2×, MLFMA OOM 修复, BlockJacobiPreconditioner, Julia 1.12 兼容, 类型稳定性 clean. 详见 `test_results/PERFORMANCE_REPORT.md` |
 | 2026-03-03 | **Phase 8.0 性能基线完成** — EMSuite 7 用例 + Legacy 5 用例计时。关键发现: CFIE 4.61× 慢 (双遍历问题), SCFIE 2.26× 慢, EFIE/VEFIE 持平或更快, LU 求解快 30-40% |
 | 2026-03-03 | **Phase 8 性能优化计划** — 加入性能优化路线: 6 热点 (SpinLock去锁/CFIE合并/MLFMA Z_near/内存/SIMD/类型稳定), 8 步骤, 目标 ≤ Legacy 保底, ≤ 0.5× Legacy 挑战 |
