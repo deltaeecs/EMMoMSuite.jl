@@ -110,69 +110,63 @@ function assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis
 end
 
 function assemble_coupling_blocks!(Z::Matrix{CT}, scfie::SCFIE, surf_basis::RWGBasis, vol_basis::SWGBasis) where {CT}
-    # Implement Z_SV and Z_VS
-    # Loop over surface triangles and volume tetrahedra
-    
     # Precompute geometry
-    tris = get_triangles_info(surf_basis.mesh, surf_basis)
+    tris   = get_triangles_info(surf_basis.mesh, surf_basis)
     tetras = get_tetrahedra_info(vol_basis.mesh, vol_basis, scfie.permittivities)
-    
-    ntri = length(tris)
-    ntet = length(tetras)
-    n_surf = num_basis(surf_basis)
-    n_total = size(Z, 1)
-    
-    # Locks for thread safety (one per row)
+
+    ntri      = length(tris)
+    ntet      = length(tetras)
+    n_surf    = num_basis(surf_basis)
+    n_total   = size(Z, 1)
+    n_threads = Threads.nthreads()
+
+    # Row SpinLocks — plain lock/unlock (no try/finally overhead for SpinLock)
     row_locks = [SpinLock() for _ in 1:n_total]
-    
-    println("SCFIE Coupling Assembly: $ntri triangles x $ntet tetrahedra.")
-    
-    Threads.@threads for it in 1:ntri
-        tri = tris[it]
-        
-        for js in 1:ntet
-            tet = tetras[js]
-            
-            # Compute interaction
-            # Z_sv_elem: Surface Test (tri), Volume Source (tet)
-            # Z_vs_elem: Volume Test (tet), Surface Source (tri)
-            Z_sv_elem, Z_vs_elem = scfie_coupling_interaction(scfie, tri, tet)
-            
-            # Fill Z_SV (Top Right)
-            # Rows: Surface (m), Cols: Volume (n)
-            for i in 1:3
-                m = tri.inBfsID[i]
-                if m == 0; continue; end
-                
-                for j in 1:4
-                    n = tet.inBfsID[j]
-                    if n == 0; continue; end
-                    
-                    # Z[m, n_surf + n] += Z_sv_elem[i, j]
+
+    # Cyclic scheduling over test triangles (same pattern as EFIE/VEFIE).
+    # Each thread owns surface rows for its assigned triangles → minimal Z_SV contention.
+    # Z_VS uses the identity Z_vs[n,m] = Z_sv[m,n] / κ_vol (proven from c1_vs = c1_sv/κ).
+    Threads.@threads for tid in 1:n_threads
+        for it in tid:n_threads:ntri
+            tri = tris[it]
+            for js in 1:ntet
+                tet = tetras[js]
+
+                # Compute Z_sv only (3×4); Z_vs derived via κ reciprocity
+                Z_sv_local = scfie_sv_only_interaction(scfie, tri, tet)
+                κ_inv = iszero(tet.κ) ? zero(CT) : CT(1.0) / tet.κ
+
+                # ── Z_SV (surface rows) ─────────────────────────────────────────
+                @inbounds for i in 1:3
+                    m = tri.inBfsID[i]
+                    m == 0 && continue
                     lock(row_locks[m])
-                    try
-                        Z[m, n_surf + n] += Z_sv_elem[i, j]
-                    finally
-                        unlock(row_locks[m])
+                    @inbounds for j in 1:4
+                        n = tet.inBfsID[j]
+                        n == 0 && continue
+                        Z[m, n_surf + n] += Z_sv_local[i, j]
                     end
-                    
-                    # Fill Z_VS (Bottom Left)
-                    # Rows: Volume (n), Cols: Surface (m)
-                    # Z[n_surf + n, m] += Z_vs_elem[j, i]
-                    row_idx = n_surf + n
-                    lock(row_locks[row_idx])
-                    try
-                        Z[row_idx, m] += Z_vs_elem[j, i]
-                    finally
-                        unlock(row_locks[row_idx])
+                    unlock(row_locks[m])
+                end
+
+                # ── Z_VS (volume rows) via reciprocity: Z_vs[n,m] = Z_sv[m,n]/κ ─
+                @inbounds for j in 1:4
+                    n = tet.inBfsID[j]
+                    n == 0 && continue
+                    row_vs = n_surf + n
+                    lock(row_locks[row_vs])
+                    @inbounds for i in 1:3
+                        m = tri.inBfsID[i]
+                        m == 0 && continue
+                        Z[row_vs, m] += Z_sv_local[i, j] * κ_inv
                     end
+                    unlock(row_locks[row_vs])
                 end
             end
         end
     end
-    println("SCFIE Coupling Assembly Completed.")
-    
-    # Fss boundary correction for half-SWG basis functions
+
+    # ── Fss boundary correction ─────────────────────────────────────────────────
     assemble_fss_boundary_correction!(Z, scfie, surf_basis, vol_basis, tris)
 end
 
@@ -315,6 +309,68 @@ function assemble_fss_boundary_correction!(Z::Matrix{CT}, scfie::SCFIE,
     end
     
     println("Fss Boundary Correction: $n_boundary boundary SWG functions processed (parallel).")
+end
+
+"""
+    scfie_sv_only_interaction(scfie, tri, tet)
+
+Compute only the Surface-Test / Volume-Source block Z_sv (3×4).
+
+The Volume-Test / Surface-Source block Z_vs is derived from Z_sv via the
+identity Z_vs[n,m] = Z_sv[m,n] / κ_vol, which follows from:
+  c1_sv = im*ω*μ₀*κ,   c2_sv = κ/(im*ω*ε₀)
+  c1_vs = im*ω*μ₀,      c2_vs = 1/(im*ω*ε₀)
+Since the Green's function and quadrature are shared, Z_vs[n,m] = Z_sv[m,n]/κ.
+Using this identity avoids computing 12 extra inner products per quadrature pair.
+"""
+function scfie_sv_only_interaction(scfie::SCFIE{FT, CT, N_GQ_S, N_GQ_V}, tri::TriangleInfo, tet::TetrahedraInfo) where {FT, CT, N_GQ_S, N_GQ_V}
+    Z_sv = @MMatrix zeros(CT, 3, 4)
+
+    k     = scfie.k
+    omega = 2π * scfie.freq
+    mu0   = 4π * 1e-7
+    eps0  = 8.854187817e-12
+
+    κ_vol      = tet.κ
+    c1_sv      = im * omega * mu0 * κ_vol
+    c2_sv      = κ_vol / (im * omega * eps0)
+    vol_factor = tri.area * tet.volume
+
+    gq_s   = scfie.gq_surf
+    gq_v   = scfie.gq_vol
+    Nq_s   = length(gq_s.weight)
+    Nq_v   = length(gq_v.weight)
+    r_q_s  = tri.vertices * gq_s.coordinate
+    r_q_v  = tet.vertices * gq_v.coordinate
+
+    for j in 1:Nq_v
+        w_j = gq_v.weight[j]
+        r_j = r_q_v[:, j]
+
+        for i in 1:Nq_s
+            w_i = gq_s.weight[i]
+            r_i = r_q_s[:, i]
+
+            R = norm(r_i - r_j)
+            R < 1e-10 && continue
+            G      = exp(-im * k * R) / (4π * R)
+            factor = w_i * w_j * vol_factor * G
+
+            @inbounds for m in 1:3
+                c_sm      = (tri.edgel[m] / (2 * tri.area)) * tri.bfsSign[m]
+                f_m       = c_sm * (r_i - tri.vertices[:, m])
+                d_m       = (tri.edgel[m] / tri.area) * tri.bfsSign[m]
+                @inbounds for n in 1:4
+                    c_vn  = (tet.facesArea[n] / (3 * tet.volume)) * tet.bfsSign[n]
+                    f_n   = c_vn * (r_j - tet.vertices[:, n])
+                    d_n   = (tet.facesArea[n] / tet.volume) * tet.bfsSign[n]
+                    Z_sv[m, n] += (c1_sv * dot(f_m, f_n) + c2_sv * d_m * d_n) * factor
+                end
+            end
+        end
+    end
+
+    return SMatrix(Z_sv)
 end
 
 function scfie_coupling_interaction(scfie::SCFIE{FT, CT, N_GQ_S, N_GQ_V}, tri::TriangleInfo, tet::TetrahedraInfo) where {FT, CT, N_GQ_S, N_GQ_V}
