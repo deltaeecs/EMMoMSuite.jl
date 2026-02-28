@@ -124,23 +124,17 @@ function calc_self_term!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri::T
     gq = mfie.gq_info
     r_quad = get_global_quad_points(tri, gq)
     w_quad = gq.weight
+    n_pts = length(w_quad)
     
-    # Precompute rho vectors at quad points
-    # rho_i = r - v_i
-    rhos = [Vector{SVector{3, FT}}(undef, length(w_quad)) for _ in 1:3]
-    
-    for k in 1:length(w_quad)
-        rk = r_quad[k]
-        rhos[1][k] = rk - tri.vertices[:, 1]
-        rhos[2][k] = rk - tri.vertices[:, 2]
-        rhos[3][k] = rk - tri.vertices[:, 3]
-    end
+    # Precompute vertices as SVector for stack allocation
+    v1 = SVector{3, FT}(tri.vertices[:, 1])
+    v2 = SVector{3, FT}(tri.vertices[:, 2])
+    v3 = SVector{3, FT}(tri.vertices[:, 3])
     
     eta_div_8A = mfie.eta / (8 * tri.area)
     
     for m in 1:3
         lm = tri.edgel[m]
-        # Check if basis function exists
         if tri.inBfsID[m] == 0
             continue
         end
@@ -152,8 +146,12 @@ function calc_self_term!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri::T
             end
             
             sum_val = zero(CT)
-            for k in 1:length(w_quad)
-                sum_val += dot(rhos[m][k], rhos[n][k]) * w_quad[k]
+            @inbounds for k in 1:n_pts
+                rk = r_quad[k]
+                # Compute rho vectors inline (no heap allocation)
+                rho_m = rk - (m == 1 ? v1 : m == 2 ? v2 : v3)
+                rho_n = rk - (n == 1 ? v1 : n == 2 ? v2 : v3)
+                sum_val += dot(rho_m, rho_n) * w_quad[k]
             end
             
             Z_local[m, n] += sum_val * lm * ln * eta_div_8A
@@ -258,25 +256,6 @@ function calc_k_term_fast!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri_
     end
 
     return nothing
-end
-
-function get_global_quad_points(tri::TriangleInfo{IT, FT}, gq::GaussQuadratureInfoStruct{FT}) where {IT, FT}
-    N = length(gq.weight)
-    points = Vector{SVector{3, FT}}(undef, N)
-    
-    v1 = tri.vertices[:, 1]
-    v2 = tri.vertices[:, 2]
-    v3 = tri.vertices[:, 3]
-    
-    for i in 1:N
-        l1 = gq.coordinate[1, i]
-        l2 = gq.coordinate[2, i]
-        l3 = gq.coordinate[3, i]
-        
-        points[i] = v1 * l1 + v2 * l2 + v3 * l3
-    end
-    
-    return points
 end
 
 end
