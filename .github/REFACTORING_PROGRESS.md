@@ -1,8 +1,8 @@
 # EMSuite 重构进度
 
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-05
 
-## 当前阶段: Phase 8 (性能优化)
+## 当前阶段: Phase 8 (性能优化) + Phase 11 (多线程/MPI 精度对齐)
 
 ---
 
@@ -185,7 +185,25 @@
 
 ## 进行中 🔧
 
-### Phase 8: 性能优化 (当前)
+### Phase 8.5: Julia 1.12 兼容性修复 ✅
+
+**问题**: Julia 1.12 任务式线程模型下 `threadid()` 可以返回 > `nthreads()` 的值, Legacy 代码以 `nthreads()` 作为缓冲区大小 → BoundsError。
+
+**修复 (Legacy `MoM_Kernels`)** — commit `e80b2b2`:
+- `IterateOnOctree.jl`: 5 处缓冲区分配改用 `Threads.maxthreadid()`
+- `AdjointIterateOnOctree.jl`: 3 处
+- `SAI.jl`: 2 处 (左/右预条件器)
+- 保持 `nthreads()` 用于 BLAS 线程恢复和线程数比较
+
+**修复 (EMSuite)** — commit `67d3a8a`:
+- `MLFMAOperator.jl`: `max(nthreads, 16)` → `Threads.maxthreadid()`, 移除跳过工作的 guard
+
+**验证**: Legacy MLFMA 在 Julia 1.12.3 (nthreads=24, maxthreadid=48) 运行通过:
+- SAI 预条件: 2.01s ✅
+- MLFMA GMRES: 275 次迭代, 11.56s ✅
+- EMSuite 130/130 功能测试通过 (2 个预存 fixture 错误不影响)
+
+### Phase 8: 性能优化 (继续)
 
 > **目标**: 相同用例全流程耗时 ≤ Legacy (保底一致)，争取 ≤ 0.5× Legacy (2× 加速)
 > 详细计划见 `REFACTORING_ROADMAP.md` Phase 8
@@ -286,6 +304,21 @@
 - [ ] 全部用例重新计时，对比 Phase 8.0 基线
 - [ ] 生成 `test_results/PERFORMANCE_REPORT.md`
 
+### Phase 11: 多线程+多进程精度对齐与效率提升 (新)
+
+> **目标**: 在多线程和多线程+多进程 (MPI) 环境下验证精度一致性，优化并行效率。
+
+#### 11.1 多线程精度对齐
+- [ ] Legacy 多线程 MLFMA 基线 (Jet EFIE + Sphere CFIE) — 已解锁 (threadid fix)
+- [ ] EMSuite vs Legacy 多线程 MLFMA 精度对比 (RMSE < 3 dB)
+- [ ] EMSuite vs Legacy 多线程 MLFMA 效率对比 (≤ Legacy)
+- [ ] 线程扩展性测试 (1/4/8/16/24 线程)
+
+#### 11.2 多进程 (MPI) 精度对齐
+- [ ] A4 S-EFIE MPI (2 进程) — RMSE vs A1 = 机器精度
+- [ ] C3-MPI S-CFIE MPI (2 进程) — RMSE vs C3 = 机器精度
+- [ ] MPI + 多线程混合模式 (2 进程 × 4 线程)
+
 **已知数据点** (Phase 10 期间实测, 4 线程, Windows 11):
 
 | 用例 | N | EMSuite 组装 (s) | EMSuite 求解 (s) | EMSuite 总计 (s) |
@@ -336,6 +369,8 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-03-05 | **Phase 8.5 Julia 1.12 兼容性修复** — Legacy `MoM_Kernels` 3 文件 10 处 `nthreads()` → `Threads.maxthreadid()` 缓冲区分配修复. EMSuite `MLFMAOperator.jl` 同步修复. Legacy MLFMA 在 Julia 1.12 (nthreads=24, maxthreadid=48) 验证通过 |
+| 2026-03-05 | **Phase 11 计划** — 多线程+多进程精度对齐与效率提升计划: 多线程 MLFMA 对比 (已解锁), MPI 精度验证 (A4/C3-MPI), 混合并行模式 |
 | 2026-03-04 | **Phase 8.2 CFIE/MFIE 内核优化完成** — MFIE 零分配+循环重排+4点积分。CFIE 168.29→43.48s (-74%), CFIE/EFIE=2.31× ≤ 2.5× 达标, vs Legacy 1.19× |
 | 2026-03-04 | **Phase 8.1 Z 组装去锁完成** — `Impedance.jl` 全局 SpinLock → Per-row SpinLock 数组 (N 把锁)。实测 Plate EFIE -54% (1.02→0.47s), Jet EFIE -12% (20.7→18.3s), EFIE 已与 Legacy 持平。138/138 测试通过 |
 | 2026-03-04 | **Phase 8.0 基线完成** — EMSuite 7 用例 + Legacy 5 用例计时。见 `test_results/PERFORMANCE_BASELINE.md`。Legacy MLFMA 用例因 Julia 1.12 threadid() 兼容性失败 |
