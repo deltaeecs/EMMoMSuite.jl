@@ -265,9 +265,12 @@
 - [x] 138/138 测试通过
 - [x] 实测: Plate EFIE **-54%**, Jet EFIE **-12%**, Jet CFIE -2%
 
-#### 8.2 CFIE 合并遍历 — P0 (当前)
-- [ ] CFIE 模式下 EFIE/MFIE 合并为单遍历，G/∇G 只算一次
-- [ ] 目标: CFIE 组装 ≤ 2.5× EFIE (165s → ≤ 50s)
+#### 8.2 CFIE/MFIE 内核优化 ✅
+- [x] MFIE 预计算高斯点 (消除 ~94M 堆分配)
+- [x] MFIE 循环重排 (i,j)外(m,n)内, 消除 9× 冗余 rvec/R 计算
+- [x] MFIE 积分阶数 7→4 点 (对齐 Legacy GQPNTri=4)
+- [x] 138/138 测试通过
+- [x] CFIE 168.29s → **43.48s** (-74%), CFIE/EFIE = **2.31×** ≤ 2.5× ✅
 
 #### 8.3 MLFMA Z_near 去锁 + CSC 预分配
 - [ ] 近场稀疏矩阵组装并行化
@@ -333,6 +336,7 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-03-04 | **Phase 8.2 CFIE/MFIE 内核优化完成** — MFIE 零分配+循环重排+4点积分。CFIE 168.29→43.48s (-74%), CFIE/EFIE=2.31× ≤ 2.5× 达标, vs Legacy 1.19× |
 | 2026-03-04 | **Phase 8.1 Z 组装去锁完成** — `Impedance.jl` 全局 SpinLock → Per-row SpinLock 数组 (N 把锁)。实测 Plate EFIE -54% (1.02→0.47s), Jet EFIE -12% (20.7→18.3s), EFIE 已与 Legacy 持平。138/138 测试通过 |
 | 2026-03-04 | **Phase 8.0 基线完成** — EMSuite 7 用例 + Legacy 5 用例计时。见 `test_results/PERFORMANCE_BASELINE.md`。Legacy MLFMA 用例因 Julia 1.12 threadid() 兼容性失败 |
 | 2026-03-04 | **Phase 10 完成** — MFIE MLFMA 支持 (近场+远场), 迭代求解器验证 (D2/E2 PASS), MLFMA 体积方程 (D3/E3 PASS), B2 MFIE MLFMA PASS. 全部 12/12 子测试 PASS (A2 跳过, MPI 延后) |

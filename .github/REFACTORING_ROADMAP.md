@@ -110,16 +110,21 @@ EMSuite.jl/src/
 
 > 注: CFIE 改善不大因为主瓶颈是双遍历 (热点 2)。
 
-#### 热点 2: CFIE 组装 9× EFIE (P0)
+#### 热点 2: CFIE 组装 9× EFIE (P0) ✅ Phase 8.2
 
-**现状**: Jet N=14559, EFIE 组装 20.3s, CFIE 组装 180.5s (9×)。理论上 CFIE = EFIE + MFIE，应 ≤ 2× EFIE。
+**现状**: ~~Jet N=14559, EFIE 组装 20.3s, CFIE 组装 180.5s (9×)。理论上 CFIE = EFIE + MFIE，应 ≤ 2× EFIE。~~
 
-**方案**:
-1. **Green 函数复用**: EFIE 和 MFIE 共享 $G(r,r') = e^{-jkR}/(4\pi R)$ 和 $\nabla G$。合并为单遍历，计算一次 G，同时累加 EFIE 和 MFIE 贡献。
-2. **MFIE 内循环优化**: 检查 MFIE 是否有冗余几何计算 (法向量、交叉积)，提到循环外预计算。
-3. **对称性利用**: EFIE L 算子对称 → 仅计算上三角; MFIE K 算子反对称 → 上三角取负。
+**已完成方案**: MFIE 内核三项优化
+1. **预计算高斯点**: 消除 ~94M 次/线程的堆分配 (r_test, r_src, gw 矩阵)
+2. **循环重排**: (m,n)外(i,j)内 → (i,j)外(m,n)内, rvec/R/divr 只算 1 次/pair
+3. **积分阶数对齐 Legacy**: MFIE 从 7 点 → 4 点 Gauss (Legacy GQPNTri=4)
 
-**预期收益**: CFIE 从 9× EFIE → ≤ 2.5× EFIE (180s → ≤ 50s)
+**实测结果** (Jet CFIE Direct, 4 线程):
+| 指标 | 优化前 | 优化后 | 变化 |
+|------|--------|--------|------|
+| CFIE 组装 | 168.29s | 43.48s | **-74%** |
+| CFIE/EFIE | 9.0× | 2.31× | **达标 ≤ 2.5×** |
+| vs Legacy | 4.61× | 1.19× | **接近 Legacy** |
 
 #### 热点 3: MLFMA Setup 占比过高 (P1)
 
