@@ -701,12 +701,12 @@ function assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis, permittivities
                     # Far field: 1-point rule
                     _pwc_dyad_kernel!(Z_ts_buf, tet_t, tet_s, 
                                       rq_far_pts[ti], rq_far_pts[sj],
-                                      gq_far, Nq_far, k, k², jk, Jη₀divK, div4π)
+                                      gq_far, gq_far, Nq_far, Nq_far, k, k², jk, Jη₀divK, div4π)
                 else
                     # Near field: 5-point rule
                     _pwc_dyad_kernel!(Z_ts_buf, tet_t, tet_s,
                                       rq_near[ti], rq_near[sj],
-                                      gq, Nq, k, k², jk, Jη₀divK, div4π)
+                                      gq, gq, Nq, Nq, k, k², jk, Jη₀divK, div4π)
                 end
                 
                 # Fill matrix using symmetry
@@ -751,33 +751,34 @@ function assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis, permittivities
 end
 
 """
-    _pwc_dyad_kernel!(Z_ts, tet_t, tet_s, rq_t, rq_s, gq, Nq, k, k², jk, Jη₀divK, div4π)
+    _pwc_dyad_kernel!(Z_ts, vol_t, vol_s, rq_t, rq_s, gq, Nq, k, k², jk, Jη₀divK, div4π)
 
-Compute the 3×3 dyadic interaction matrix between test tet t and source tet s
+Compute the 3×3 dyadic interaction matrix between test volume `vol_t` and source volume `vol_s`
 using the L operator: (k²I + ∇∇) G(R).
 
+`vol_t` and `vol_s` can be any struct with a `.volume` field (TetrahedraInfo, HexahedraInfo).
 Result stored in Z_ts (3×3 mutable buffer).
 Does NOT include κ — caller must multiply by appropriate κ.
 
 # Legacy Parity
-Matches `EFIEOnTetrasPWC` in `MoM_Kernels/EFIEPWCTetra.jl`.
+Matches `EFIEOnTetrasPWC` / `EFIEOnHexasPWC` in `MoM_Kernels`.
 """
 function _pwc_dyad_kernel!(Z_ts::Matrix{CT}, 
-                           tet_t::TetrahedraInfo, tet_s::TetrahedraInfo,
+                           vol_t, vol_s,
                            rq_t::Matrix{FT}, rq_s::Matrix{FT},
-                           gq, Nq::Int,
+                           gq_t, gq_s, Nq_t::Int, Nq_s::Int,
                            k::FT, k²::FT, jk::CT, Jη₀divK::CT, div4π::FT) where {FT, CT}
     # Reset buffer
     fill!(Z_ts, zero(CT))
     
-    dVtdVs = tet_t.volume * tet_s.volume
+    dVtdVs = vol_t.volume * vol_s.volume
     Jη₀divKdVtdVs = Jη₀divK * dVtdVs
     
     # Double loop over quadrature points
-    @inbounds for gj in 1:Nq
+    @inbounds for gj in 1:Nq_s
         rgj = @view rq_s[:, gj]
         
-        for gi in 1:Nq
+        for gi in 1:Nq_t
             rgi = @view rq_t[:, gi]
             
             # Distance vector
@@ -800,7 +801,7 @@ function _pwc_dyad_kernel!(Z_ts::Matrix{CT},
             R̂z = Rz * divR
             
             # Green's function × quadrature weights
-            GR = exp(-jk * R) * div4π * divR * gq.weight[gi] * gq.weight[gj]
+            GR = exp(-jk * R) * div4π * divR * gq_t.weight[gi] * gq_s.weight[gj]
             
             # Combined constant
             fac = Jη₀divKdVtdVs * GR
@@ -833,6 +834,739 @@ function _pwc_dyad_kernel!(Z_ts::Matrix{CT},
     end
     
     return nothing
+end
+
+# ============================================================================
+# PWC Hexahedra Assembly for VEFIE
+# ============================================================================
+
+"""
+    assemble_impedance_matrix(vefie::VEFIE, basis::PWCHexBasis)
+
+Assemble the impedance matrix Z for the VEFIE using PWC basis functions on hexahedra.
+Each hexahedron contributes 3 DOFs (x, y, z components).
+The interaction kernel is the same dyadic L operator as PWC on tetra.
+
+# Legacy Parity
+Matches `MoM_Kernels` `EFIEPWCHexa.jl` `impedancemat4VIE!` with `discreteVar = "D"`.
+"""
+function assemble_impedance_matrix(vefie::VEFIE, basis::PWCHexBasis)
+    return assemble_impedance_matrix(vefie, basis, vefie.permittivities)
+end
+
+function assemble_impedance_matrix(vefie::VEFIE, basis::PWCHexBasis, permittivities::Vector{ComplexF64})
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    
+    nbf = num_basis(basis)
+    Z = zeros(CT, nbf, nbf)
+    
+    # Precompute geometry
+    hexas = get_hexahedra_info(basis.mesh, basis, permittivities)
+    nhex = length(hexas)
+    
+    # Constants
+    k = vefie.k
+    k² = k^2
+    jk = im * k
+    omega = 2π * vefie.freq
+    mu0 = 4π * 1e-7
+    eps0 = 8.854187817e-12
+    eta0 = sqrt(mu0 / eps0)
+    Jη₀divK = im * eta0 / k
+    div4π = 1.0 / (4π)
+    
+    # GQ info for hexahedra (8-point near, 1-point far)
+    gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    gq_hex_far = GaussQuadratureInfo(:Hexahedron, 1, FT)
+    Nq_hex = length(gq_hex.weight)
+    Nq_hex_far = length(gq_hex_far.weight)
+    
+    # Progress tracking
+    progress_counter = Threads.Atomic{Int}(0)
+    next_idx = Threads.Atomic{Int}(1)
+    
+    println("VEFIE-PWC-Hexa Assembly: $nhex hexahedra, $nbf unknowns.")
+    
+    # Precompute GQ points for all hexahedra (coordinates × shape functions)
+    rq_near = Vector{Matrix{FT}}(undef, nhex)
+    rq_far_pts = Vector{Matrix{FT}}(undef, nhex)
+    Threads.@threads for i in 1:nhex
+        rq_near[i] = hexas[i].vertices * gq_hex.coordinate
+        rq_far_pts[i] = hexas[i].vertices * gq_hex_far.coordinate
+    end
+    
+    # Dynamic scheduling
+    Threads.@threads for _ in 1:Threads.nthreads()
+        Z_ts_buf = zeros(CT, 3, 3)
+        
+        while true
+            ti = Threads.atomic_add!(next_idx, 1)
+            if ti > nhex; break; end
+            
+            hex_t = hexas[ti]
+            κₜ = hex_t.κ
+            
+            for sj in ti:nhex
+                hex_s = hexas[sj]
+                κₛ = hex_s.κ
+                
+                # Distance between centers
+                dist_ts = norm(hex_t.center - hex_s.center)
+                
+                # Adaptive quadrature threshold
+                rad_t = cbrt(hex_t.volume)
+                rad_s = cbrt(hex_s.volume)
+                threshold = 3.0 * (rad_t + rad_s)
+                
+                if dist_ts > threshold
+                    _pwc_dyad_kernel!(Z_ts_buf, hex_t, hex_s, 
+                                      rq_far_pts[ti], rq_far_pts[sj],
+                                      gq_hex_far, gq_hex_far, Nq_hex_far, Nq_hex_far,
+                                      k, k², jk, Jη₀divK, div4π)
+                else
+                    _pwc_dyad_kernel!(Z_ts_buf, hex_t, hex_s,
+                                      rq_near[ti], rq_near[sj],
+                                      gq_hex, gq_hex, Nq_hex, Nq_hex,
+                                      k, k², jk, Jη₀divK, div4π)
+                end
+                
+                if ti == sj
+                    # Self-term: Zts * κₜ + mass diagonal
+                    for ni in 1:3, mi in 1:3
+                        m = hex_t.inBfsID[mi]
+                        n = hex_s.inBfsID[ni]
+                        Z[m, n] = Z_ts_buf[mi, ni] * κₜ
+                    end
+                    selfImp = 1.0 / (im * omega) / hex_t.ε * hex_t.volume
+                    for ni in 1:3
+                        n = hex_t.inBfsID[ni]
+                        Z[n, n] += selfImp
+                    end
+                else
+                    for ni in 1:3, mi in 1:3
+                        m = hex_t.inBfsID[mi]
+                        n = hex_s.inBfsID[ni]
+                        Z[m, n] = Z_ts_buf[mi, ni] * κₛ
+                        Z[n, m] = Z_ts_buf[mi, ni] * κₜ
+                    end
+                end
+            end
+            
+            c = Threads.atomic_add!(progress_counter, 1)
+            if c % 10 == 0
+                print("\rVEFIE-PWC-Hexa: $c / $nhex processed.")
+            end
+        end
+    end
+    println("\nVEFIE-PWC-Hexa Assembly Completed.")
+    
+    return Z
+end
+
+# ============================================================================
+# RBF (Rooftop Basis Function) Hexahedra Assembly for VEFIE
+# ============================================================================
+
+"""
+    assemble_impedance_matrix(vefie::VEFIE, basis::RBFBasis)
+
+Assemble the impedance matrix Z for the VEFIE using RBF basis functions on hexahedra.
+Each hexahedron contributes 6 DOFs (one per face).
+
+The matrix element Z_mn involves 6 integral terms (F₁-F₆):
+  Z_mn = C₁F₁ + κₛC₃(-k²F₂ + F₃) - δκₙC₃F₄ - κₛC₃F₅ + δκₙC₃F₆
+
+where:
+  C₁ = (1/jω)(1/Vε)AₘAₙ  (mass matrix, self only)
+  C₃ = -jη₀/(4πk) AₘAₙ   (Green's function coupling)
+
+# Legacy Parity
+Matches `MoM_Kernels` `EFIERBFHexa.jl`.
+"""
+function assemble_impedance_matrix(vefie::VEFIE, basis::RBFBasis)
+    return assemble_impedance_matrix(vefie, basis, vefie.permittivities)
+end
+
+function assemble_impedance_matrix(vefie::VEFIE, basis::RBFBasis, permittivities::Vector{ComplexF64})
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    
+    nbf = num_basis(basis)
+    Z = zeros(CT, nbf, nbf)
+    
+    # Precompute geometry
+    hexas = get_hexahedra_info(basis.mesh, basis, permittivities)
+    nhex = length(hexas)
+    
+    # Constants
+    k = vefie.k
+    k² = k^2
+    omega = 2π * vefie.freq
+    mu0 = 4π * 1e-7
+    eps0 = 8.854187817e-12
+    eta0 = sqrt(mu0 / eps0)
+    mJη₀div4πK = -im * eta0 / (4π * k)
+    divJω = 1.0 / (im * omega)
+    div4π = 1.0 / (4π)
+    jk = im * k
+    
+    # GQ info for hexahedra and quadrangles
+    gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    gq_hex_far = GaussQuadratureInfo(:Hexahedron, 1, FT)
+    gq_quad = GaussQuadratureInfo(:Quadrangle, 4, FT)
+    Nq_hex = length(gq_hex.weight)
+    Nq_hex_far = length(gq_hex_far.weight)
+    Nq_quad = length(gq_quad.weight)
+    
+    # Precompute GQ points for all hexahedra
+    rq_near = Vector{Matrix{FT}}(undef, nhex)
+    rq_far = Vector{Matrix{FT}}(undef, nhex)
+    Threads.@threads for i in 1:nhex
+        rq_near[i] = hexas[i].vertices * gq_hex.coordinate
+        rq_far[i] = hexas[i].vertices * gq_hex_far.coordinate
+    end
+    
+    # Build GQ 3D → 2D index map for free-end computation
+    gq3d_map = construct_gq3d_index_map(2)  # n1d=2 for 8-point hex GQ
+    
+    # Progress tracking
+    progress_counter = Threads.Atomic{Int}(0)
+    next_idx = Threads.Atomic{Int}(1)
+    lockZ = SpinLock()
+    
+    println("VEFIE-RBF Assembly: $nhex hexahedra, $nbf unknowns.")
+    
+    # Dynamic scheduling
+    Threads.@threads for _ in 1:Threads.nthreads()
+        Zts = zeros(CT, 6, 6)
+        Zst = zeros(CT, 6, 6)
+        
+        while true
+            it = Threads.atomic_add!(next_idx, 1)
+            if it > nhex; break; end
+            
+            hex_t = hexas[it]
+            κt = hex_t.κ
+            
+            for js in it:nhex
+                hex_s = hexas[js]
+                κs = hex_s.κ
+                
+                dist_ts = norm(hex_t.center - hex_s.center)
+                rad_t = cbrt(hex_t.volume)
+                rad_s = cbrt(hex_s.volume)
+                threshold = 3.0 * (rad_t + rad_s)
+                
+                if it == js
+                    _rbf_self_kernel!(Zts, hex_t, rq_near[it], gq_hex, Nq_hex,
+                                     gq_quad, Nq_quad, gq3d_map,
+                                     k², jk, mJη₀div4πK, divJω, div4π)
+                    lock(lockZ)
+                    for ni in 1:6, mi in 1:6
+                        m = hex_t.inBfsID[mi]
+                        n = hex_s.inBfsID[ni]
+                        Z[m, n] += Zts[mi, ni]
+                    end
+                    unlock(lockZ)
+                elseif dist_ts > threshold
+                    _rbf_far_kernel!(Zts, Zst, hex_t, hex_s,
+                                    rq_far[it], rq_far[js],
+                                    gq_hex_far, Nq_hex_far,
+                                    gq_quad, Nq_quad,
+                                    k², jk, mJη₀div4πK, div4π)
+                    lock(lockZ)
+                    for ni in 1:6, mi in 1:6
+                        m = hex_t.inBfsID[mi]
+                        n = hex_s.inBfsID[ni]
+                        Z[m, n] += Zts[mi, ni]
+                        Z[n, m] += Zst[ni, mi]
+                    end
+                    unlock(lockZ)
+                else
+                    _rbf_near_kernel!(Zts, Zst, hex_t, hex_s,
+                                     rq_near[it], rq_near[js],
+                                     gq_hex, Nq_hex,
+                                     gq_quad, Nq_quad,
+                                     k², jk, mJη₀div4πK, div4π)
+                    lock(lockZ)
+                    for ni in 1:6, mi in 1:6
+                        m = hex_t.inBfsID[mi]
+                        n = hex_s.inBfsID[ni]
+                        Z[m, n] += Zts[mi, ni]
+                        Z[n, m] += Zst[ni, mi]
+                    end
+                    unlock(lockZ)
+                end
+            end
+            
+            c = Threads.atomic_add!(progress_counter, 1)
+            if c % 10 == 0
+                print("\rVEFIE-RBF: $c / $nhex processed.")
+            end
+        end
+    end
+    println("\nVEFIE-RBF Assembly Completed.")
+    
+    return Z
+end
+
+"""
+Green's function helper: exp(-jkR)/(4πR).
+"""
+@inline function _greenfunc(rgi, rgj, jk::CT, div4π::FT) where {CT, FT}
+    Rx = rgi[1] - rgj[1]
+    Ry = rgi[2] - rgj[2]
+    Rz = rgi[3] - rgj[3]
+    R = sqrt(Rx^2 + Ry^2 + Rz^2)
+    if R < 1e-10
+        return zero(CT)
+    end
+    return exp(-jk * R) * div4π / R
+end
+
+"""
+Get GQ points on a quadrilateral face of a hexahedron.
+Returns 3×Nq matrix of physical coordinates.
+"""
+function _get_quad_gq_points(hex_info::HexahedraInfo, face_idx::Int, gq_quad, Nq_quad)
+    face = hex_info.faces[face_idx]
+    # face.vertices is 3×4 matrix of face corner coordinates
+    # gq_quad.coordinate is 4×Nq_quad (bilinear shape function values)
+    return face.vertices * gq_quad.coordinate
+end
+
+"""
+RBF far-field kernel: compute 6×6 Zts and Zst for two non-overlapping distant hexahedra.
+"""
+function _rbf_far_kernel!(Zts::Matrix{CT}, Zst::Matrix{CT},
+                          hex_t::HexahedraInfo, hex_s::HexahedraInfo,
+                          rq_t::Matrix{FT}, rq_s::Matrix{FT},
+                          gq_hex, Nq_hex::Int,
+                          gq_quad, Nq_quad::Int,
+                          k²::FT, jk::CT, mJη₀div4πK::CT, div4π::FT) where {FT, CT}
+    fill!(Zts, zero(CT))
+    fill!(Zst, zero(CT))
+    
+    κt = hex_t.κ
+    κs = hex_s.κ
+    facest = hex_t.faces
+    facess = hex_s.faces
+    
+    # --- Precompute gw matrix (Green's function × weights) ---
+    gw = zeros(CT, Nq_hex, Nq_hex)
+    @inbounds for gj in 1:Nq_hex
+        rgj = @view rq_s[:, gj]
+        for gi in 1:Nq_hex
+            rgi = @view rq_t[:, gi]
+            gw[gi, gj] = _greenfunc(rgi, rgj, jk, div4π) * gq_hex.weight[gi] * gq_hex.weight[gj]
+        end
+    end
+    
+    # F₃ (scalar Green integral, independent of basis functions)
+    F₃ = sum(gw)
+    
+    # --- F₄ (source face − test volume) ---
+    F₄s = zeros(CT, 6)
+    @inbounds for ni in 1:6
+        arean = hex_s.facesArea[ni]
+        δκn = facess[ni].δκ
+        isbdn = facess[ni].isbd
+        if isbdn || ((δκn != 0) && (arean > 0))
+            rq_face_s = _get_quad_gq_points(hex_s, ni, gq_quad, Nq_quad)
+            gtemp = zero(CT)
+            for gj in 1:Nq_quad
+                rgj = @view rq_face_s[:, gj]
+                for gi in 1:Nq_hex
+                    rgi = @view rq_t[:, gi]
+                    gtemp += _greenfunc(rgi, rgj, jk, div4π) * gq_hex.weight[gi] * gq_quad.weight[gj]
+                end
+            end
+            F₄s[ni] = gtemp
+        end
+    end
+    
+    # --- F₅ (test face − source volume) ---
+    F₅t = zeros(CT, 6)
+    @inbounds for mi in 1:6
+        aream = hex_t.facesArea[mi]
+        δκm = facest[mi].δκ
+        isbdm = facest[mi].isbd
+        if isbdm || ((δκm != 0) && (aream > 0))
+            rq_face_t = _get_quad_gq_points(hex_t, mi, gq_quad, Nq_quad)
+            gtemp = zero(CT)
+            for gj in 1:Nq_hex
+                rgj = @view rq_s[:, gj]
+                for gi in 1:Nq_quad
+                    rgi = @view rq_face_t[:, gi]
+                    gtemp += _greenfunc(rgi, rgj, jk, div4π) * gq_quad.weight[gi] * gq_hex.weight[gj]
+                end
+            end
+            F₅t[mi] = gtemp
+        end
+    end
+    
+    # --- Loop over basis function pairs to compute F₂ and accumulate ---
+    @inbounds for ni in 1:6
+        arean = hex_s.facesArea[ni]
+        δκn = facess[ni].δκ
+        isbdn = facess[ni].isbd
+        # Precompute free-end coords for source basis ni
+        freeVns_ni = get_free_vns(hex_s, ni, gq_hex.coordinate)
+        
+        for mi in 1:6
+            aream = hex_t.facesArea[mi]
+            δκm = facest[mi].δκ
+            isbdm = facest[mi].isbd
+            aman = aream * arean
+            C₃ = mJη₀div4πK * aman
+            freeVms_mi = get_free_vns(hex_t, mi, gq_hex.coordinate)
+            
+            # F₂ (ρₘ·ρₙ × G)
+            F₂ = zero(CT)
+            for gj in 1:Nq_hex
+                rgj = @view rq_s[:, gj]
+                idn = gq3d_to_face2d_idx(gj, ni, 2)
+                ρnx = rgj[1] - freeVns_ni[1, idn]
+                ρny = rgj[2] - freeVns_ni[2, idn]
+                ρnz = rgj[3] - freeVns_ni[3, idn]
+                for gi in 1:Nq_hex
+                    rgi = @view rq_t[:, gi]
+                    idm = gq3d_to_face2d_idx(gi, mi, 2)
+                    ρmx = rgi[1] - freeVms_mi[1, idm]
+                    ρmy = rgi[2] - freeVms_mi[2, idm]
+                    ρmz = rgi[3] - freeVms_mi[3, idm]
+                    ρdot = ρmx*ρnx + ρmy*ρny + ρmz*ρnz
+                    F₂ += ρdot * gw[gi, gj]
+                end
+            end
+            
+            # CF23 (symmetric part)
+            CF23 = C₃ * (-k² * F₂ + F₃)
+            Zmn = κs * CF23
+            Znm = κt * CF23
+            
+            # F₄ term
+            (δκn != 0) && (arean > 0) && (Zmn -= δκn * C₃ * F₄s[ni])
+            isbdn && (Znm -= κt * C₃ * F₄s[ni])
+            
+            # F₅ term
+            isbdm && (Zmn -= κs * C₃ * F₅t[mi])
+            (δκm != 0) && (aream > 0) && (Znm -= δκm * C₃ * F₅t[mi])
+            
+            # F₆ term
+            n_global = hex_s.inBfsID[ni]
+            m_global = hex_t.inBfsID[mi]
+            statem = isbdm && (δκn != 0) && (arean > 0)
+            staten = isbdn && (δκm != 0) && (aream > 0)
+            if statem || staten
+                F₆ = zero(CT)
+                rq_face_m = _get_quad_gq_points(hex_t, mi, gq_quad, Nq_quad)
+                rq_face_n = _get_quad_gq_points(hex_s, ni, gq_quad, Nq_quad)
+                for gj in 1:Nq_quad
+                    rgj = @view rq_face_n[:, gj]
+                    for gi in 1:Nq_quad
+                        rgi = @view rq_face_m[:, gi]
+                        F₆ += _greenfunc(rgi, rgj, jk, div4π) * gq_quad.weight[gi] * gq_quad.weight[gj]
+                    end
+                end
+                C₃F₆ = C₃ * F₆
+                statem && (Zmn += δκn * C₃F₆)
+                staten && (Znm += δκm * C₃F₆)
+            end
+            
+            Zts[mi, ni] = Zmn
+            Zst[ni, mi] = Znm
+        end
+    end
+    
+    return nothing
+end
+
+"""
+RBF near-field kernel: same as far but using higher-order GQ.
+For simplicity, follows same structure as far kernel.
+"""
+function _rbf_near_kernel!(Zts::Matrix{CT}, Zst::Matrix{CT},
+                           hex_t::HexahedraInfo, hex_s::HexahedraInfo,
+                           rq_t::Matrix{FT}, rq_s::Matrix{FT},
+                           gq_hex, Nq_hex::Int,
+                           gq_quad, Nq_quad::Int,
+                           k²::FT, jk::CT, mJη₀div4πK::CT, div4π::FT) where {FT, CT}
+    # Near field uses the same structure as far field but with higher-order GQ
+    # (rq_t and rq_s already have the near-field GQ points)
+    _rbf_far_kernel!(Zts, Zst, hex_t, hex_s, rq_t, rq_s,
+                     gq_hex, Nq_hex, gq_quad, Nq_quad,
+                     k², jk, mJη₀div4πK, div4π)
+end
+
+"""
+RBF self kernel: compute 6×6 Ztt for a hexahedron with itself.
+Includes F₁ (mass matrix), F₂-F₆ terms, and self-impedance C₁F₁.
+"""
+function _rbf_self_kernel!(Ztt::Matrix{CT}, hex_t::HexahedraInfo,
+                           rq_t::Matrix{FT}, gq_hex, Nq_hex::Int,
+                           gq_quad, Nq_quad::Int, gq3d_map,
+                           k²::FT, jk::CT, mJη₀div4πK::CT, divJω::CT, div4π::FT) where {FT, CT}
+    fill!(Ztt, zero(CT))
+    
+    κt = hex_t.κ
+    faces = hex_t.faces
+    divVε = 1.0 / (hex_t.volume * hex_t.ε)
+    
+    # gw matrix (self: same hex for test and source)
+    gw = zeros(CT, Nq_hex, Nq_hex)
+    @inbounds for gj in 1:Nq_hex
+        rgj = @view rq_t[:, gj]
+        for gi in 1:Nq_hex
+            rgi = @view rq_t[:, gi]
+            gw[gi, gj] = _greenfunc(rgi, rgj, jk, div4π) * gq_hex.weight[gi] * gq_hex.weight[gj]
+        end
+    end
+    F₃ = sum(gw)
+    
+    # F₄/F₅ (same for self-term since hex_t == hex_s)
+    F₄s = zeros(CT, 6)
+    @inbounds for ni in 1:6
+        arean = hex_t.facesArea[ni]
+        δκn = faces[ni].δκ
+        isbdn = faces[ni].isbd
+        if isbdn || ((δκn != 0) && (arean > 0))
+            rq_face = _get_quad_gq_points(hex_t, ni, gq_quad, Nq_quad)
+            gtemp = zero(CT)
+            for gi in 1:Nq_hex
+                rgi = @view rq_t[:, gi]
+                for gj in 1:Nq_quad
+                    rgj = @view rq_face[:, gj]
+                    gtemp += _greenfunc(rgi, rgj, jk, div4π) * gq_hex.weight[gi] * gq_quad.weight[gj]
+                end
+            end
+            F₄s[ni] = gtemp
+        end
+    end
+    F₅t = F₄s  # Same for self-term
+    
+    # Precompute free-end coords for all faces
+    freeVns = Vector{Matrix{FT}}(undef, 6)
+    for fi in 1:6
+        freeVns[fi] = get_free_vns(hex_t, fi, gq_hex.coordinate)
+    end
+    
+    # Loop over basis function pairs (use upper triangle symmetry mi >= ni)
+    @inbounds for ni in 1:6
+        arean = hex_t.facesArea[ni]
+        δκn = faces[ni].δκ
+        isbdn = faces[ni].isbd
+        
+        for mi in ni:6
+            aream = hex_t.facesArea[mi]
+            δκm = faces[mi].δκ
+            isbdm = faces[mi].isbd
+            aman = aream * arean
+            C₁ = divJω * divVε * aman
+            C₃ = mJη₀div4πK * aman
+            
+            # F₁ (mass matrix) and F₂ (ρ·ρ' × G)
+            F₁ = zero(FT)
+            F₂ = zero(CT)
+            for gi in 1:Nq_hex
+                rgi = @view rq_t[:, gi]
+                idm = gq3d_to_face2d_idx(gi, mi, 2)
+                idn_self = gq3d_to_face2d_idx(gi, ni, 2)
+                ρmx = rgi[1] - freeVns[mi][1, idm]
+                ρmy = rgi[2] - freeVns[mi][2, idm]
+                ρmz = rgi[3] - freeVns[mi][3, idm]
+                ρnx_self = rgi[1] - freeVns[ni][1, idn_self]
+                ρny_self = rgi[2] - freeVns[ni][2, idn_self]
+                ρnz_self = rgi[3] - freeVns[ni][3, idn_self]
+                ρmρn_self = ρmx*ρnx_self + ρmy*ρny_self + ρmz*ρnz_self
+                F₁ += gq_hex.weight[gi] * ρmρn_self
+                
+                for gj in 1:Nq_hex
+                    rgj = @view rq_t[:, gj]
+                    idn = gq3d_to_face2d_idx(gj, ni, 2)
+                    ρnx = rgj[1] - freeVns[ni][1, idn]
+                    ρny = rgj[2] - freeVns[ni][2, idn]
+                    ρnz = rgj[3] - freeVns[ni][3, idn]
+                    ρdot = ρmx*ρnx + ρmy*ρny + ρmz*ρnz
+                    F₂ += ρdot * gw[gi, gj]
+                end
+            end
+            
+            C₁F₁ = C₁ * F₁
+            CF23 = C₃ * (-k² * F₂ + F₃)
+            
+            Zmn = C₁F₁ + κt * CF23
+            Znm = C₁F₁ + κt * CF23
+            
+            # F₄/F₅ terms
+            (δκn != 0) && (arean > 0) && (Zmn -= δκn * C₃ * F₄s[ni])
+            isbdn && (Znm -= κt * C₃ * F₄s[ni])
+            isbdm && (Zmn -= κt * C₃ * F₅t[mi])
+            (δκm != 0) && (aream > 0) && (Znm -= δκm * C₃ * F₅t[mi])
+            
+            # F₆ terms
+            m_global = hex_t.inBfsID[mi]
+            n_global = hex_t.inBfsID[ni]
+            statem = isbdm && (δκn != 0) && (arean > 0)
+            staten = isbdn && (δκm != 0) && (aream > 0)
+            if statem || staten
+                F₆ = zero(CT)
+                if m_global != n_global
+                    rq_face_m = _get_quad_gq_points(hex_t, mi, gq_quad, Nq_quad)
+                    rq_face_n = _get_quad_gq_points(hex_t, ni, gq_quad, Nq_quad)
+                    for gj in 1:Nq_quad
+                        rgj = @view rq_face_n[:, gj]
+                        for gi in 1:Nq_quad
+                            rgi = @view rq_face_m[:, gi]
+                            F₆ += _greenfunc(rgi, rgj, jk, div4π) * gq_quad.weight[gi] * gq_quad.weight[gj]
+                        end
+                    end
+                else
+                    # Same face: use self-GQ (no singularity extraction, just skip R=0)
+                    rq_face = _get_quad_gq_points(hex_t, mi, gq_quad, Nq_quad)
+                    for gj in 1:Nq_quad
+                        rgj = @view rq_face[:, gj]
+                        for gi in 1:Nq_quad
+                            rgi = @view rq_face[:, gi]
+                            F₆ += _greenfunc(rgi, rgj, jk, div4π) * gq_quad.weight[gi] * gq_quad.weight[gj]
+                        end
+                    end
+                end
+                C₃F₆ = C₃ * F₆
+                statem && (Zmn += δκn * C₃F₆)
+                staten && (Znm += δκm * C₃F₆)
+            end
+            
+            Ztt[mi, ni] = Zmn
+            Ztt[ni, mi] = Znm
+        end
+    end
+    
+    return nothing
+end
+
+# ============================================================================
+# Mixed Tetra-Hexa PWC Assembly for VEFIE
+# ============================================================================
+
+"""
+    assemble_impedance_matrix(vefie::VEFIE, basis_tet::PWCBasis, basis_hex::PWCHexBasis)
+
+Assemble the coupling impedance matrix between PWC on tetrahedra and PWC on hexahedra.
+Returns the full matrix including both self-blocks and cross-blocks.
+
+# Legacy Parity
+Matches `MoM_Kernels` `EFIEPWCTetraHexa.jl`.
+"""
+function assemble_impedance_matrix(vefie::VEFIE, basis_tet::PWCBasis, basis_hex::PWCHexBasis)
+    return assemble_impedance_matrix(vefie, basis_tet, basis_hex, vefie.permittivities)
+end
+
+function assemble_impedance_matrix(vefie::VEFIE, basis_tet::PWCBasis, basis_hex::PWCHexBasis, 
+                                   permittivities::Vector{ComplexF64})
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    
+    nbf_tet = num_basis(basis_tet)
+    nbf_hex = num_basis(basis_hex)
+    nbf = nbf_tet + nbf_hex
+    Z = zeros(CT, nbf, nbf)
+    
+    # Constants
+    k = vefie.k
+    k² = k^2
+    jk = im * k
+    omega = 2π * vefie.freq
+    mu0 = 4π * 1e-7
+    eps0 = 8.854187817e-12
+    eta0 = sqrt(mu0 / eps0)
+    Jη₀divK = im * eta0 / k
+    div4π = 1.0 / (4π)
+    
+    # Precompute geometry for tetrahedra
+    tetras = get_tetrahedra_info(basis_tet.mesh, basis_tet, permittivities)
+    ntet = length(tetras)
+    
+    # Precompute geometry for hexahedra
+    hexas = get_hexahedra_info(basis_hex.mesh, basis_hex, permittivities)
+    nhex = length(hexas)
+    
+    # GQ info
+    gq_tet = vefie.gq_info
+    gq_tet_far = vefie.gq_far
+    gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    gq_hex_far = GaussQuadratureInfo(:Hexahedron, 1, FT)
+    Nq_tet = length(gq_tet.weight)
+    Nq_tet_far = length(gq_tet_far.weight)
+    Nq_hex = length(gq_hex.weight)
+    Nq_hex_far = length(gq_hex_far.weight)
+    
+    # Precompute GQ points
+    rq_tet_near = Vector{Matrix{FT}}(undef, ntet)
+    rq_tet_far_pts = Vector{Matrix{FT}}(undef, ntet)
+    Threads.@threads for i in 1:ntet
+        rq_tet_near[i] = tetras[i].vertices * gq_tet.coordinate
+        rq_tet_far_pts[i] = tetras[i].vertices * gq_tet_far.coordinate
+    end
+    
+    rq_hex_near = Vector{Matrix{FT}}(undef, nhex)
+    rq_hex_far_pts = Vector{Matrix{FT}}(undef, nhex)
+    Threads.@threads for i in 1:nhex
+        rq_hex_near[i] = hexas[i].vertices * gq_hex.coordinate
+        rq_hex_far_pts[i] = hexas[i].vertices * gq_hex_far.coordinate
+    end
+    
+    println("VEFIE-PWC Mixed Assembly: $ntet tetra + $nhex hexa, $nbf unknowns.")
+    
+    # 1. Assemble tetra-tetra block
+    Z_tt = assemble_impedance_matrix(vefie, basis_tet, permittivities)
+    Z[1:nbf_tet, 1:nbf_tet] .= Z_tt
+    
+    # 2. Assemble hexa-hexa block
+    Z_hh = assemble_impedance_matrix(vefie, basis_hex, permittivities)
+    Z[nbf_tet+1:nbf, nbf_tet+1:nbf] .= Z_hh
+    
+    # 3. Assemble cross-coupling blocks (hexa-tetra and tetra-hexa)
+    Z_ts_buf = zeros(CT, 3, 3)
+    
+    for ti in 1:nhex
+        hex_t = hexas[ti]
+        κₜ = hex_t.κ
+        
+        for sj in 1:ntet
+            tet_s = tetras[sj]
+            κₛ = tet_s.κ
+            
+            dist_ts = norm(hex_t.center - tet_s.center)
+            rad_t = cbrt(hex_t.volume)
+            rad_s = cbrt(tet_s.volume)
+            threshold = 3.0 * (rad_t + rad_s)
+            
+            if dist_ts > threshold
+                _pwc_dyad_kernel!(Z_ts_buf, hex_t, tet_s, 
+                                  rq_hex_far_pts[ti], rq_tet_far_pts[sj],
+                                  gq_hex_far, gq_tet_far, Nq_hex_far, Nq_tet_far,
+                                  k, k², jk, Jη₀divK, div4π)
+            else
+                _pwc_dyad_kernel!(Z_ts_buf, hex_t, tet_s,
+                                  rq_hex_near[ti], rq_tet_near[sj],
+                                  gq_hex, gq_tet, Nq_hex, Nq_tet,
+                                  k, k², jk, Jη₀divK, div4π)
+            end
+            
+            for ni in 1:3, mi in 1:3
+                m = hex_t.inBfsID[mi]
+                n = tet_s.inBfsID[ni]
+                Z[m, n] = Z_ts_buf[mi, ni] * κₛ
+                Z[n, m] = Z_ts_buf[mi, ni] * κₜ
+            end
+        end
+    end
+    
+    println("VEFIE-PWC Mixed Assembly Completed.")
+    
+    return Z
 end
 
 end

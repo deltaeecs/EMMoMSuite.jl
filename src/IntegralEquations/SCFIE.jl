@@ -718,5 +718,438 @@ function assemble_coupling_blocks_pwc!(Z::Matrix{CT}, scfie::SCFIE,
     println("SCFIE-PWC Coupling Assembly Completed.")
 end
 
+# ============================================================================
+# SCFIE for RWG + PWCHexBasis (Surface-Volume with PWC on hexahedra)
+# ============================================================================
+
+"""
+    assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCHexBasis)
+
+Assemble the full coupled impedance matrix for SCFIE using PWC hexahedra volume basis.
+
+Structure:
+    [ Z_SS  Z_SV ]
+    [ Z_VS  Z_VV ]
+
+# Legacy Parity
+Matches `MoM_Kernels` `impedancemat4RWGPWC!` coupling with `EFIEOnRWGPWC` kernel (hexa version).
+"""
+function assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCHexBasis)
+    FT = eltype(scfie.freq)
+    CT = Complex{FT}
+    
+    n_surf = num_basis(surf_basis)
+    n_vol = num_basis(vol_basis)
+    n_total = n_surf + n_vol
+    
+    Z = zeros(CT, n_total, n_total)
+    
+    # Block 1: Z_SS (Surface CFIE)
+    cfie = CFIE(scfie.freq, scfie.alpha)
+    Z_SS = assemble_impedance_matrix(cfie, surf_basis)
+    Z[1:n_surf, 1:n_surf] = Z_SS
+    
+    # Block 4: Z_VV (Volume VEFIE with PWCHex)
+    vefie = VEFIE(scfie.freq, scfie.permittivities)
+    Z_VV = assemble_impedance_matrix(vefie, vol_basis)
+    Z[n_surf+1:end, n_surf+1:end] = Z_VV
+    
+    # Block 2 & 3: Coupling (RWG-PWCHex dyadic coupling)
+    assemble_coupling_blocks_pwc_hex!(Z, scfie, surf_basis, vol_basis)
+    
+    return Z
+end
+
+"""
+    assemble_coupling_blocks_pwc_hex!(Z, scfie, surf_basis, vol_basis)
+
+Assemble surface-volume coupling blocks Z_SV and Z_VS for RWG + PWC(Hexa).
+
+Uses the dyadic L operator: (k²I + ∇∇) G(R) to couple surface RWG with volume PWC.
+Same formula as RWG+PWC(Tetra) but with hexahedron GQ points.
+
+No Fss boundary correction needed (PWC has no half-basis functions).
+"""
+function assemble_coupling_blocks_pwc_hex!(Z::Matrix{CT}, scfie::SCFIE,
+                                            surf_basis::RWGBasis, vol_basis::PWCHexBasis) where {CT}
+    # Precompute geometry
+    tris = get_triangles_info(surf_basis.mesh, surf_basis)
+    hexas = get_hexahedra_info(vol_basis.mesh, vol_basis, scfie.permittivities)
+    
+    ntri = length(tris)
+    nhex = length(hexas)
+    n_surf = num_basis(surf_basis)
+    n_total = size(Z, 1)
+    
+    # Constants
+    FT = eltype(scfie.freq)
+    k = scfie.k
+    k² = k^2
+    jk = im * k
+    eta0 = scfie.eta
+    Jη₀divK = im * eta0 / k  # = j/(ωε₀)
+    div4π = FT(1.0 / (4π))
+    
+    # Hex GQ (created on the fly since SCFIE struct only has tet GQ)
+    gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    Nq_hex = length(gq_hex.weight)
+    
+    # Surface triangle GQ
+    gq_s = scfie.gq_surf
+    Nq_s = length(gq_s.weight)
+    
+    # Thread safety locks
+    row_locks = [SpinLock() for _ in 1:n_total]
+    
+    println("SCFIE-PWCHex Coupling Assembly: $ntri triangles x $nhex hexahedra.")
+    
+    Threads.@threads for it in 1:ntri
+        tri = tris[it]
+        
+        # Precompute triangle quadrature points
+        r_q_tri = tri.vertices * gq_s.coordinate
+        
+        for js in 1:nhex
+            hex = hexas[js]
+            κs = hex.κ
+            Vs = hex.volume
+            
+            # Precompute hexahedron quadrature points
+            r_q_hex = hex.vertices * gq_hex.coordinate
+            
+            # Compute dyadic L integral for each surface GQ point
+            for gi in 1:Nq_s
+                rgi = @view r_q_tri[:, gi]
+                
+                # Accumulate dyadic Green's function over hex volume
+                dyadG = zeros(CT, 3, 3)
+                
+                for gj in 1:Nq_hex
+                    rgj = @view r_q_hex[:, gj]
+                    
+                    Rx = rgi[1] - rgj[1]
+                    Ry = rgi[2] - rgj[2]
+                    Rz = rgi[3] - rgj[3]
+                    R = sqrt(Rx^2 + Ry^2 + Rz^2)
+                    
+                    if R < 1e-10
+                        continue
+                    end
+                    
+                    divR = 1.0 / R
+                    jkplusR1stdivR1st = (jk + divR) * divR
+                    
+                    R̂x = Rx * divR
+                    R̂y = Ry * divR
+                    R̂z = Rz * divR
+                    
+                    GR = exp(-jk * R) * div4π * divR * gq_hex.weight[gj]
+                    
+                    # R̂R̂ dyad components
+                    RR11 = R̂x * R̂x; RR12 = R̂x * R̂y; RR13 = R̂x * R̂z
+                    RR22 = R̂y * R̂y; RR23 = R̂y * R̂z; RR33 = R̂z * R̂z
+                    
+                    # L_dyad: (I-R̂R̂)k² - (I/3-R̂R̂)×3(jk+1/R)/R
+                    coeff3 = 3 * jkplusR1stdivR1st
+                    dyadG[1,1] += GR * ((1-RR11)*k² - (1/3-RR11)*coeff3)
+                    dyadG[2,2] += GR * ((1-RR22)*k² - (1/3-RR22)*coeff3)
+                    dyadG[3,3] += GR * ((1-RR33)*k² - (1/3-RR33)*coeff3)
+                    
+                    od12 = GR * (-RR12*k² + RR12*coeff3)
+                    od13 = GR * (-RR13*k² + RR13*coeff3)
+                    od23 = GR * (-RR23*k² + RR23*coeff3)
+                    
+                    dyadG[1,2] += od12; dyadG[2,1] += od12
+                    dyadG[1,3] += od13; dyadG[3,1] += od13
+                    dyadG[2,3] += od23; dyadG[3,2] += od23
+                end
+                
+                # Contract with surface RWG basis functions
+                for mi in 1:3
+                    m = tri.inBfsID[mi]
+                    if m == 0; continue; end
+                    
+                    lm = tri.edgel[mi]
+                    freeVm = tri.vertices[:, mi]
+                    ρmi = SVector(rgi[1] - freeVm[1], rgi[2] - freeVm[2], rgi[3] - freeVm[3])
+                    
+                    temp = gq_s.weight[gi] * lm / 2
+                    
+                    for ni in 1:3
+                        n = hex.inBfsID[ni]
+                        
+                        # Z_SV: ρ · dyadG[:, ni], with κ
+                        dot_sv = ρmi[1]*dyadG[1,ni] + ρmi[2]*dyadG[2,ni] + ρmi[3]*dyadG[3,ni]
+                        z_sv = temp * dot_sv * Jη₀divK * Vs * κs
+                        
+                        # Z_VS: ρ · dyadG[ni, :], no κ
+                        dot_vs = ρmi[1]*dyadG[ni,1] + ρmi[2]*dyadG[ni,2] + ρmi[3]*dyadG[ni,3]
+                        z_vs = temp * dot_vs * Jη₀divK * Vs
+                        
+                        lock(row_locks[m])
+                        try
+                            Z[m, n_surf + n] += z_sv
+                        finally
+                            unlock(row_locks[m])
+                        end
+                        
+                        row_idx = n_surf + n
+                        lock(row_locks[row_idx])
+                        try
+                            Z[row_idx, m] += z_vs
+                        finally
+                            unlock(row_locks[row_idx])
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    println("SCFIE-PWCHex Coupling Assembly Completed.")
+end
+
+# ============================================================================
+# SCFIE for RWG + RBF (Surface-Volume with RBF hexahedra basis)
+# ============================================================================
+
+"""
+    assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::RBFBasis)
+
+Assemble the full coupled impedance matrix for SCFIE using RBF hexahedra volume basis.
+
+Structure:
+    [ Z_SS  Z_SV ]
+    [ Z_VS  Z_VV ]
+
+Z_SV and Z_VS use the scalar potential form:
+    Fsv = Σ_gi Σ_gj (ρm·ρn/2 - 1/k²) G(rgi, rgj) × w_gi × w_gj
+    Z_SV = κs × jkη₀/(4π) × lm × An × Fsv
+    Z_VS = jkη₀/(4π) × lm × An × Fsv
+
+Plus Fss boundary correction for half-RBF basis functions on boundary faces.
+
+# Legacy Parity
+Matches `MoM_Kernels` `EFIEVSIERWGRBF.jl`.
+"""
+function assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::RBFBasis)
+    FT = eltype(scfie.freq)
+    CT = Complex{FT}
+    
+    n_surf = num_basis(surf_basis)
+    n_vol = num_basis(vol_basis)
+    n_total = n_surf + n_vol
+    
+    Z = zeros(CT, n_total, n_total)
+    
+    # Block 1: Z_SS (Surface CFIE)
+    cfie = CFIE(scfie.freq, scfie.alpha)
+    Z_SS = assemble_impedance_matrix(cfie, surf_basis)
+    Z[1:n_surf, 1:n_surf] = Z_SS
+    
+    # Block 4: Z_VV (Volume VEFIE with RBF)
+    vefie = VEFIE(scfie.freq, scfie.permittivities)
+    Z_VV = assemble_impedance_matrix(vefie, vol_basis)
+    Z[n_surf+1:end, n_surf+1:end] = Z_VV
+    
+    # Block 2 & 3: Coupling (RWG-RBF)
+    assemble_coupling_blocks_rbf!(Z, scfie, surf_basis, vol_basis)
+    
+    return Z
+end
+
+"""
+    assemble_coupling_blocks_rbf!(Z, scfie, surf_basis, vol_basis)
+
+Assemble surface-volume coupling blocks Z_SV and Z_VS for RWG + RBF.
+
+Uses scalar potential form (not dyadic L for better numerical stability with RBF):
+    Fsv = Σ Σ (ρm·ρn/2 - 1/k²) G w_gi w_gj
+    Fsv *= lm × An
+    Z_SV[m,n] = κs × jkη₀/(4π) × Fsv
+    Z_VS[n,m] = jkη₀/(4π) × Fsv
+
+Plus Fss boundary correction for half-RBF basis functions:
+    Fss = ∫∫ G(r_tri, r_face) dS_tri dS_face
+    Fss *= lm × |An|
+    temp = jkη₀/(4π) × (1/k²) × Fss
+    Z_SV[m,n] += δκn × temp
+    Z_VS[n,m] += temp (if is_boundary)
+"""
+function assemble_coupling_blocks_rbf!(Z::Matrix{CT}, scfie::SCFIE,
+                                        surf_basis::RWGBasis, vol_basis::RBFBasis) where {CT}
+    # Precompute geometry
+    tris = get_triangles_info(surf_basis.mesh, surf_basis)
+    hexas = get_hexahedra_info(vol_basis.mesh, vol_basis, scfie.permittivities)
+    
+    ntri = length(tris)
+    nhex = length(hexas)
+    n_surf = num_basis(surf_basis)
+    n_total = size(Z, 1)
+    
+    # Constants
+    FT = eltype(scfie.freq)
+    k = scfie.k
+    k² = k^2
+    jk = im * k
+    eta0 = scfie.eta
+    JKη₀div4π = im * k * eta0 / (4 * FT(π))  # jkη₀/(4π)
+    divk² = 1.0 / k²
+    div4π = FT(1.0 / (4π))
+    
+    # Hex GQ (on the fly)
+    gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    Nq_hex = length(gq_hex.weight)
+    
+    # Quad GQ for Fss (on the fly)
+    gq_quad = GaussQuadratureInfo(:Quadrangle, 4, FT)
+    Nq_quad = length(gq_quad.weight)
+    
+    # Surface triangle GQ
+    gq_s = scfie.gq_surf
+    Nq_s = length(gq_s.weight)
+    
+    # Thread safety locks
+    row_locks = [SpinLock() for _ in 1:n_total]
+    
+    println("SCFIE-RBF Coupling Assembly: $ntri triangles x $nhex hexahedra.")
+    
+    Threads.@threads for it in 1:ntri
+        tri = tris[it]
+        
+        # Precompute triangle quadrature points
+        r_q_tri = tri.vertices * gq_s.coordinate
+        
+        # Precompute Green's function × weight for reuse across basis functions
+        for js in 1:nhex
+            hex = hexas[js]
+            κs = hex.κ
+            
+            # Precompute hex quadrature points
+            r_q_hex = hex.vertices * gq_hex.coordinate
+            
+            # Precompute gw matrix: G(rgi, rgj) × w_gi × w_gj
+            gw = zeros(CT, Nq_s, Nq_hex)
+            @inbounds for gj in 1:Nq_hex
+                rgj = @view r_q_hex[:, gj]
+                for gi in 1:Nq_s
+                    rgi = @view r_q_tri[:, gi]
+                    Rx = rgi[1] - rgj[1]
+                    Ry = rgi[2] - rgj[2]
+                    Rz = rgi[3] - rgj[3]
+                    R = sqrt(Rx^2 + Ry^2 + Rz^2)
+                    if R < 1e-10
+                        continue
+                    end
+                    gw[gi, gj] = exp(-jk * R) * div4π / R * gq_s.weight[gi] * gq_hex.weight[gj]
+                end
+            end
+            
+            # Precompute free-end points for all 6 RBF functions
+            freeVns_all = [get_free_vns(hex, fi, gq_hex.coordinate) for fi in 1:6]
+            
+            # Loop over RBF source basis functions (6 per hex)
+            for ni in 1:6
+                arean = hex.facesArea[ni]
+                face = hex.faces[ni]
+                δκn = face.δκ
+                isbdn = face.isbd
+                freeVns = freeVns_all[ni]
+                
+                # Loop over RWG test basis functions (3 per triangle)
+                for mi in 1:3
+                    m = tri.inBfsID[mi]
+                    m == 0 && continue
+                    
+                    lm = tri.edgel[mi]
+                    freeVm = tri.vertices[:, mi]
+                    lman = lm * arean
+                    
+                    # --- Fsv term ---
+                    Fsv = zero(CT)
+                    @inbounds for gj in 1:Nq_hex
+                        rgj = @view r_q_hex[:, gj]
+                        # ρn: source RBF vector at gj
+                        # free end for this GQ point (interpolated on opposite face)
+                        freeVn = @view freeVns[:, gj]
+                        ρnj_x = rgj[1] - freeVn[1]
+                        ρnj_y = rgj[2] - freeVn[2]
+                        ρnj_z = rgj[3] - freeVn[3]
+                        
+                        for gi in 1:Nq_s
+                            rgi = @view r_q_tri[:, gi]
+                            # ρm: test RWG vector at gi
+                            ρmi_x = rgi[1] - freeVm[1]
+                            ρmi_y = rgi[2] - freeVm[2]
+                            ρmi_z = rgi[3] - freeVm[3]
+                            
+                            dot_val = ρmi_x*ρnj_x + ρmi_y*ρnj_y + ρmi_z*ρnj_z
+                            Fsv += (dot_val / 2 - divk²) * gw[gi, gj]
+                        end
+                    end
+                    Fsv *= lman
+                    
+                    # Compute Z contributions
+                    JKη₀div4πFsv = JKη₀div4π * Fsv
+                    Zmn = κs * JKη₀div4πFsv  # Z_SV
+                    Znm = JKη₀div4πFsv        # Z_VS
+                    
+                    # --- Fss term (boundary correction) ---
+                    if isbdn || !iszero(δκn)
+                        # Compute face-to-face integral
+                        rq_face = hex.faces[ni].vertices * gq_quad.coordinate
+                        
+                        Fss = zero(CT)
+                        @inbounds for gj in 1:Nq_quad
+                            rgj = @view rq_face[:, gj]
+                            for gi in 1:Nq_s
+                                rgi = @view r_q_tri[:, gi]
+                                Rx = rgi[1] - rgj[1]
+                                Ry = rgi[2] - rgj[2]
+                                Rz = rgi[3] - rgj[3]
+                                R = sqrt(Rx^2 + Ry^2 + Rz^2)
+                                if R < 1e-10
+                                    continue
+                                end
+                                G = exp(-jk * R) * div4π / R
+                                Fss += G * gq_s.weight[gi] * gq_quad.weight[gj]
+                            end
+                        end
+                        Fss *= lm * abs(arean)
+                        
+                        temp = JKη₀div4π * divk² * Fss
+                        if !iszero(δκn)
+                            Zmn += δκn * temp
+                        end
+                        if isbdn
+                            Znm += temp
+                        end
+                    end
+                    
+                    # Fill Z_SV
+                    n = hex.inBfsID[ni]
+                    lock(row_locks[m])
+                    try
+                        Z[m, n_surf + n] += Zmn
+                    finally
+                        unlock(row_locks[m])
+                    end
+                    
+                    # Fill Z_VS
+                    row_idx = n_surf + n
+                    lock(row_locks[row_idx])
+                    try
+                        Z[row_idx, m] += Znm
+                    finally
+                        unlock(row_locks[row_idx])
+                    end
+                end
+            end
+        end
+    end
+    
+    println("SCFIE-RBF Coupling Assembly Completed.")
+end
+
     
 end

@@ -210,11 +210,16 @@ end
     # My list: 2. (1,4,8,5).
     # So Hex 1 Face 1 matches Hex 2 Face 2.
     
-    # We expect 1 internal face.
+    # We expect 11 total basis functions:
+    # 2 hexes × 6 faces = 12 faces; 1 shared internal face → 1 internal + 10 boundary = 11
     
-    @test num_basis(basis) == 1
+    @test num_basis(basis) == 11
     
-    rbf = basis.functions[1]
+    # Find the internal (non-boundary) basis function
+    internal_idx = findfirst(f -> !f.is_boundary, basis.functions)
+    @test internal_idx !== nothing
+    
+    rbf = basis.functions[internal_idx]
     @test rbf.is_boundary == false
     
     # Area of face (unit square) = 1

@@ -3,7 +3,7 @@ using ..Geometry
 using StaticArrays
 using LinearAlgebra
 
-export count_unknowns, get_triangle_info, get_triangles_info, get_tetrahedra_info
+export count_unknowns, get_triangle_info, get_triangles_info, get_tetrahedra_info, get_hexahedra_info
 
 """
     get_triangles_info(mesh, basis)
@@ -184,6 +184,176 @@ function get_tetrahedra_info(mesh::TetrahedraMesh{IT, FT}, basis::SWGBasis{IT, F
     
     Threads.@threads for i in 1:ntet
         infos[i] = TetrahedraInfo(mesh, i, SVector{4, IT}(tet_bfs[i]...), SVector{4, Int}(tet_signs[i]...), permittivities[i])
+    end
+    
+    return infos
+end
+
+"""
+    get_hexahedra_info(mesh, basis::RBFBasis, permittivities)
+
+Construct a vector of HexahedraInfo for the entire hexahedral mesh with RBF basis functions.
+Each hexahedron has 6 RBF basis function slots (one per face).
+"""
+function get_hexahedra_info(mesh::HexahedraMesh{IT, FT}, basis::RBFBasis{IT, FT}, 
+                            permittivities::Vector{ComplexF64}) where {IT, FT}
+    nhex = mesh.hexnum
+    nodes = vertices(mesh)
+    hexes = elements(mesh)
+    infos = Vector{HexahedraInfo{IT, FT, ComplexF64}}(undef, nhex)
+    
+    # Build basis-to-hex mapping (which bf covers which face of which hex)
+    hex_bfs = [zeros(IT, 6) for _ in 1:nhex]
+    hex_signs = [zeros(Int, 6) for _ in 1:nhex]
+    
+    for bf in basis.functions
+        hex1 = bf.support[1]
+        face1 = bf.local_face_idx[1]
+        hex_bfs[hex1][face1] = bf.id
+        hex_signs[hex1][face1] = bf.signs[1]
+        
+        if !bf.is_boundary
+            hex2 = bf.support[2]
+            face2 = bf.local_face_idx[2]
+            hex_bfs[hex2][face2] = bf.id
+            hex_signs[hex2][face2] = bf.signs[2]
+        end
+    end
+    
+    for i in 1:nhex
+        vid = SVector{8, IT}(hexes[:, i]...)
+        verts = SMatrix{3, 8, FT, 24}(hcat([SVector{3, FT}(nodes[:, vid[j]]) for j in 1:8]...))
+        center = SVector{3, FT}(sum(verts, dims=2)[:] / 8)
+        
+        # Volume (absolute value of signed decomposition)
+        vol = abs(hex_volume(eachcol(verts)...))
+        
+        # Permittivity
+        ε = permittivities[i]
+        κ = (ε - 1) / ε
+        
+        # Face normals, areas, and Quads4Hexa
+        fn = MMatrix{3, 6, FT, 18}(zeros(FT, 3, 6))
+        fa = MVector{6, FT}(zeros(FT, 6))
+        quads = Vector{Quads4Hexa{FT}}(undef, 6)
+        
+        for f in 1:6
+            fv_ids = HEXA_FACE_VERTEX_IDS[:, f]
+            fv = SMatrix{3, 4, FT, 12}(hcat([verts[:, fv_ids[j]] for j in 1:4]...))
+            
+            # Edge vectors: v1→v2, v2→v3, v3→v4, v4→v1
+            ev_cols = [fv[:, mod1(j+1, 4)] - fv[:, j] for j in 1:4]
+            el_vals = [norm(ev_cols[j]) for j in 1:4]
+            evu_cols = [ev_cols[j] / el_vals[j] for j in 1:4]
+            
+            el = SVector{4, FT}(el_vals...)
+            evu = SMatrix{3, 4, FT, 12}(hcat(evu_cols...))
+            
+            # Face normal: -cross(edge1, edge2) to match Legacy convention
+            face_n = -cross(ev_cols[1], ev_cols[2])
+            face_n_unit = face_n / norm(face_n)
+            
+            # Orient outward
+            if dot(fv[:, 1] - center, face_n_unit) < 0
+                face_n_unit = -face_n_unit
+            end
+            
+            # Face area (two triangles)
+            farea = 0.5 * norm(cross(fv[:, 2] - fv[:, 1], fv[:, 3] - fv[:, 1]))
+            farea += 0.5 * norm(cross(fv[:, 3] - fv[:, 1], fv[:, 4] - fv[:, 1]))
+            
+            fn[:, f] = face_n_unit
+            # Apply sign from basis function assignment
+            sign_f = hex_signs[i][f]
+            fa[f] = farea * (sign_f == 0 ? FT(1) : FT(sign_f))
+            
+            # Edge normals (in face plane): cross(face_normal, edge_unit_vec)
+            en_cols = [cross(face_n_unit, evu_cols[j]) for j in 1:4]
+            en = SMatrix{3, 4, FT, 12}(hcat(en_cols...))
+            
+            # Determine if boundary face
+            is_bd = (hex_bfs[i][f] == 0) || 
+                    (hex_bfs[i][f] > 0 && basis.functions[hex_bfs[i][f]].is_boundary)
+            
+            quads[f] = Quads4Hexa{FT}(is_bd, zero(Complex{FT}), fv, el, evu, en)
+        end
+        
+        infos[i] = HexahedraInfo{IT, FT, ComplexF64}(
+            IT(i), mesh.tags[i], vol, ε, κ, center, vid, verts,
+            fn, fa, quads, collect(hex_bfs[i])
+        )
+    end
+    
+    # Set δκ values for each face
+    set_delta_kappa!(infos)
+    
+    return infos
+end
+
+"""
+    get_hexahedra_info(mesh, basis::PWCBasis, permittivities)
+
+Construct a vector of HexahedraInfo for the entire hexahedral mesh with PWC basis functions.
+PWC uses 3 DOFs per hexahedron (x, y, z components).
+inBfsID stores [bfx, bfy, bfz, 0, 0, 0] (3 active, 3 unused).
+"""
+function get_hexahedra_info(mesh::HexahedraMesh{IT, FT}, basis::PWCHexBasis{IT, FT},
+                            permittivities::Vector{ComplexF64}) where {IT, FT}
+    nhex = mesh.hexnum
+    nodes = vertices(mesh)
+    hexes = elements(mesh)
+    infos = Vector{HexahedraInfo{IT, FT, ComplexF64}}(undef, nhex)
+    
+    for i in 1:nhex
+        vid = SVector{8, IT}(hexes[:, i]...)
+        verts = SMatrix{3, 8, FT, 24}(hcat([SVector{3, FT}(nodes[:, vid[j]]) for j in 1:8]...))
+        center = SVector{3, FT}(sum(verts, dims=2)[:] / 8)
+        
+        vol = abs(hex_volume(eachcol(verts)...))
+        
+        ε = permittivities[i]
+        κ = (ε - 1) / ε
+        
+        fn = MMatrix{3, 6, FT, 18}(zeros(FT, 3, 6))
+        fa = MVector{6, FT}(zeros(FT, 6))
+        quads = Vector{Quads4Hexa{FT}}(undef, 6)
+        
+        for f in 1:6
+            fv_ids = HEXA_FACE_VERTEX_IDS[:, f]
+            fv = SMatrix{3, 4, FT, 12}(hcat([verts[:, fv_ids[j]] for j in 1:4]...))
+            
+            ev_cols = [fv[:, mod1(j+1, 4)] - fv[:, j] for j in 1:4]
+            el_vals = [norm(ev_cols[j]) for j in 1:4]
+            evu_cols = [ev_cols[j] / el_vals[j] for j in 1:4]
+            
+            el = SVector{4, FT}(el_vals...)
+            evu = SMatrix{3, 4, FT, 12}(hcat(evu_cols...))
+            
+            face_n = -cross(ev_cols[1], ev_cols[2])
+            face_n_unit = face_n / norm(face_n)
+            if dot(fv[:, 1] - center, face_n_unit) < 0
+                face_n_unit = -face_n_unit
+            end
+            
+            farea = 0.5 * norm(cross(fv[:, 2] - fv[:, 1], fv[:, 3] - fv[:, 1]))
+            farea += 0.5 * norm(cross(fv[:, 3] - fv[:, 1], fv[:, 4] - fv[:, 1]))
+            
+            fn[:, f] = face_n_unit
+            fa[f] = farea
+            
+            en_cols = [cross(face_n_unit, evu_cols[j]) for j in 1:4]
+            en = SMatrix{3, 4, FT, 12}(hcat(en_cols...))
+            
+            quads[f] = Quads4Hexa{FT}(true, zero(Complex{FT}), fv, el, evu, en)
+        end
+        
+        # PWC: 3 basis functions per hex (x, y, z)
+        bf_ids = IT[3*(i-1)+1, 3*(i-1)+2, 3*(i-1)+3, 0, 0, 0]
+        
+        infos[i] = HexahedraInfo{IT, FT, ComplexF64}(
+            IT(i), mesh.tags[i], vol, ε, κ, center, vid, verts,
+            fn, fa, quads, bf_ids
+        )
     end
     
     return infos

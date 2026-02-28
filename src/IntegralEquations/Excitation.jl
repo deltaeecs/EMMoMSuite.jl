@@ -435,4 +435,154 @@ function excitation_vector(source::AbstractSource, surface_basis::RWGBasis, volu
     return [V_surf; V_vol]
 end
 
+# ============================================================================
+# Hex Volume Excitation: PWCHexBasis
+# ============================================================================
+
+"""
+    excitation_vector(op::VEFIE, source::PlaneWave, basis::PWCHexBasis)
+
+Compute the VEFIE excitation vector for PWC hexahedra basis functions.
+
+For each hexahedron h, the 3 excitation components (x, y, z) are:
+    V[3(h-1)+i] = V_h × Σ_gq w_gq × E_inc(r_gq)[i]
+
+# Legacy Parity
+Matches `MoM_Kernels` `excitationVectorEFIE` for `ConstBasisFunction` (hexahedra).
+"""
+function excitation_vector(source::PlaneWave, basis::PWCHexBasis{IT, FT}) where {IT, FT}
+    CT = Complex{FT}
+    N = num_basis(basis)
+    V = zeros(CT, N)
+    
+    # Use hex GQ
+    quad = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = mesh.hexas  # 8×nhex
+    nhex = length(basis.functions)
+    
+    for h in 1:nhex
+        pwc = basis.functions[h]
+        vol = pwc.volume
+        
+        # Get hex vertices as 3×8 matrix
+        v_idx = elems[:, h]
+        hex_verts = hcat([verts[:, v_idx[i]] for i in 1:8]...)
+        
+        # Integrate E_inc over hexahedron
+        E_sum = zero(MVector{3, CT})
+        for q in 1:num_q
+            # Hex shape function: r = Σ_i N_i(u,v,w) × v_i 
+            # quad.coordinate is 8×Nq (8-node shape function values)
+            r = hex_verts * quad.coordinate[:, q]
+            E_inc = incident_field(source, r)
+            E_sum .+= E_inc .* quad.weight[q]
+        end
+        E_sum .*= vol
+        
+        # Scatter to global indices
+        for i in 1:3
+            V[pwc.inBfsID[i]] = E_sum[i]
+        end
+    end
+    
+    return V
+end
+
+"""
+    excitation_vector(source, surface_basis::RWGBasis, volume_basis::PWCHexBasis)
+
+Compute combined excitation vector for SCFIE (RWG + PWCHex).
+"""
+function excitation_vector(source::AbstractSource, surface_basis::RWGBasis, volume_basis::PWCHexBasis)
+    V_surf = excitation_vector(source, surface_basis)
+    V_vol = excitation_vector(source, volume_basis)
+    return [V_surf; V_vol]
+end
+
+# ============================================================================
+# Hex Volume Excitation: RBFBasis
+# ============================================================================
+
+"""
+    excitation_vector(op::VEFIE, source::PlaneWave, basis::RBFBasis)
+
+Compute the VEFIE excitation vector for RBF (rooftop) basis functions.
+
+For each face m on hexahedron h:
+    V_m = A_m × Σ_gq w_gq × ρ_m(r_gq) · E_inc(r_gq)
+
+where ρ_m(r) = r - r_free(gq) and r_free is the corresponding point on the
+opposite face (varies with quadrature point, unlike SWG's fixed opposite vertex).
+
+# Legacy Parity
+Matches `MoM_Kernels` `excitationVectorEFIE` for `LinearBasisFunction` (hexahedra).
+"""
+function excitation_vector(source::PlaneWave, basis::RBFBasis{IT, FT}) where {IT, FT}
+    CT = Complex{FT}
+    N = num_basis(basis)
+    V = zeros(CT, N)
+    
+    # Use hex GQ
+    quad = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    elems = mesh.hexas  # 8×nhex
+    nhex = size(elems, 2)
+    
+    # Get hexahedra info (needed for face areas and free-end computation)
+    # We create dummy permittivities for geometry-only purposes
+    dummy_perm = fill(Complex{FT}(1.0), nhex)
+    hexas = get_hexahedra_info(mesh, basis, dummy_perm)
+    
+    for (jh, hex) in enumerate(hexas)
+        # Precompute hex GQ points: 3×Nq
+        rq_hex = hex.vertices * quad.coordinate
+        
+        # For each RBF face
+        for mi in 1:6
+            n = hex.inBfsID[mi]
+            
+            arean = hex.facesArea[mi]
+            freeVns = get_free_vns(hex, mi, quad.coordinate)
+            
+            val = zero(CT)
+            @inbounds for q in 1:num_q
+                rq = @view rq_hex[:, q]
+                freeV = @view freeVns[:, q]
+                
+                # ρ_m = r - r_free
+                ρ_x = rq[1] - freeV[1]
+                ρ_y = rq[2] - freeV[2]
+                ρ_z = rq[3] - freeV[3]
+                
+                E_inc = incident_field(source, rq)
+                
+                # ρ · E_inc
+                val += (ρ_x * E_inc[1] + ρ_y * E_inc[2] + ρ_z * E_inc[3]) * quad.weight[q]
+            end
+            val *= arean
+            
+            V[n] += val
+        end
+    end
+    
+    return V
+end
+
+"""
+    excitation_vector(source, surface_basis::RWGBasis, volume_basis::RBFBasis)
+
+Compute combined excitation vector for SCFIE (RWG + RBF).
+"""
+function excitation_vector(source::AbstractSource, surface_basis::RWGBasis, volume_basis::RBFBasis)
+    V_surf = excitation_vector(source, surface_basis)
+    V_vol = excitation_vector(source, volume_basis)
+    return [V_surf; V_vol]
+end
+
 end
