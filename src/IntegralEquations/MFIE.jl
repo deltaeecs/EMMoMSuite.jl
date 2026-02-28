@@ -11,7 +11,7 @@ using SparseArrays
 
 import ..CoreModule: assemble_impedance_matrix
 
-export MFIE, assemble_impedance_matrix
+export MFIE, assemble_impedance_matrix, mfie_interaction!
 
 """
     MFIE{FT, CT} <: AbstractIntegralOperator
