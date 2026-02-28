@@ -21,7 +21,7 @@ using ....IntegralEquations.CFIEModule: CFIE
 using ....IntegralEquations.VEFIEModule: vefie_element_interaction, vefie_element_interaction_kernel, precompute_vefie_basis, vefie_mass_matrix_cached, TetBasisCache, get_tetrahedra_info, VEFIE
 using ....IntegralEquations.SCFIEModule: SCFIE, scfie_coupling_interaction, assemble_fss_boundary_correction_sparse
 
-export MLFMAOperator, mul!
+export MLFMAOperator, mul!, get_leaf_intervals
 
 """
     MLFMAOperator
@@ -96,6 +96,17 @@ end
 Base.eltype(op::MLFMAOperator{FT, CT}) where {FT, CT} = CT
 Base.size(op::MLFMAOperator) = size(op.Z_near)
 Base.size(op::MLFMAOperator, i::Int) = size(op.Z_near, i)
+
+"""
+    get_leaf_intervals(op::MLFMAOperator) -> Vector{UnitRange{Int}}
+
+Return the basis function intervals for each leaf-level cube.
+Used to construct Block Jacobi preconditioners.
+"""
+function get_leaf_intervals(op::MLFMAOperator)
+    leaf_level = op.octree.levels[op.octree.nLevels]
+    return [cube.bfInterval for cube in leaf_level.cubes]
+end
 
 function Base.:*(A::MLFMAOperator, x::AbstractVector)
     y = similar(x)

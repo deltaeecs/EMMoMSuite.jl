@@ -12,6 +12,6 @@ include("IterativeSolvers/Wrappers.jl")
 using .IterativeWrappers
 
 export LUSolver, GMRESSolver, BiCGSTABSolver, solve!
-export DiagonalPreconditioner, IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner
+export DiagonalPreconditioner, IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
 
 end
