@@ -50,6 +50,8 @@ EMSuite.jl/src/
 > - [x] 8.6 @fastmath + SIMD ✅ (`1c6d499`)
 > - [x] 8.7 BlockJacobiPreconditioner ✅ (`76f8b16`)
 > - [x] 8.8 最终基准复测 + OOM 修复 ✅ (`6f4987a`)
+> - [x] 8.9 CFIE 单循环直接填充 ✅ (`ee6e2b1`) — Jet CFIE 14.48s
+> - [x] 8.10 VEFIE 上三角对称优化 ✅ (`bbf8fdd`) — VEFIE **41.30s** (快 Legacy 12%); SCFIE **65.67s** (快 Legacy 1.5%)
 
 ### Phase 9: 代码质量与发布 **(下一阶段)**
 
