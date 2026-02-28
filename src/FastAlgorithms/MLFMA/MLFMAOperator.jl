@@ -269,31 +269,44 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
     # 4. Assembly Loop
     n_threads = Threads.nthreads()
     max_tid = Threads.maxthreadid()
-    Is = [Int[] for _ in 1:max_tid]
-    Js = [Int[] for _ in 1:max_tid]
-    Vs = [ComplexF64[] for _ in 1:max_tid]
     
-    println("Assembling Near Field Matrix (Optimized) with $n_threads threads...")
-    println("  Sorted IDs: $(length(sorted_ids))")
-    
+    # Pre-estimate nnz: each triangle pair contributes up to 9 entries.
+    # Total near-field pairs ≈ sum(|cube_tris| × |neigh_tris| × |neighbors|)
+    estimated_nnz_per_thread = 0
     non_empty_cubes = 0
-    for c in leaf_level.cubes
-        if !isempty(c.bfInterval)
-            non_empty_cubes += 1
+    for i_c in 1:n_cubes
+        cube_c = leaf_level.cubes[i_c]
+        if isempty(cube_c.bfInterval) continue end
+        non_empty_cubes += 1
+        n_my = length(cube_tris_vec[i_c]) + length(cube_tets_vec[i_c])
+        for ni in cube_c.neighbors
+            n_neigh = length(cube_tris_vec[ni]) + length(cube_tets_vec[ni])
+            estimated_nnz_per_thread += n_my * n_neigh * 9
         end
     end
-    println("  Non-empty Cubes: $non_empty_cubes")
+    estimated_nnz_per_thread = max(1024, div(estimated_nnz_per_thread, max(n_threads, 1)))
+    
+    Is = [Vector{Int}(undef, estimated_nnz_per_thread) for _ in 1:max_tid]
+    Js = [Vector{Int}(undef, estimated_nnz_per_thread) for _ in 1:max_tid]
+    Vs = [Vector{ComplexF64}(undef, estimated_nnz_per_thread) for _ in 1:max_tid]
+    counts = zeros(Int, max_tid)  # actual count per thread
+    
+    println("Assembling Near Field Matrix (Optimized) with $n_threads threads...")
+    println("  Non-empty Cubes: $non_empty_cubes, est nnz/thread: $estimated_nnz_per_thread")
     
     # Progress counter
     counter = Threads.Atomic{Int}(0)
     total_cubes = n_cubes
     
+    # Determine if CFIE/SCFIE needs Z_mfie buffer
+    needs_mfie = operator isa CFIE || operator isa SCFIE
+    
     Threads.@threads for i_cube in 1:n_cubes
         tid = Threads.threadid()
         
-        # Progress update
+        # Progress update (every 200 cubes to reduce overhead)
         c = Threads.atomic_add!(counter, 1)
-        if c % 100 == 0 || c == total_cubes
+        if c % 200 == 0 || c == total_cubes
             print("\rProgress: $c / $total_cubes cubes")
         end
         
@@ -302,6 +315,10 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
         
         my_tris = cube_tris_vec[i_cube]
         my_tets = cube_tets_vec[i_cube]
+        
+        # Thread-local 3×3 interaction buffers (reused per pair)
+        Z_local = @MMatrix zeros(ComplexF64, 3, 3)
+        Z_mfie_buf = needs_mfie ? @MMatrix(zeros(ComplexF64, 3, 3)) : Z_local
         
         neighbors = cube.neighbors
         for neighbor_idx in neighbors
@@ -318,27 +335,32 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
                     for t_src in neigh_tris
                         tri_src = all_tris[t_src]
                         
-                        Z_local = @MMatrix zeros(ComplexF64, 3, 3)
+                        fill!(Z_local, zero(ComplexF64))
                         if operator isa SCFIE
                              efie_interaction!(Z_local, efie_op, tri_test, tri_src)
-                             Z_mfie = @MMatrix zeros(ComplexF64, 3, 3)
-                             mfie_interaction!(Z_mfie, mfie_op, tri_test, tri_src)
+                             fill!(Z_mfie_buf, zero(ComplexF64))
+                             mfie_interaction!(Z_mfie_buf, mfie_op, tri_test, tri_src)
                              alpha = operator.alpha
                              # Note: mfie_interaction! already includes eta internally
                              # Match CFIE formula: alpha * Z_efie + (1-alpha) * Z_mfie
-                             Z_local .= alpha .* Z_local .+ (1.0 - alpha) .* Z_mfie
+                             @inbounds for idx in eachindex(Z_local)
+                                 Z_local[idx] = alpha * Z_local[idx] + (1.0 - alpha) * Z_mfie_buf[idx]
+                             end
                         elseif operator isa CFIE
                              efie_interaction!(Z_local, operator.efie, tri_test, tri_src)
-                             Z_mfie = @MMatrix zeros(ComplexF64, 3, 3)
-                             mfie_interaction!(Z_mfie, operator.mfie, tri_test, tri_src)
-                             Z_local .= operator.alpha .* Z_local .+ (1.0 - operator.alpha) .* Z_mfie
+                             fill!(Z_mfie_buf, zero(ComplexF64))
+                             mfie_interaction!(Z_mfie_buf, operator.mfie, tri_test, tri_src)
+                             @inbounds for idx in eachindex(Z_local)
+                                 Z_local[idx] = operator.alpha * Z_local[idx] + (1.0 - operator.alpha) * Z_mfie_buf[idx]
+                             end
                         elseif operator isa MFIE
                              mfie_interaction!(Z_local, operator, tri_test, tri_src)
                         else
                              efie_interaction!(Z_local, operator, tri_test, tri_src)
                         end
                         
-                        distribute_term!(Is[tid], Js[tid], Vs[tid], Z_local, 
+                        distribute_term!(Is, Js, Vs, counts, tid,
+                                         Z_local, 
                                          tri_to_rwg[t_test], tri_to_rwg[t_src], 
                                          cube.bfInterval, neighbor_cube.bfInterval, 
                                          inv_sorted_ids)
@@ -365,7 +387,8 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
                             Z_ts = Z_ts .+ M_t
                         end
                         
-                        distribute_term_nosign!(Is[tid], Js[tid], Vs[tid], Z_ts, 
+                        distribute_term_nosign!(Is, Js, Vs, counts, tid,
+                                         Z_ts, 
                                          tet_to_swg[t_test], tet_to_swg[t_src], 
                                          cube.bfInterval, neighbor_cube.bfInterval, 
                                          inv_sorted_ids)
@@ -384,7 +407,8 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
                             tet_src = all_tets[t_src]
                             
                             Z_sv, _ = scfie_coupling_interaction(operator, tri_test, tet_src)
-                            distribute_term_nosign!(Is[tid], Js[tid], Vs[tid], Z_sv, 
+                            distribute_term_nosign!(Is, Js, Vs, counts, tid,
+                                             Z_sv, 
                                              tri_to_rwg[t_test], tet_to_swg[t_src], 
                                              cube.bfInterval, neighbor_cube.bfInterval, 
                                              inv_sorted_ids)
@@ -401,7 +425,8 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
                             
                             _, Z_vs = scfie_coupling_interaction(operator, tri_src, tet_test)
                             
-                            distribute_term_nosign!(Is[tid], Js[tid], Vs[tid], Z_vs, 
+                            distribute_term_nosign!(Is, Js, Vs, counts, tid,
+                                             Z_vs, 
                                              tet_to_swg[t_test], tri_to_rwg[t_src], 
                                              cube.bfInterval, neighbor_cube.bfInterval, 
                                              inv_sorted_ids)
@@ -412,7 +437,13 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
         end
     end
     
-    # Merge results
+    # Merge results — trim to actual counts
+    for tid in 1:max_tid
+        ct = counts[tid]
+        resize!(Is[tid], ct)
+        resize!(Js[tid], ct)
+        resize!(Vs[tid], ct)
+    end
     I_total = reduce(vcat, Is)
     J_total = reduce(vcat, Js)
     V_total = reduce(vcat, Vs)
@@ -422,7 +453,28 @@ end
 
 # Specialized interaction functions to ensure type stability
 
-function distribute_term!(Is, Js, Vs, Z_local, 
+"""
+    _ensure_capacity!(Is, Js, Vs, counts, tid, needed)
+
+Ensure COO arrays have at least `counts[tid] + needed` capacity.
+Uses amortized doubling to minimize reallocations.
+"""
+@inline function _ensure_capacity!(Is::Vector{Vector{Int}}, Js::Vector{Vector{Int}}, 
+                                    Vs::Vector{Vector{ComplexF64}}, counts::Vector{Int}, 
+                                    tid::Int, needed::Int)
+    required = counts[tid] + needed
+    cap = length(Is[tid])
+    if required > cap
+        new_cap = max(required, cap * 2)
+        resize!(Is[tid], new_cap)
+        resize!(Js[tid], new_cap)
+        resize!(Vs[tid], new_cap)
+    end
+    nothing
+end
+
+function distribute_term!(Is, Js, Vs, counts, tid,
+                          Z_local, 
                           test_bases, src_bases, 
                           test_interval, src_interval, 
                           inv_sorted_ids)
@@ -430,71 +482,57 @@ function distribute_term!(Is, Js, Vs, Z_local,
     # test_bases: Vector of (local_idx, global_basis_id, sign)
     # src_bases: Vector of (local_idx, global_basis_id, sign)
     
-    for (loc_test, glob_test, sign_test) in test_bases
-        # Check if test basis is in the current cube's interval
-        # We need to map global ID back to sorted index to check interval
-        if glob_test < 1 || glob_test > length(inv_sorted_ids)
-            println("Error: glob_test $glob_test out of bounds (1:$(length(inv_sorted_ids)))")
-            continue
-        end
+    # Pre-check capacity (up to 9 entries per pair)
+    _ensure_capacity!(Is, Js, Vs, counts, tid, length(test_bases) * length(src_bases))
+    
+    @inbounds for (loc_test, glob_test, sign_test) in test_bases
         sorted_idx_test = inv_sorted_ids[glob_test]
         if !(sorted_idx_test in test_interval)
             continue
         end
         
         for (loc_src, glob_src, sign_src) in src_bases
-            if glob_src < 1 || glob_src > length(inv_sorted_ids)
-                println("Error: glob_src $glob_src out of bounds (1:$(length(inv_sorted_ids)))")
-                continue
-            end
             sorted_idx_src = inv_sorted_ids[glob_src]
             
-            # Check if source basis is in the neighbor cube's interval
             if !(sorted_idx_src in src_interval)
                 continue
             end
             
-            # Get matrix element
             val = Z_local[loc_test, loc_src] * sign_test * sign_src
             
-            if abs(val) > 1e6
-                println("Warning: Large val $(abs(val)) at $glob_test, $glob_src")
-            end
-            
             if abs(val) > 1e-16
-                push!(Is, glob_test)
-                push!(Js, glob_src)
-                push!(Vs, val)
+                ct = counts[tid] + 1
+                counts[tid] = ct
+                Is[tid][ct] = glob_test
+                Js[tid][ct] = glob_src
+                Vs[tid][ct] = val
             end
         end
     end
 end
 
 """
-    distribute_term_nosign!(Is, Js, Vs, Z_local, test_bases, src_bases, ...)
+    distribute_term_nosign!(Is, Js, Vs, counts, tid, Z_local, test_bases, src_bases, ...)
 
 Same as `distribute_term!` but does NOT multiply by basis function signs.
 Used when the element-level interaction function already includes bfsSign
 (e.g., VEFIE, SCFIE coupling).
 """
-function distribute_term_nosign!(Is, Js, Vs, Z_local, 
+function distribute_term_nosign!(Is, Js, Vs, counts, tid,
+                          Z_local, 
                           test_bases, src_bases, 
                           test_interval, src_interval, 
                           inv_sorted_ids)
     
-    for (loc_test, glob_test, _) in test_bases
-        if glob_test < 1 || glob_test > length(inv_sorted_ids)
-            continue
-        end
+    _ensure_capacity!(Is, Js, Vs, counts, tid, length(test_bases) * length(src_bases))
+    
+    @inbounds for (loc_test, glob_test, _) in test_bases
         sorted_idx_test = inv_sorted_ids[glob_test]
         if !(sorted_idx_test in test_interval)
             continue
         end
         
         for (loc_src, glob_src, _) in src_bases
-            if glob_src < 1 || glob_src > length(inv_sorted_ids)
-                continue
-            end
             sorted_idx_src = inv_sorted_ids[glob_src]
             
             if !(sorted_idx_src in src_interval)
@@ -504,9 +542,11 @@ function distribute_term_nosign!(Is, Js, Vs, Z_local,
             val = Z_local[loc_test, loc_src]
             
             if abs(val) > 1e-16
-                push!(Is, glob_test)
-                push!(Js, glob_src)
-                push!(Vs, val)
+                ct = counts[tid] + 1
+                counts[tid] = ct
+                Is[tid][ct] = glob_test
+                Js[tid][ct] = glob_src
+                Vs[tid][ct] = val
             end
         end
     end
