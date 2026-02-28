@@ -85,51 +85,58 @@ function assemble_impedance_matrix(vefie::VEFIE, basis::SWGBasis, permittivities
     ntet = length(tetras)
     basis_cache = precompute_vefie_basis(vefie, tetras)
 
-    # Row SpinLocks for thread-safe direct scatter
-    row_locks = [SpinLock() for _ in 1:nbf]
+    # Column SpinLocks: the dynamic scheduler gives each thread one source tet at a time,
+    # so column locks are uncontested. Cache-efficient pattern:
+    # accumulate into local_cols buffer (1 MB, L3-resident), then flush each column to Z
+    # via a stride-1 vector += operation.
+    col_locks = [SpinLock() for _ in 1:nbf]
+    next_idx  = Threads.Atomic{Int}(1)
     n_threads = Threads.nthreads()
 
-    # Row-parallel cyclic scheduling: thread tid owns test rows tid, tid+nt, tid+2nt, ...
-    # This is the same pattern as EFIE/MFIE/CFIE for minimal lock contention.
-    Threads.@threads for tid in 1:n_threads
-        for t_test in tid:n_threads:ntet
-            tet_t = tetras[t_test]
-            cache_t = basis_cache[t_test]
+    Threads.@threads for _ in 1:n_threads
+        local_cols = zeros(CT, nbf, 4)   # ONE per thread; stays in L3 cache
 
-            # Loop over ALL source elements (no symmetry; κ asymmetry in general)
-            for t_src in 1:ntet
-                tet_s = tetras[t_src]
-                cache_s = basis_cache[t_src]
+        while true
+            js = Threads.atomic_add!(next_idx, 1)
+            js > ntet && break
 
-                # Compute 4×4 interaction (adaptive near/far quadrature)
-                Z_ts = vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s)
+            tet_s   = tetras[js]
+            cache_s = basis_cache[js]
+            fill!(local_cols, zero(CT))
 
-                # Direct scatter: lock per test-row, write 4 values, unlock
+            # Full test-tet loop (handles inhomogeneous κ correctly)
+            for it in 1:ntet
+                tet_t   = tetras[it]
+                cache_t = basis_cache[it]
+                Z_ts    = vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s)
                 @inbounds for i in 1:4
                     m = tet_t.inBfsID[i]
                     m == 0 && continue
-                    lock(row_locks[m])
                     @inbounds for j in 1:4
-                        n = tet_s.inBfsID[j]
-                        n == 0 && continue
-                        Z[m, n] += Z_ts[i, j]
+                        local_cols[m, j] += Z_ts[i, j]
                     end
-                    unlock(row_locks[m])
+                end
+
+                # Add mass matrix for the self term (same tet)
+                if it == js
+                    M = vefie_mass_matrix_cached(vefie, tet_t, cache_t)
+                    @inbounds for i in 1:4
+                        m = tet_t.inBfsID[i]
+                        m == 0 && continue
+                        @inbounds for j in 1:4
+                            local_cols[m, j] += M[i, j]
+                        end
+                    end
                 end
             end
 
-            # Self-term: mass matrix for t_test element (added once, outside source loop)
-            M = vefie_mass_matrix_cached(vefie, tet_t, cache_t)
-            @inbounds for i in 1:4
-                m = tet_t.inBfsID[i]
-                m == 0 && continue
-                lock(row_locks[m])
-                @inbounds for j in 1:4
-                    n = tet_t.inBfsID[j]
-                    n == 0 && continue
-                    Z[m, n] += M[i, j]
-                end
-                unlock(row_locks[m])
+            # Flush columns → Z (stride-1 column write, cache-friendly)
+            @inbounds for j in 1:4
+                n = tet_s.inBfsID[j]
+                n == 0 && continue
+                lock(col_locks[n])
+                @views Z[:, n] .+= local_cols[:, j]
+                unlock(col_locks[n])
             end
         end
     end
