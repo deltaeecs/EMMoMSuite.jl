@@ -8,7 +8,7 @@ using ...Geometry
 using ...BasisFunctions
 using ...Utilities.Parameters
 using ..CurrentOnGeos
-using ..RadiationIntegral: r̂θϕInfo, raditionalIntegralNθϕCal, radiation_integral_rwg, radiation_integral_swg, radiation_integral_pwc, ∠Info
+using ..RadiationIntegral: r̂θϕInfo, raditionalIntegralNθϕCal, radiation_integral_rwg, radiation_integral_swg, radiation_integral_pwc, radiation_integral_pwc_hex, radiation_integral_rbf, ∠Info
 using ...CoreModule: num_elements
 
 export radarCrossSection
@@ -212,6 +212,82 @@ function radarCrossSection(θs_obs::Vector{FT}, ϕs_obs::Vector{FT},
         Nθϕ = radiation_integral_pwc(r_info, basis, ICoeff, permittivities)
         
         # RCS = k² η² / (4π) * |N|²
+        factor = (k0 * eta0)^2 / (4 * pi)
+        RCS_flat[1, ii] = factor * abs2(Nθϕ[1])
+        RCS_flat[2, ii] = factor * abs2(Nθϕ[2])
+    end
+    
+    RCSθsϕs = reshape(RCS_flat, 2, Nθ_obs, Nϕ_obs)
+    RCS_total = RCSθsϕs[1, :, :] + RCSθsϕs[2, :, :]
+    RCS_dB = 10 .* log10.(RCS_total)
+    
+    return RCSθsϕs, RCS_total, RCS_dB
+end
+
+"""
+    radarCrossSection(θs_obs, ϕs_obs, ICoeff, basis::PWCHexBasis, permittivities)
+
+Calculate the Radar Cross Section (RCS) for VEFIE using PWC hexahedra basis.
+"""
+function radarCrossSection(θs_obs::Vector{FT}, ϕs_obs::Vector{FT}, 
+                           ICoeff::Vector{CT}, basis::PWCHexBasis{IT, FT}, permittivities::Vector{CT}) where {IT<:Integer, FT<:Real, CT<:Complex{FT}}
+    
+    k0 = get_k0()
+    eta0 = get_eta0()
+    
+    Nθ_obs = length(θs_obs)
+    Nϕ_obs = length(ϕs_obs)
+    nobs = Nθ_obs * Nϕ_obs
+    
+    θsobsInfo = [∠Info(θ) for θ in θs_obs]
+    ϕsobsInfo = [∠Info(ϕ) for ϕ in ϕs_obs]
+    r̂θsϕs = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
+    r̂θsϕs_flat = vec(r̂θsϕs)
+    
+    RCS_flat = zeros(FT, 2, nobs)
+    
+    @threads for ii in 1:nobs
+        r_info = r̂θsϕs_flat[ii]
+        Nθϕ = radiation_integral_pwc_hex(r_info, basis, ICoeff, permittivities)
+        
+        factor = (k0 * eta0)^2 / (4 * pi)
+        RCS_flat[1, ii] = factor * abs2(Nθϕ[1])
+        RCS_flat[2, ii] = factor * abs2(Nθϕ[2])
+    end
+    
+    RCSθsϕs = reshape(RCS_flat, 2, Nθ_obs, Nϕ_obs)
+    RCS_total = RCSθsϕs[1, :, :] + RCSθsϕs[2, :, :]
+    RCS_dB = 10 .* log10.(RCS_total)
+    
+    return RCSθsϕs, RCS_total, RCS_dB
+end
+
+"""
+    radarCrossSection(θs_obs, ϕs_obs, ICoeff, basis::RBFBasis, permittivities)
+
+Calculate the Radar Cross Section (RCS) for VEFIE using RBF hexahedra basis.
+"""
+function radarCrossSection(θs_obs::Vector{FT}, ϕs_obs::Vector{FT}, 
+                           ICoeff::Vector{CT}, basis::RBFBasis{IT, FT}, permittivities::Vector{CT}) where {IT<:Integer, FT<:Real, CT<:Complex{FT}}
+    
+    k0 = get_k0()
+    eta0 = get_eta0()
+    
+    Nθ_obs = length(θs_obs)
+    Nϕ_obs = length(ϕs_obs)
+    nobs = Nθ_obs * Nϕ_obs
+    
+    θsobsInfo = [∠Info(θ) for θ in θs_obs]
+    ϕsobsInfo = [∠Info(ϕ) for ϕ in ϕs_obs]
+    r̂θsϕs = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
+    r̂θsϕs_flat = vec(r̂θsϕs)
+    
+    RCS_flat = zeros(FT, 2, nobs)
+    
+    @threads for ii in 1:nobs
+        r_info = r̂θsϕs_flat[ii]
+        Nθϕ = radiation_integral_rbf(r_info, basis, ICoeff, permittivities)
+        
         factor = (k0 * eta0)^2 / (4 * pi)
         RCS_flat[1, ii] = factor * abs2(Nθϕ[1])
         RCS_flat[2, ii] = factor * abs2(Nθϕ[2])

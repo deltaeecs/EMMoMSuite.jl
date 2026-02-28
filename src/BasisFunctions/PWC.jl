@@ -106,3 +106,58 @@ function PWCBasis(mesh::TetrahedraMesh{IT, FT}) where {IT, FT}
     
     return PWCBasis(mesh, functions)
 end
+
+"""
+    PWCHexBasis{IT, FT} <: AbstractBasisFunction
+
+Collection of PWC basis functions on a hexahedral mesh.
+3 DOFs (x, y, z) per hexahedron.
+"""
+struct PWCHexBasis{IT, FT} <: AbstractBasisFunction
+    mesh::HexahedraMesh{IT, FT}
+    functions::Vector{PWC{IT, FT}}
+end
+
+CoreModule.num_basis(basis::PWCHexBasis) = 3 * length(basis.functions)
+
+function CoreModule.support(basis::PWCHexBasis, i::Int)
+    hex_idx = div(i - 1, 3) + 1
+    return basis.functions[hex_idx].support
+end
+
+function CoreModule.evaluate(basis::PWCHexBasis, i::Int, r::AbstractVector)
+    comp = mod1(i, 3)
+    if comp == 1
+        return SVector(1.0, 0.0, 0.0)
+    elseif comp == 2
+        return SVector(0.0, 1.0, 0.0)
+    else
+        return SVector(0.0, 0.0, 1.0)
+    end
+end
+
+"""
+    PWCHexBasis(mesh::HexahedraMesh)
+
+Construct PWC basis functions from a hexahedral mesh.
+Three basis functions per hexahedron (x, y, z components).
+"""
+function PWCHexBasis(mesh::HexahedraMesh{IT, FT}) where {IT, FT}
+    nh = num_elements(mesh)
+    hexes = elements(mesh)
+    nodes = vertices(mesh)
+    
+    functions = Vector{PWC{IT, FT}}(undef, nh)
+    
+    for h in 1:nh
+        vids = hexes[:, h]
+        verts = hcat([nodes[:, vids[j]] for j in 1:8]...)
+        center = SVector{3, FT}(sum(verts, dims=2)[:] / 8)
+        vol = abs(hex_volume(eachcol(verts)...))
+        bf_ids = SVector{3, IT}(3*(h-1)+1, 3*(h-1)+2, 3*(h-1)+3)
+        
+        functions[h] = PWC(IT(h), IT(h), center, vol, bf_ids)
+    end
+    
+    return PWCHexBasis(mesh, functions)
+end

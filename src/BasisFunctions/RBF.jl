@@ -41,8 +41,14 @@ function CoreModule.support(basis::RBFBasis, i::Int)
 end
 
 function CoreModule.evaluate(basis::RBFBasis, i::Int, r::AbstractVector)
-    # TODO: Implement RBF evaluation
-    return SVector(0.0, 0.0, 0.0)
+    # RBF vector ρ = r - r₀
+    # For correct evaluation in assembly, use get_free_vns and gq3d_to_face2d_idx
+    # This generic evaluate is a fallback using face centroid as free-end approximation
+    bf = basis.functions[i]
+    # Use the center of the basis function (face center) as an approximation
+    # For accurate computation in assembly, the free-end r₀ should be interpolated
+    # on the opposite face using parametric coordinates
+    return SVector{3, Float64}(r[1] - bf.center[1], r[2] - bf.center[2], r[3] - bf.center[3])
 end
 
 """
@@ -177,7 +183,7 @@ function RBFBasis(mesh::HexahedraMesh{IT, FT}) where {IT, FT}
                 SVector(1, 0),
                 SVector{3, FT}(center)
             )
-            # push!(functions, rbf) # Uncomment to include boundary faces
+            push!(functions, rbf)
             
             i += 1
         end

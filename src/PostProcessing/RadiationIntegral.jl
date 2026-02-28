@@ -7,7 +7,7 @@ using ...Utilities.Parameters
 using ...BasisFunctions
 using ...CoreModule: num_elements, vertices, elements
 
-export r̂θϕInfo, raditionalIntegralNθϕCal, radiation_integral_rwg, radiation_integral_swg, radiation_integral_pwc, ∠Info
+export r̂θϕInfo, raditionalIntegralNθϕCal, radiation_integral_rwg, radiation_integral_swg, radiation_integral_pwc, radiation_integral_pwc_hex, radiation_integral_rbf, ∠Info
 
 struct ∠Info{FT<:Real}
     val::FT
@@ -447,6 +447,167 @@ function radiation_integral_pwc(r̂θϕ::r̂θϕInfo{FT}, basis::PWCBasis{IT, FT
         end
         
         Jtexp .*= vol * kappa
+        Nxyz .+= Jtexp
+    end
+    
+    Nθϕ[1] = dot(θhat, Nxyz)
+    Nθϕ[2] = dot(ϕhat, Nxyz)
+    
+    return Nθϕ
+end
+
+# ============================================================================
+# Radiation Integral for PWCHexBasis (hexahedra)
+# ============================================================================
+
+"""
+    radiation_integral_pwc_hex(r̂θϕ, basis, ICoeff, permittivities)
+
+Calculate the radiation integral N(θ, ϕ) using PWC hexahedra basis functions.
+
+PWC stores 3 DOFs per hexahedron (x, y, z). The equivalent current is:
+    J_eq = κ × [I[3(h-1)+1], I[3(h-1)+2], I[3(h-1)+3]]
+
+N(θ, ϕ) = Σ_h V_h × κ_h × Σ_gq J_h × exp(jk r̂·r_gq) × w_gq
+
+# Legacy Parity
+Matches `MoM_Kernels` `raditionalIntegralNθϕCal` for hexahedra with PWC.
+"""
+function radiation_integral_pwc_hex(r̂θϕ::r̂θϕInfo{FT}, basis::PWCHexBasis{IT, FT}, ICoeff::Vector{CT}, permittivities::Vector{CT}) where {IT, FT, CT}
+    Nxyz = zero(MVector{3, CT})
+    Nθϕ = zero(MVector{2, CT})
+    
+    r̂ = r̂θϕ.r̂
+    θhat = r̂θϕ.θhat
+    ϕhat = r̂θϕ.ϕhat
+    
+    k0 = get_k0()
+    jk0 = im * k0
+    
+    # Hex GQ
+    gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    Nq = length(gq_hex.weight)
+    
+    mesh = basis.mesh
+    nodes = mesh.node
+    hexas_elem = mesh.hexas  # 8×nhex
+    nhex = length(basis.functions)
+    
+    for h in 1:nhex
+        pwc = basis.functions[h]
+        vol = pwc.volume
+        
+        # Material kappa
+        eps_r = permittivities[h]
+        kappa = (eps_r - 1.0) / eps_r
+        
+        # Current coefficients (3 components)
+        Jt = SVector{3, CT}(ICoeff[pwc.inBfsID[1]], ICoeff[pwc.inBfsID[2]], ICoeff[pwc.inBfsID[3]])
+        
+        # Get hex vertices as 3×8
+        v_idx = hexas_elem[:, h]
+        hex_verts = hcat([nodes[:, v_idx[i]] for i in 1:8]...)
+        
+        Jtexp = zero(MVector{3, CT})
+        
+        for gi in 1:Nq
+            rgi = hex_verts * gq_hex.coordinate[:, gi]
+            phase = exp(jk0 * dot(r̂, rgi))
+            Jtexp .+= Jt .* (phase * gq_hex.weight[gi])
+        end
+        
+        Jtexp .*= vol * kappa
+        Nxyz .+= Jtexp
+    end
+    
+    Nθϕ[1] = dot(θhat, Nxyz)
+    Nθϕ[2] = dot(ϕhat, Nxyz)
+    
+    return Nθϕ
+end
+
+# ============================================================================
+# Radiation Integral for RBFBasis (hexahedra)
+# ============================================================================
+
+"""
+    radiation_integral_rbf(r̂θϕ, basis, ICoeff, permittivities)
+
+Calculate the radiation integral N(θ, ϕ) using RBF basis functions on hexahedra.
+
+RBF has 6 DOFs per hexahedron (one per face). The equivalent current is:
+    J(r) = κ × Σ_face I[n] × (A_face / V) × ρ(r)
+where ρ(r) = r - r_free(r) with sliding free-end on opposite face.
+
+N(θ, ϕ) = Σ_hex V_h × κ_h × Σ_gq J(r_gq) × exp(jk r̂·r_gq) × w_gq
+
+# Legacy Parity
+Matches `MoM_Kernels` `geoElectricJCal` + `raditionalIntegralNθϕCal` for
+hexahedra with RBF (`LinearBasisFunction`).
+"""
+function radiation_integral_rbf(r̂θϕ::r̂θϕInfo{FT}, basis::RBFBasis{IT, FT}, ICoeff::Vector{CT}, permittivities::Vector{CT}) where {IT, FT, CT}
+    Nxyz = zero(MVector{3, CT})
+    Nθϕ = zero(MVector{2, CT})
+    
+    r̂ = r̂θϕ.r̂
+    θhat = r̂θϕ.θhat
+    ϕhat = r̂θϕ.ϕhat
+    
+    k0 = get_k0()
+    jk0 = im * k0
+    
+    # Hex GQ
+    gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    Nq = length(gq_hex.weight)
+    
+    mesh = basis.mesh
+    nhex = size(mesh.hexas, 2)
+    
+    # Get hexahedra info
+    dummy_perm = permittivities
+    hexas = get_hexahedra_info(mesh, basis, dummy_perm)
+    
+    for (jh, hex) in enumerate(hexas)
+        vol = hex.volume
+        kappa = hex.κ
+        
+        # Precompute hex GQ points
+        rq_hex = hex.vertices * gq_hex.coordinate
+        
+        # Precompute free-end points for all 6 faces
+        freeVns_all = [get_free_vns(hex, fi, gq_hex.coordinate) for fi in 1:6]
+        
+        Jtexp = zero(MVector{3, CT})
+        
+        for gi in 1:Nq
+            rgi = @view rq_hex[:, gi]
+            
+            # Compute J at this GQ point
+            J_at_r = zero(MVector{3, CT})
+            for mi in 1:6
+                n = hex.inBfsID[mi]
+                arean = hex.facesArea[mi]
+                freeV = @view freeVns_all[mi][:, gi]
+                
+                # ρ = r - r_free
+                ρ_x = rgi[1] - freeV[1]
+                ρ_y = rgi[2] - freeV[2]
+                ρ_z = rgi[3] - freeV[3]
+                
+                # J contribution: I[n] × A/V × ρ (Legacy uses just I[n] × A × ρ, then divides by V later)
+                coeff = ICoeff[n] * arean
+                J_at_r[1] += coeff * ρ_x
+                J_at_r[2] += coeff * ρ_y
+                J_at_r[3] += coeff * ρ_z
+            end
+            
+            phase = exp(jk0 * dot(r̂, rgi))
+            Jtexp .+= J_at_r .* (phase * gq_hex.weight[gi])
+        end
+        
+        # Legacy: Jhexa .*= κ / V, then integral = V × Σ w × Jhexa
+        # Combined: integral = κ × Σ w × J_at_r (where J_at_r already has A factors)
+        Jtexp .*= kappa
         Nxyz .+= Jtexp
     end
     
