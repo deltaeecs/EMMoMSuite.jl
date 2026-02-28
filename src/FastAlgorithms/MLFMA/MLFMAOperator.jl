@@ -296,6 +296,10 @@ function assemble_near_field(operator, bases::Vector{AbstractBasisFunction}, off
         end
     end
     estimated_nnz_per_thread = max(1024, div(estimated_nnz_per_thread, max(n_threads, 1)))
+    # Cap initial allocation to avoid OOM for large problems (e.g., N=26424 Sphere CFIE).
+    # _ensure_capacity! will dynamically grow arrays if needed (amortized doubling).
+    max_initial_nnz = 10_000_000  # ~240 MB per thread (I+J+V)
+    estimated_nnz_per_thread = min(estimated_nnz_per_thread, max_initial_nnz)
     
     Is = [Vector{Int}(undef, estimated_nnz_per_thread) for _ in 1:max_tid]
     Js = [Vector{Int}(undef, estimated_nnz_per_thread) for _ in 1:max_tid]
