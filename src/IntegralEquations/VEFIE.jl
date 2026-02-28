@@ -76,106 +76,64 @@ Assemble the impedance matrix Z for the VEFIE using optimized element-based loop
 function assemble_impedance_matrix(vefie::VEFIE, basis::SWGBasis, permittivities::Vector{ComplexF64})
     FT = eltype(vefie.freq)
     CT = Complex{FT}
-    
+
     nbf = num_basis(basis)
     Z = zeros(CT, nbf, nbf)
-    
-    # Precompute geometry
+
+    # Precompute geometry and basis cache
     tetras = get_tetrahedra_info(basis.mesh, basis, permittivities)
     ntet = length(tetras)
-    
-    # Precompute Basis Cache
-    println("VEFIE: Precomputing basis functions...")
     basis_cache = precompute_vefie_basis(vefie, tetras)
-    
-    # Locks for thread safety (one per column to minimize contention)
-    col_locks = [SpinLock() for _ in 1:nbf]
-    
-    # Progress tracking
-    progress_counter = Threads.Atomic{Int}(0)
-    next_idx = Threads.Atomic{Int}(1) # For dynamic scheduling
-    
-    println("VEFIE Assembly: $ntet tetrahedra, $nbf unknowns. (Column-Parallel, No Symmetry)")
-    
-    # Dynamic scheduling loop over Source Tetrahedra (js)
-    Threads.@threads for _ in 1:Threads.nthreads()
-        # Allocate thread-local buffer for columns
-        # We accumulate contributions to the 4 columns of the current source tet
-        # Size: nbf x 4
-        local_cols = zeros(CT, nbf, 4)
-        
-        while true
-            js = Threads.atomic_add!(next_idx, 1)
-            if js > ntet; break; end
-            
-            tet_s = tetras[js]
-            cache_s = basis_cache[js]
-            
-            # Reset local buffer
-            fill!(local_cols, zero(CT))
-            
-            # Loop over Test Tetrahedra (it) - Full loop (No Symmetry)
-            for it in 1:ntet
-                tet_t = tetras[it]
-                cache_t = basis_cache[it]
-                
-                # Compute interaction matrix (4x4)
-                # We only need Z_ts (Test t, Source s)
+
+    # Row SpinLocks for thread-safe direct scatter
+    row_locks = [SpinLock() for _ in 1:nbf]
+    n_threads = Threads.nthreads()
+
+    # Row-parallel cyclic scheduling: thread tid owns test rows tid, tid+nt, tid+2nt, ...
+    # This is the same pattern as EFIE/MFIE/CFIE for minimal lock contention.
+    Threads.@threads for tid in 1:n_threads
+        for t_test in tid:n_threads:ntet
+            tet_t = tetras[t_test]
+            cache_t = basis_cache[t_test]
+
+            # Loop over ALL source elements (no symmetry; κ asymmetry in general)
+            for t_src in 1:ntet
+                tet_s = tetras[t_src]
+                cache_s = basis_cache[t_src]
+
+                # Compute 4×4 interaction (adaptive near/far quadrature)
                 Z_ts = vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s)
-                
-                # Accumulate to local_cols
-                # local_cols[m, j] += Z_ts[i, j]
-                # m is global row index (from tet_t)
-                # j is local column index (1..4)
-                
-                for i in 1:4
+
+                # Direct scatter: lock per test-row, write 4 values, unlock
+                @inbounds for i in 1:4
                     m = tet_t.inBfsID[i]
-                    if m == 0; continue; end
-                    
-                    for j in 1:4
-                        # We don't check n here, we just fill the 4 columns
-                        local_cols[m, j] += Z_ts[i, j]
+                    m == 0 && continue
+                    lock(row_locks[m])
+                    @inbounds for j in 1:4
+                        n = tet_s.inBfsID[j]
+                        n == 0 && continue
+                        Z[m, n] += Z_ts[i, j]
                     end
-                end
-                
-                # Add Mass Matrix if it == js (Self-term)
-                if it == js
-                    M_t = vefie_mass_matrix_cached(vefie, tet_t, cache_t)
-                    for i in 1:4
-                        m = tet_t.inBfsID[i]
-                        if m == 0; continue; end
-                        for j in 1:4
-                            local_cols[m, j] += M_t[i, j]
-                        end
-                    end
+                    unlock(row_locks[m])
                 end
             end
-            
-            # Scatter local_cols to global Z
-            # We lock the columns n corresponding to tet_s
-            for j in 1:4
-                n = tet_s.inBfsID[j]
-                if n == 0; continue; end
-                
-                lock(col_locks[n])
-                try
-                    # Z[:, n] += local_cols[:, j]
-                    # Manual loop for speed? Julia's broadcast is fast.
-                    @views Z[:, n] .+= local_cols[:, j]
-                finally
-                    unlock(col_locks[n])
+
+            # Self-term: mass matrix for t_test element (added once, outside source loop)
+            M = vefie_mass_matrix_cached(vefie, tet_t, cache_t)
+            @inbounds for i in 1:4
+                m = tet_t.inBfsID[i]
+                m == 0 && continue
+                lock(row_locks[m])
+                @inbounds for j in 1:4
+                    n = tet_t.inBfsID[j]
+                    n == 0 && continue
+                    Z[m, n] += M[i, j]
                 end
-            end
-            
-            # Print progress every 10 elements
-            c = Threads.atomic_add!(progress_counter, 1)
-            if c % 10 == 0
-                print("\rVEFIE Assembly: $c / $ntet source elements processed.")
+                unlock(row_locks[m])
             end
         end
     end
-    println("\nVEFIE Assembly Completed.")
-    
+
     return Z
 end
 
