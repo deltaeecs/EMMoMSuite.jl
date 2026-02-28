@@ -223,7 +223,7 @@ function bench_3_jet_efie_mlfma()
     
     V_sorted = V[Z_mlfma.sorted_ids]
     
-    # 预条件器
+    # 预条件器 (Sparse LU of Z_near — UMFPACK, optimal for ill-conditioned EFIE)
     r.t_precond = @elapsed begin
         P_near = lu(Z_mlfma.Z_near)
     end
@@ -292,7 +292,7 @@ function bench_4_sphere_cfie_mlfma()
         P_near = lu(Z_mlfma.Z_near)
     end
     P = LUPreconditioner(P_near)
-    println("  预条件器: $(round(r.t_precond, digits=3))s")
+    println("  预条件器 (LU of Z_near): $(round(r.t_precond, digits=3))s")
     
     solver = GMRESSolver(restart=50, maxiter=100, tol=1e-3, verbose=true)
     r.t_solve = @elapsed begin

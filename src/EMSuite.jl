@@ -99,12 +99,12 @@ export EFIE, MFIE, CFIE, VEFIE, SCFIE, assemble_impedance_matrix
 # Re-export Solvers symbols
 using .Solvers
 export LUSolver, GMRESSolver, BiCGSTABSolver, solve!
-export DiagonalPreconditioner, IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner
+export DiagonalPreconditioner, IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
 
 # Re-export FastAlgorithms symbols
 include("FastAlgorithms/FastAlgorithms.jl")
 using .FastAlgorithms
-export FastAlgorithms, MLFMA, MLFMAOperator
+export FastAlgorithms, MLFMA, MLFMAOperator, get_leaf_intervals
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")

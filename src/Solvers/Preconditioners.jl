@@ -4,7 +4,7 @@ using LinearAlgebra
 using SparseArrays
 using IncompleteLU
 
-export AbstractPreconditioner, DiagonalPreconditioner, IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner
+export AbstractPreconditioner, DiagonalPreconditioner, IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
 
 abstract type AbstractPreconditioner end
 
@@ -227,5 +227,79 @@ function LinearAlgebra.ldiv!(P::SPAIPreconditioner, x::AbstractVector)
 end
 
 Base.:\(P::SPAIPreconditioner, x) = P.M * x
+
+# --- Block Jacobi Preconditioner ---
+"""
+    BlockJacobiPreconditioner
+
+Block Jacobi preconditioner for MLFMA. Extracts diagonal blocks of Z_near
+corresponding to each octree cube and factorizes them independently.
+
+Construction is embarrassingly parallel (independent LU per block), much
+cheaper than sparse LU of the full Z_near.
+
+# Constructor
+    BlockJacobiPreconditioner(Z_near, block_intervals)
+
+- `Z_near::SparseMatrixCSC`: The near-field sparse impedance matrix.
+- `block_intervals::Vector{UnitRange{Int}}`: One `UnitRange` per cube, giving
+  the sorted basis function indices belonging to that cube.
+"""
+struct BlockJacobiPreconditioner{T} <: AbstractPreconditioner
+    blocks::Vector{LU{T, Matrix{T}, Vector{Int}}}  # LU factorizations per block
+    intervals::Vector{UnitRange{Int}}               # basis function intervals
+end
+
+function BlockJacobiPreconditioner(Z_near::SparseMatrixCSC{T, Int}, 
+                                   block_intervals::Vector{UnitRange{Int}}) where T
+    # Filter out empty intervals
+    non_empty = filter(!isempty, block_intervals)
+    n_blocks = length(non_empty)
+    
+    # Pre-allocate block storage
+    blocks = Vector{LU{T, Matrix{T}, Vector{Int}}}(undef, n_blocks)
+    
+    # Build per-block LU in parallel
+    Threads.@threads for ib in 1:n_blocks
+        interval = non_empty[ib]
+        n = length(interval)
+        # Extract dense diagonal block from sparse Z_near
+        B = Matrix{T}(undef, n, n)
+        @inbounds for (jj, j_global) in enumerate(interval)
+            for (ii, i_global) in enumerate(interval)
+                B[ii, jj] = Z_near[i_global, j_global]
+            end
+        end
+        blocks[ib] = lu(B)
+    end
+    
+    return BlockJacobiPreconditioner{T}(blocks, non_empty)
+end
+
+function LinearAlgebra.ldiv!(y::AbstractVector, P::BlockJacobiPreconditioner, x::AbstractVector)
+    # Apply each block's LU independently (can be parallelized)
+    Threads.@threads for ib in eachindex(P.blocks)
+        interval = P.intervals[ib]
+        x_block = view(x, interval)
+        y_block = view(y, interval)
+        ldiv!(y_block, P.blocks[ib], x_block)
+    end
+    return y
+end
+
+function LinearAlgebra.ldiv!(P::BlockJacobiPreconditioner, x::AbstractVector)
+    Threads.@threads for ib in eachindex(P.blocks)
+        interval = P.intervals[ib]
+        x_block = x[interval]  # copy needed since ldiv! overwrites
+        ldiv!(view(x, interval), P.blocks[ib], x_block)
+    end
+    return x
+end
+
+Base.:\(P::BlockJacobiPreconditioner, x) = begin
+    y = similar(x)
+    ldiv!(y, P, x)
+    return y
+end
 
 end

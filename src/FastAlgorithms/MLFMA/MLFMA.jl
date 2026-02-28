@@ -27,6 +27,6 @@ export build_octree
 export aggregate!
 export compute_translation_factors!, translate!
 export disaggregate_downward!, disaggregate_leaf!
-export MLFMAOperator, mul!
+export MLFMAOperator, mul!, get_leaf_intervals
 
 end
