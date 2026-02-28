@@ -25,18 +25,23 @@ Export mesh and associated data to VTK format (.vtu) for visualization in ParaVi
 # Returns
 - `outfiles`: List of generated files.
 """
-function save_vtk(filename::String, mesh::TriangleMesh{IT, FT}, data::Union{Nothing, AbstractVector}=nothing; data_name="Data") where {IT, FT}
-    
+function save_vtk(
+    filename::String,
+    mesh::TriangleMesh{IT,FT},
+    data::Union{Nothing,AbstractVector} = nothing;
+    data_name = "Data",
+) where {IT,FT}
+
     # Prepare points
     points = mesh.node # 3 x Nv
-    
+
     # Prepare cells
     # WriteVTK expects 1-based indexing for connectivity
-    cells = [MeshCell(VTKCellTypes.VTK_TRIANGLE, mesh.triangles[:, i]) for i in 1:mesh.trinum]
-    
+    cells = [MeshCell(VTKCellTypes.VTK_TRIANGLE, mesh.triangles[:, i]) for i = 1:mesh.trinum]
+
     # Create grid
     vtk = vtk_grid(filename, points, cells)
-    
+
     # Add data if present
     if data !== nothing
         # Check if data is point data or cell data
@@ -48,20 +53,25 @@ function save_vtk(filename::String, mesh::TriangleMesh{IT, FT}, data::Union{Noth
             @warn "Data length ($(length(data))) does not match number of points ($(size(points, 2))) or cells ($(mesh.trinum)). Skipping data."
         end
     end
-    
+
     # Save
     outfiles = vtk_save(vtk)
     return outfiles
 end
 
-function save_vtk(filename::String, mesh::TetrahedraMesh{IT, FT}, data::Union{Nothing, AbstractVector}=nothing; data_name="Data") where {IT, FT}
-    
+function save_vtk(
+    filename::String,
+    mesh::TetrahedraMesh{IT,FT},
+    data::Union{Nothing,AbstractVector} = nothing;
+    data_name = "Data",
+) where {IT,FT}
+
     points = mesh.node
-    
-    cells = [MeshCell(VTKCellTypes.VTK_TETRA, mesh.tetras[:, i]) for i in 1:mesh.tetnum]
-    
+
+    cells = [MeshCell(VTKCellTypes.VTK_TETRA, mesh.tetras[:, i]) for i = 1:mesh.tetnum]
+
     vtk = vtk_grid(filename, points, cells)
-    
+
     if data !== nothing
         if length(data) == size(points, 2)
             vtk_point_data(vtk, data, data_name)
@@ -71,7 +81,7 @@ function save_vtk(filename::String, mesh::TetrahedraMesh{IT, FT}, data::Union{No
             @warn "Data length mismatch. Skipping data."
         end
     end
-    
+
     outfiles = vtk_save(vtk)
     return outfiles
 end

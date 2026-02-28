@@ -49,7 +49,7 @@ Solve the linear system \$\\mathbf{A}\\mathbf{x} = \\mathbf{b}\$ using the LU de
 - For **dense** matrices, this typically invokes LAPACK's `getrf` (LU factorization).
 - For **sparse** matrices, this typically invokes UMFPACK.
 """
-function solve!(solver::LUSolver, A, b, x0=nothing)
+function solve!(solver::LUSolver, A, b, x0 = nothing)
     # Julia's backslash operator uses LU for dense matrices
     # For sparse, it uses UMFPACK (LU)
     return A \ b

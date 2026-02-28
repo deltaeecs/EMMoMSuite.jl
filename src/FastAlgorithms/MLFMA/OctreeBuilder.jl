@@ -46,9 +46,9 @@ Construct the hierarchical Octree structure for the Multilevel Fast Multipole Al
 - `OctreeInfo`: The constructed octree data structure containing all levels and precomputed data.
 - `leafsIDSorted`: Permutation vector sorting basis functions according to the octree structure (Morton order or similar).
 """
-function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ=1.0) where {FT<:Real}
+function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0) where {FT<:Real}
     println("Building Octree...")
-    
+
     # 1. Set Big Cube
     nLevels, bigCubeLowerCoor, leafCubeEdgelUsed = setBigCube(leafnodes, leafCubeEdgel)
     if nLevels < 2
@@ -56,26 +56,28 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ=1.0) where {F
         # Allow 2 levels for testing
         println("Warning: nLevels = $nLevels. MLFMA might degenerate to near-field only.")
         if nLevels < 1
-             nLevels = 1 # Force at least 1 level?
+            nLevels = 1 # Force at least 1 level?
         end
     end
 
     # 2. Create Leaf Level
-    leafLevel, leafsIDSorted = setLevelInfo!(nLevels, leafnodes, leafCubeEdgelUsed, bigCubeLowerCoor; λ=λ)
+    leafLevel, leafsIDSorted =
+        setLevelInfo!(nLevels, leafnodes, leafCubeEdgelUsed, bigCubeLowerCoor; λ = λ)
 
     # Initialize levels dictionary
-    levels = Dict{Int, LevelInfo{Int, FT, LagrangeInterpInfo{Int, FT}}}(nLevels => leafLevel)
-    
+    levels = Dict{Int,LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}}(nLevels => leafLevel)
+
     # Track sorted IDs
-    levelsCubeIDSorted = Dict{Int, Vector{Int}}()
+    levelsCubeIDSorted = Dict{Int,Vector{Int}}()
     levelsCubeIDSorted[nLevels+1] = leafsIDSorted
 
     # 3. Create Non-Leaf Levels
-    for ilevel in (nLevels - 1):-1:1
+    for ilevel = (nLevels-1):-1:1
         ilevelCubeEdgel = leafCubeEdgelUsed * (2^(nLevels - ilevel))
-        level, levelIDSorted = setLevelInfo!(ilevel, levels[ilevel + 1], ilevelCubeEdgel, bigCubeLowerCoor; λ=λ)
+        level, levelIDSorted =
+            setLevelInfo!(ilevel, levels[ilevel+1], ilevelCubeEdgel, bigCubeLowerCoor; λ = λ)
         levels[ilevel] = level
-        levelsCubeIDSorted[ilevel + 1] = levelIDSorted
+        levelsCubeIDSorted[ilevel+1] = levelIDSorted
     end
 
     # 4. Reorder Cubes
@@ -88,8 +90,8 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ=1.0) where {F
     setLevelsCubesKidsIn8!(nLevels, levels)
 
     # 7. Set Far Neighbors
-    for ilevel in 1:(nLevels - 1)
-        setKidLevelFarNeighbors!(levels[ilevel], levels[ilevel + 1])
+    for ilevel = 1:(nLevels-1)
+        setKidLevelFarNeighbors!(levels[ilevel], levels[ilevel+1])
     end
 
     # 8. Calculate Interpolation Matrices
@@ -106,62 +108,78 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ=1.0) where {F
     return OctreeInfo(nLevels, leafCubeEdgel, bigCubeLowerCoor, levels), leafsIDSorted
 end
 
-function setBigCube(nodes::Matrix{FT}, leafCubeEdgel::FT) where{FT<:Real}
-    xyzmin = minimum(nodes, dims=2)
-    xyzmax = maximum(nodes, dims=2)
-    Δxyz = xyzmax .- xyzmin .+ (sqrt(2.0)-1.0)*leafCubeEdgel
+function setBigCube(nodes::Matrix{FT}, leafCubeEdgel::FT) where {FT<:Real}
+    xyzmin = minimum(nodes, dims = 2)
+    xyzmax = maximum(nodes, dims = 2)
+    Δxyz = xyzmax .- xyzmin .+ (sqrt(2.0) - 1.0) * leafCubeEdgel
     CubeEdgel = maximum(Δxyz)
-    CubeCenter = SVector{3, FT}(xyzmin .+ xyzmax) ./ 2
-    nLevels = ceil(Int, log2(CubeEdgel/leafCubeEdgel))
+    CubeCenter = SVector{3,FT}(xyzmin .+ xyzmax) ./ 2
+    nLevels = ceil(Int, log2(CubeEdgel / leafCubeEdgel))
     if nLevels < 2
         nLevels = 2
     end
-    
+
     bigCubeEdgel = leafCubeEdgel * 2^nLevels
-    bigCubeLowerCoor = CubeCenter .- bigCubeEdgel/2
+    bigCubeLowerCoor = CubeCenter .- bigCubeEdgel / 2
 
     return nLevels, bigCubeLowerCoor, leafCubeEdgel
 end
 
-function setLevelInfo!(nLevels::Integer, leafnodes::Matrix{FT}, cubeEdgel::FT, bigCubeLowerCoor::SVector{3, FT}; λ=1.0) where{FT<:Real}
+function setLevelInfo!(
+    nLevels::Integer,
+    leafnodes::Matrix{FT},
+    cubeEdgel::FT,
+    bigCubeLowerCoor::SVector{3,FT};
+    λ = 1.0,
+) where {FT<:Real}
     nleaves = size(leafnodes, 2)
     nodesInCubeID3D = zeros(Int, nleaves, 4)
     nodesInCubeID3D[:, 4] = 1:nleaves
-    
-    for ileaf in 1:nleaves
-        nodesInCubeID3D[ileaf, 1:3] .= ceil.(Int, (leafnodes[:, ileaf] .- bigCubeLowerCoor) ./ cubeEdgel)
+
+    for ileaf = 1:nleaves
+        nodesInCubeID3D[ileaf, 1:3] .=
+            ceil.(Int, (leafnodes[:, ileaf] .- bigCubeLowerCoor) ./ cubeEdgel)
     end
-    
+
     # Sort
-    nodesInCubeID3D = sortslices(nodesInCubeID3D, dims=1)
+    nodesInCubeID3D = sortslices(nodesInCubeID3D, dims = 1)
     kidsSorted = nodesInCubeID3D[:, 4]
 
     # Calculate intervals
     kidsIntervals = Int[]
     push!(kidsIntervals, 1)
-    for ileaf in 1:(nleaves-1)
+    for ileaf = 1:(nleaves-1)
         if nodesInCubeID3D[ileaf, 1:3] != nodesInCubeID3D[ileaf+1, 1:3]
-            push!(kidsIntervals, ileaf+1)
+            push!(kidsIntervals, ileaf + 1)
         end
     end
-    push!(kidsIntervals, nleaves+1)
-    
+    push!(kidsIntervals, nleaves + 1)
+
     nCubes = length(kidsIntervals) - 1
-    kidsSlice = [kidsIntervals[i]:(kidsIntervals[i+1]-1) for i in 1:nCubes]
+    kidsSlice = [kidsIntervals[i]:(kidsIntervals[i+1]-1) for i = 1:nCubes]
     cubesID3D = nodesInCubeID3D[kidsIntervals[1:(end-1)], 1:3]
 
     # Search neighbors
     cubesNeighbors = searchNearCubes(cubesID3D, nLevels)
-    
-    cubesInfo = Vector{CubeInfo{Int, FT}}(undef, nCubes)
-    for icube in 1:nCubes
+
+    cubesInfo = Vector{CubeInfo{Int,FT}}(undef, nCubes)
+    for icube = 1:nCubes
         center = bigCubeLowerCoor .+ (cubesID3D[icube, :] .- 0.5) .* cubeEdgel
-        cubesInfo[icube] = CubeInfo{Int, FT}(kidsSlice[icube], 0:0, Int[], Int[], cubesNeighbors[icube], Int[], MVector{3, Int}(cubesID3D[icube, :]), MVector{3, FT}(center))
+        cubesInfo[icube] = CubeInfo{Int,FT}(
+            kidsSlice[icube],
+            0:0,
+            Int[],
+            Int[],
+            cubesNeighbors[icube],
+            Int[],
+            MVector{3,Int}(cubesID3D[icube, :]),
+            MVector{3,FT}(center),
+        )
     end
 
-    L, poles = levelIntegralInfoCal(cubeEdgel; λ=λ)
+    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ)
 
-    level = LevelInfo{Int, FT, LagrangeInterpInfo{Int, FT}}()
+    level = LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}()
     level.ID = nLevels
     level.isleaf = true
     level.L = L
@@ -173,44 +191,59 @@ function setLevelInfo!(nLevels::Integer, leafnodes::Matrix{FT}, cubeEdgel::FT, b
     return level, kidsSorted
 end
 
-function setLevelInfo!(levelID::Integer, kidLevel, cubeEdgel::FT, bigCubeLowerCoor::SVector{3, FT}; λ=1.0) where{FT<:Real}
+function setLevelInfo!(
+    levelID::Integer,
+    kidLevel,
+    cubeEdgel::FT,
+    bigCubeLowerCoor::SVector{3,FT};
+    λ = 1.0,
+) where {FT<:Real}
     nkidCubes = length(kidLevel.cubes)
     kidCubesInCubeID3D = zeros(Int, nkidCubes, 4)
     kidCubesInCubeID3D[:, 4] = 1:nkidCubes
-    
-    for ikidCube in 1:nkidCubes
+
+    for ikidCube = 1:nkidCubes
         kidCubesInCubeID3D[ikidCube, 1:3] .= ceil.(Int, kidLevel.cubes[ikidCube].ID3D ./ 2)
     end
-    
-    kidCubesInCubeID3D = sortslices(kidCubesInCubeID3D, dims=1)
+
+    kidCubesInCubeID3D = sortslices(kidCubesInCubeID3D, dims = 1)
     kidCubesSorted = kidCubesInCubeID3D[:, 4]
 
     kidsIntervals = Int[]
     push!(kidsIntervals, 1)
-    for ikidCube in 1:(nkidCubes - 1)
+    for ikidCube = 1:(nkidCubes-1)
         if kidCubesInCubeID3D[ikidCube, 1:3] != kidCubesInCubeID3D[ikidCube+1, 1:3]
             push!(kidsIntervals, ikidCube + 1)
         end
     end
-    push!(kidsIntervals, nkidCubes+1)
-    
+    push!(kidsIntervals, nkidCubes + 1)
+
     nCubes = length(kidsIntervals) - 1
-    kidsSlice = [kidsIntervals[i]:(kidsIntervals[i+1]-1) for i in 1:nCubes]
+    kidsSlice = [kidsIntervals[i]:(kidsIntervals[i+1]-1) for i = 1:nCubes]
     kidsIn8 = [Vector{Int}(undef, length(kidSlice)) for kidSlice in kidsSlice]
-    
+
     cubesID3D = kidCubesInCubeID3D[kidsIntervals[1:(end-1)], 1:3]
 
     cubesNeighbors = searchNearCubes(cubesID3D, levelID)
 
-    cubesInfo = Vector{CubeInfo{Int, FT}}(undef, nCubes)
-    for icube in 1:nCubes
+    cubesInfo = Vector{CubeInfo{Int,FT}}(undef, nCubes)
+    for icube = 1:nCubes
         center = bigCubeLowerCoor .+ (cubesID3D[icube, :] .- 0.5) .* cubeEdgel
-        cubesInfo[icube] = CubeInfo{Int, FT}(kidsSlice[icube], 0:0, kidsIn8[icube], Int[], cubesNeighbors[icube], Int[], MVector{3, Int}(cubesID3D[icube, :]), MVector{3, FT}(center))
+        cubesInfo[icube] = CubeInfo{Int,FT}(
+            kidsSlice[icube],
+            0:0,
+            kidsIn8[icube],
+            Int[],
+            cubesNeighbors[icube],
+            Int[],
+            MVector{3,Int}(cubesID3D[icube, :]),
+            MVector{3,FT}(center),
+        )
     end
 
-    L, poles = levelIntegralInfoCal(cubeEdgel; λ=λ)
+    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ)
 
-    level = LevelInfo{Int, FT, LagrangeInterpInfo{Int, FT}}()
+    level = LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}()
     level.ID = levelID
     level.isleaf = false
     level.L = L
@@ -225,20 +258,23 @@ end
 function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer) where {IT<:Integer}
     nCubes = size(cubesID3D, 1)
     maxCubes1D = 2^levelID
-    cubesID1D = [((row[1]-1)*maxCubes1D^2 + (row[2]-1)*maxCubes1D + row[3]) for row in eachrow(cubesID3D)]
-    
+    cubesID1D = [
+        ((row[1] - 1) * maxCubes1D^2 + (row[2] - 1) * maxCubes1D + row[3]) for
+        row in eachrow(cubesID3D)
+    ]
+
     neighbors = Vector{Vector{IT}}(undef, nCubes)
-    
-    for iCube in 1:nCubes
+
+    for iCube = 1:nCubes
         cubeID3D = cubesID3D[iCube, :]
         neighborsOffsets = [(-4:4), (-4:4), (-4:4)]
-        
-        for ii in 1:3
+
+        for ii = 1:3
             min_offset = max(-4, 1 - cubeID3D[ii])
             max_offset = min(4, maxCubes1D - cubeID3D[ii])
             neighborsOffsets[ii] = min_offset:max_offset
         end
-        
+
         neighborsNonEmpty = IT[]
         for offsetx in neighborsOffsets[1]
             for offsety in neighborsOffsets[2]
@@ -247,8 +283,12 @@ function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer) where {IT<:Int
                         push!(neighborsNonEmpty, iCube)
                         continue
                     end
-                    
-                    neighbor1DID = (cubeID3D[1]-1+offsetx)*maxCubes1D^2 + (cubeID3D[2]-1+offsety)*maxCubes1D + cubeID3D[3]+offsetz
+
+                    neighbor1DID =
+                        (cubeID3D[1] - 1 + offsetx) * maxCubes1D^2 +
+                        (cubeID3D[2] - 1 + offsety) * maxCubes1D +
+                        cubeID3D[3] +
+                        offsetz
                     idx = searchsortedfirst(cubesID1D, neighbor1DID)
                     if idx <= length(cubesID1D) && cubesID1D[idx] == neighbor1DID
                         push!(neighborsNonEmpty, idx)
@@ -262,52 +302,56 @@ function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer) where {IT<:Int
     return neighbors
 end
 
-function reOrderCubeID!(nLevels::Integer, levels::Dict{Int, LV}, levelsCubeIDSorted::Dict{Int, Vector{Int}}) where {LV<:AbstractLevel}
-    for ilevel in 2:nLevels
-        parentLevel = levels[ilevel - 1]
+function reOrderCubeID!(
+    nLevels::Integer,
+    levels::Dict{Int,LV},
+    levelsCubeIDSorted::Dict{Int,Vector{Int}},
+) where {LV<:AbstractLevel}
+    for ilevel = 2:nLevels
+        parentLevel = levels[ilevel-1]
         level = levels[ilevel]
         cubeIDSorted = levelsCubeIDSorted[ilevel]
-        
+
         permute!(cubeIDSorted, vcat([cube.kidsInterval for cube in parentLevel.cubes]...))
-        
+
         nCumKidCube = 0
         for pCube in parentLevel.cubes
             nkid = length(pCube.kidsInterval)
-            pCube.kidsInterval = (nCumKidCube + 1):(nCumKidCube + nkid)
+            pCube.kidsInterval = (nCumKidCube+1):(nCumKidCube+nkid)
             nCumKidCube += nkid
         end
-        
+
         permute!(level.cubes, cubeIDSorted)
-        
+
         nCubes = length(cubeIDSorted)
         oldNewIDpair = hcat(cubeIDSorted, 1:nCubes)
-        oldNewIDpair = sortslices(oldNewIDpair, dims=1)
-        
+        oldNewIDpair = sortslices(oldNewIDpair, dims = 1)
+
         for cube in level.cubes
             cube.neighbors .= oldNewIDpair[cube.neighbors, 2]
             sort!(cube.neighbors)
         end
     end
-    
+
     leafLevel = levels[nLevels]
-    leafsIDSorted = levelsCubeIDSorted[nLevels + 1]
+    leafsIDSorted = levelsCubeIDSorted[nLevels+1]
     permute!(leafsIDSorted, vcat([cube.kidsInterval for cube in leafLevel.cubes]...))
-    
+
     nCumKidCube = 0
     for lCube in leafLevel.cubes
         nkid = length(lCube.kidsInterval)
-        lCube.kidsInterval = (nCumKidCube + 1):(nCumKidCube + nkid)
+        lCube.kidsInterval = (nCumKidCube+1):(nCumKidCube+nkid)
         nCumKidCube += nkid
     end
 end
 
-function setBFInterval!(nLevels::Integer, levels::Dict{Int, LV}) where {LV<:AbstractLevel}
+function setBFInterval!(nLevels::Integer, levels::Dict{Int,LV}) where {LV<:AbstractLevel}
     leafCubes = levels[nLevels].cubes
     for cube in leafCubes
         cube.bfInterval = cube.kidsInterval
     end
-    
-    for ilevel in nLevels-1:-1:1
+
+    for ilevel = nLevels-1:-1:1
         tlevelCubes = levels[ilevel].cubes
         klevelCubes = levels[ilevel+1].cubes
         for tlevelCube in tlevelCubes
@@ -319,17 +363,21 @@ function setBFInterval!(nLevels::Integer, levels::Dict{Int, LV}) where {LV<:Abst
     end
 end
 
-function setLevelsCubesKidsIn8!(nLevels::Integer, levels::Dict{Int, LV}) where {LV<:AbstractLevel}
-    for iLevel in (nLevels - 1):-1:2
+function setLevelsCubesKidsIn8!(nLevels::Integer, levels::Dict{Int,LV}) where {LV<:AbstractLevel}
+    for iLevel = (nLevels-1):-1:2
         tCubes = levels[iLevel].cubes
-        kCubes = levels[iLevel + 1].cubes
+        kCubes = levels[iLevel+1].cubes
         for iCube in eachindex(tCubes)
             cube = tCubes[iCube]
             cubeID3D4 = cube.ID3D .* 4 .- 2
             for (ii, kCube) in enumerate(view(kCubes, cube.kidsInterval))
                 relativeOffset = (kCube.ID3D .* 2 .- 1) .- cubeID3D4
-                relativeOffsetTrunc = [relativeOffset[i] == -1 ? 0 : 1 for i in 1:3]
-                relativeOffset1D = 1 + relativeOffsetTrunc[1] + relativeOffsetTrunc[2]*2 + relativeOffsetTrunc[3]*4
+                relativeOffsetTrunc = [relativeOffset[i] == -1 ? 0 : 1 for i = 1:3]
+                relativeOffset1D =
+                    1 +
+                    relativeOffsetTrunc[1] +
+                    relativeOffsetTrunc[2] * 2 +
+                    relativeOffsetTrunc[3] * 4
                 cube.kidsIn8[ii] = relativeOffset1D
             end
         end
@@ -343,14 +391,14 @@ function setKidLevelFarNeighbors!(thisLevel, kidLevel)
         cube = cubes[icube]
         neighbors = cube.neighbors
         kidCubesID = cube.kidsInterval
-        
+
         neighborsKids = Int[]
         for iNeighbor in neighbors
             if iNeighbor != icube
                 append!(neighborsKids, cubes[iNeighbor].kidsInterval)
             end
         end
-        
+
         for iKidCube in kidCubesID
             kidCube = kidCubes[iKidCube]
             kidCubeNeighbors = kidCube.neighbors

@@ -72,12 +72,22 @@ export SimulationConfig, GeometryConfig, BasisConfig, ExcitationConfig, SolverCo
 
 # Re-export Utilities symbols
 using .Utilities
-export init_logging, @showprogress, SimulationParameters, set_frequency!, get_k0, get_eta0, get_omega
+export init_logging,
+    @showprogress, SimulationParameters, set_frequency!, get_k0, get_eta0, get_omega
 export calculate_mie_rcs_pec_sphere
 
 # Re-export Geometry symbols
 using .Geometry
-export TriangleMesh, TetrahedraMesh, HexahedraMesh, TriangleInfo, read_nas_mesh, read_mixed_nas_mesh, read_msh_mesh, generate_rectangle_mesh, generate_cylinder_mesh, generate_sphere_mesh
+export TriangleMesh,
+    TetrahedraMesh,
+    HexahedraMesh,
+    TriangleInfo,
+    read_nas_mesh,
+    read_mixed_nas_mesh,
+    read_msh_mesh,
+    generate_rectangle_mesh,
+    generate_cylinder_mesh,
+    generate_sphere_mesh
 
 # Re-export PostProcessing symbols
 using .PostProcessing
@@ -90,7 +100,19 @@ export save_RCS_txt, save_results_hdf5, save_result, save_vtk
 
 # Re-export BasisFunctions symbols
 using .BasisFunctions
-export RWGBasis, RWG, SWGBasis, SWG, evaluate_swg, PWCBasis, PWCHexBasis, PWC, RBFBasis, RBF, get_triangle_info, get_tetrahedra_info, get_hexahedra_info
+export RWGBasis,
+    RWG,
+    SWGBasis,
+    SWG,
+    evaluate_swg,
+    PWCBasis,
+    PWCHexBasis,
+    PWC,
+    RBFBasis,
+    RBF,
+    get_triangle_info,
+    get_tetrahedra_info,
+    get_hexahedra_info
 
 # Re-export IntegralEquations symbols
 using .IntegralEquations
@@ -99,7 +121,8 @@ export EFIE, MFIE, CFIE, VEFIE, SCFIE, assemble_impedance_matrix
 # Re-export Solvers symbols
 using .Solvers
 export LUSolver, GMRESSolver, BiCGSTABSolver, solve!
-export DiagonalPreconditioner, IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
+export DiagonalPreconditioner,
+    IdentityPreconditioner, ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
 
 # Re-export FastAlgorithms symbols
 include("FastAlgorithms/FastAlgorithms.jl")

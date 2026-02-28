@@ -104,7 +104,7 @@ function load_config(path::String)
     data = TOML.parsefile(path)
 
     # Helper to safely extract sections
-    function get_section(dict, key, default=Dict())
+    function get_section(dict, key, default = Dict())
         return get(dict, key, default)
     end
 
@@ -116,21 +116,19 @@ function load_config(path::String)
         solver_type = get(sim_data, "solver_type", "GMRES"),
         ie_type = get(sim_data, "ie_type", "EFIE"),
         cfie_alpha = Float64(get(sim_data, "cfie_alpha", 0.5)),
-        permittivities = Vector{ComplexF64}(get(sim_data, "permittivities", ComplexF64[]))
+        permittivities = Vector{ComplexF64}(get(sim_data, "permittivities", ComplexF64[])),
     )
 
     # Parse Geometry
     geo_data = get_section(data, "geometry")
     geometry = GeometryConfig(;
         mesh_file = geo_data["mesh_file"],
-        unit_scale = get(geo_data, "unit_scale", 1.0)
+        unit_scale = get(geo_data, "unit_scale", 1.0),
     )
 
     # Parse Basis
     basis_data = get_section(data, "basis")
-    basis = BasisConfig(;
-        type = get(basis_data, "type", "RWG")
-    )
+    basis = BasisConfig(; type = get(basis_data, "type", "RWG"))
 
     # Parse Excitation
     exc_data = get_section(data, "excitation")
@@ -138,7 +136,7 @@ function load_config(path::String)
         type = get(exc_data, "type", "PlaneWave"),
         theta = get(exc_data, "theta", 0.0),
         phi = get(exc_data, "phi", 0.0),
-        polarization = Vector{Float64}(get(exc_data, "polarization", [1.0, 0.0, 0.0]))
+        polarization = Vector{Float64}(get(exc_data, "polarization", [1.0, 0.0, 0.0])),
     )
 
     # Parse Solver
@@ -146,7 +144,7 @@ function load_config(path::String)
     solver = SolverConfig(;
         tolerance = get(sol_data, "tolerance", 1e-4),
         max_iter = get(sol_data, "max_iter", 1000),
-        restart = get(sol_data, "restart", 50)
+        restart = get(sol_data, "restart", 50),
     )
 
     # Parse Output
@@ -155,17 +153,10 @@ function load_config(path::String)
         directory = get(out_data, "directory", "results"),
         save_fields = get(out_data, "save_fields", true),
         save_rcs = get(out_data, "save_rcs", true),
-        format = get(out_data, "format", "h5")
+        format = get(out_data, "format", "h5"),
     )
 
-    return EMSuiteConfig(
-        simulation,
-        geometry,
-        basis,
-        excitation,
-        solver,
-        output
-    )
+    return EMSuiteConfig(simulation, geometry, basis, excitation, solver, output)
 end
 
 end

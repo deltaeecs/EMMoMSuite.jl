@@ -5,15 +5,15 @@ using StaticArrays
 
 Triangle mesh data structure.
 """
-struct TriangleMesh{IT, FT} <: AbstractMesh
-    trinum      ::Int
-    node        ::Matrix{FT}      # 3 x Nv
-    triangles   ::Matrix{IT}      # 3 x Nt
-    tags        ::Vector{Int}     # Nt, Region/Property IDs
+struct TriangleMesh{IT,FT} <: AbstractMesh
+    trinum::Int
+    node::Matrix{FT}      # 3 x Nv
+    triangles::Matrix{IT}      # 3 x Nt
+    tags::Vector{Int}     # Nt, Region/Property IDs
 end
 
 # Constructor with default tags (0)
-function TriangleMesh(trinum::Int, node::Matrix{FT}, triangles::Matrix{IT}) where {IT, FT}
+function TriangleMesh(trinum::Int, node::Matrix{FT}, triangles::Matrix{IT}) where {IT,FT}
     tags = zeros(Int, trinum)
     return TriangleMesh(trinum, node, triangles, tags)
 end
@@ -28,15 +28,15 @@ CoreModule.dimension(mesh::TriangleMesh) = 2
 
 Tetrahedral mesh data structure.
 """
-struct TetrahedraMesh{IT, FT} <: AbstractMesh
-    tetnum      ::Int
-    node        ::Matrix{FT}      # 3 x Nv
-    tetras      ::Matrix{IT}      # 4 x Nt
-    tags        ::Vector{Int}     # Nt, Region/Property IDs
+struct TetrahedraMesh{IT,FT} <: AbstractMesh
+    tetnum::Int
+    node::Matrix{FT}      # 3 x Nv
+    tetras::Matrix{IT}      # 4 x Nt
+    tags::Vector{Int}     # Nt, Region/Property IDs
 end
 
 # Constructor with default tags (0)
-function TetrahedraMesh(tetnum::Int, node::Matrix{FT}, tetras::Matrix{IT}) where {IT, FT}
+function TetrahedraMesh(tetnum::Int, node::Matrix{FT}, tetras::Matrix{IT}) where {IT,FT}
     tags = zeros(Int, tetnum)
     return TetrahedraMesh(tetnum, node, tetras, tags)
 end
@@ -50,15 +50,15 @@ CoreModule.dimension(mesh::TetrahedraMesh) = 3
 
 Hexahedral mesh data structure.
 """
-struct HexahedraMesh{IT, FT} <: AbstractMesh
-    hexnum      ::Int
-    node        ::Matrix{FT}      # 3 x Nv
-    hexes       ::Matrix{IT}      # 8 x Nt
-    tags        ::Vector{Int}     # Nt, Region/Property IDs
+struct HexahedraMesh{IT,FT} <: AbstractMesh
+    hexnum::Int
+    node::Matrix{FT}      # 3 x Nv
+    hexes::Matrix{IT}      # 8 x Nt
+    tags::Vector{Int}     # Nt, Region/Property IDs
 end
 
 # Constructor with default tags (0)
-function HexahedraMesh(hexnum::Int, node::Matrix{FT}, hexes::Matrix{IT}) where {IT, FT}
+function HexahedraMesh(hexnum::Int, node::Matrix{FT}, hexes::Matrix{IT}) where {IT,FT}
     tags = zeros(Int, hexnum)
     return HexahedraMesh(hexnum, node, hexes, tags)
 end
@@ -87,36 +87,47 @@ Used extensively in integral equation assembly to avoid recomputing geometric pr
 - `edgen̂`: Unit vectors normal to the edges, lying in the triangle plane, pointing outwards.
 - `inBfsID`: IDs of the basis functions associated with the three edges (if any).
 """
-struct TriangleInfo{IT<: Integer, FT<:AbstractFloat}
-    triID       ::IT
-    tag         ::Int             # Region/Property ID
-    area        ::FT
-    verticesID  ::SVector{3, IT}
-    vertices    ::SMatrix{3, 3, FT, 9}
-    center      ::SVector{3, FT}
-    facen̂       ::SVector{3, FT}
-    edgel       ::SVector{3, FT}
-    edgev̂       ::SMatrix{3, 3, FT, 9}
-    edgen̂       ::SMatrix{3, 3, FT, 9}
-    inBfsID     ::SVector{3, IT}
-    bfsSign     ::SVector{3, Int}
+struct TriangleInfo{IT<:Integer,FT<:AbstractFloat}
+    triID::IT
+    tag::Int             # Region/Property ID
+    area::FT
+    verticesID::SVector{3,IT}
+    vertices::SMatrix{3,3,FT,9}
+    center::SVector{3,FT}
+    facen̂::SVector{3,FT}
+    edgel::SVector{3,FT}
+    edgev̂::SMatrix{3,3,FT,9}
+    edgen̂::SMatrix{3,3,FT,9}
+    inBfsID::SVector{3,IT}
+    bfsSign::SVector{3,Int}
 end
 
-function TriangleInfo{IT, FT}(triID::IT = zero(IT)) where {IT <: Integer, FT<:AbstractFloat}
-    tag         =    0
-    area        =    zero(FT)
-    verticesID  =    zero(SVector{3, IT})
-    vertices    =    zero(SMatrix{3, 3, FT, 9})
-    center      =    zero(SVector{3, FT})
-    facen̂       =    zero(SVector{3, FT})
-    edgel       =    zero(SVector{3, FT})
-    edgev̂       =    zero(SMatrix{3, 3, FT, 9})
-    edgen̂       =    zero(SMatrix{3, 3, FT, 9})
-    inBfsID     =    zero(SVector{3, IT})
-    bfsSign     =    zero(SVector{3, Int})
-    return TriangleInfo{IT, FT}(triID,  tag,  area,  verticesID, vertices,
-                                center, facen̂, edgel, edgev̂, 
-                                edgen̂, inBfsID, bfsSign)
+function TriangleInfo{IT,FT}(triID::IT = zero(IT)) where {IT<:Integer,FT<:AbstractFloat}
+    tag = 0
+    area = zero(FT)
+    verticesID = zero(SVector{3,IT})
+    vertices = zero(SMatrix{3,3,FT,9})
+    center = zero(SVector{3,FT})
+    facen̂ = zero(SVector{3,FT})
+    edgel = zero(SVector{3,FT})
+    edgev̂ = zero(SMatrix{3,3,FT,9})
+    edgen̂ = zero(SMatrix{3,3,FT,9})
+    inBfsID = zero(SVector{3,IT})
+    bfsSign = zero(SVector{3,Int})
+    return TriangleInfo{IT,FT}(
+        triID,
+        tag,
+        area,
+        verticesID,
+        vertices,
+        center,
+        facen̂,
+        edgel,
+        edgev̂,
+        edgen̂,
+        inBfsID,
+        bfsSign,
+    )
 end
 
 """
@@ -136,30 +147,35 @@ Detailed geometric information for a single tetrahedron element.
 - `κ`: Contrast or other material property.
 - `ε`: Permittivity.
 """
-struct TetrahedraInfo{IT<: Integer, FT<:AbstractFloat, CT<:Complex}
-    tetID       ::IT
-    tag         ::Int
-    volume      ::FT
-    vertices    ::SMatrix{3, 4, FT, 12}
-    center      ::SVector{3, FT}
-    facesArea   ::SVector{4, FT}
-    facesn̂      ::SMatrix{3, 4, FT, 12}
-    inBfsID     ::SVector{4, IT}
-    bfsSign     ::SVector{4, Int}
-    κ           ::CT
-    ε           ::CT
+struct TetrahedraInfo{IT<:Integer,FT<:AbstractFloat,CT<:Complex}
+    tetID::IT
+    tag::Int
+    volume::FT
+    vertices::SMatrix{3,4,FT,12}
+    center::SVector{3,FT}
+    facesArea::SVector{4,FT}
+    facesn̂::SMatrix{3,4,FT,12}
+    inBfsID::SVector{4,IT}
+    bfsSign::SVector{4,Int}
+    κ::CT
+    ε::CT
 end
 
-function TetrahedraInfo{IT, FT, CT}(tetID::IT = zero(IT)) where {IT <: Integer, FT<:AbstractFloat, CT<:Complex}
-    return TetrahedraInfo{IT, FT, CT}(
-        tetID, 0, zero(FT),
-        zero(SMatrix{3, 4, FT, 12}),
-        zero(SVector{3, FT}),
-        zero(SVector{4, FT}),
-        zero(SMatrix{3, 4, FT, 12}),
-        zero(SVector{4, IT}),
-        zero(SVector{4, Int}),
-        zero(CT), zero(CT)
+function TetrahedraInfo{IT,FT,CT}(
+    tetID::IT = zero(IT),
+) where {IT<:Integer,FT<:AbstractFloat,CT<:Complex}
+    return TetrahedraInfo{IT,FT,CT}(
+        tetID,
+        0,
+        zero(FT),
+        zero(SMatrix{3,4,FT,12}),
+        zero(SVector{3,FT}),
+        zero(SVector{4,FT}),
+        zero(SMatrix{3,4,FT,12}),
+        zero(SVector{4,IT}),
+        zero(SVector{4,Int}),
+        zero(CT),
+        zero(CT),
     )
 end
 
@@ -178,21 +194,22 @@ Stores geometric data needed for surface integral corrections (Fss terms in RBF)
 - `edgen̂`: Unit outward normal vectors for the 4 edges (in the face plane).
 """
 mutable struct Quads4Hexa{FT<:AbstractFloat}
-    isbd        ::Bool
-    δκ          ::Complex{FT}
-    vertices    ::SMatrix{3, 4, FT, 12}
-    edgel       ::SVector{4, FT}
-    edgev̂       ::SMatrix{3, 4, FT, 12}
-    edgen̂       ::SMatrix{3, 4, FT, 12}
+    isbd::Bool
+    δκ::Complex{FT}
+    vertices::SMatrix{3,4,FT,12}
+    edgel::SVector{4,FT}
+    edgev̂::SMatrix{3,4,FT,12}
+    edgen̂::SMatrix{3,4,FT,12}
 end
 
 function Quads4Hexa{FT}() where {FT<:AbstractFloat}
     Quads4Hexa{FT}(
-        true, zero(Complex{FT}),
-        zero(SMatrix{3, 4, FT, 12}),
-        zero(SVector{4, FT}),
-        zero(SMatrix{3, 4, FT, 12}),
-        zero(SMatrix{3, 4, FT, 12})
+        true,
+        zero(Complex{FT}),
+        zero(SMatrix{3,4,FT,12}),
+        zero(SVector{4,FT}),
+        zero(SMatrix{3,4,FT,12}),
+        zero(SMatrix{3,4,FT,12}),
     )
 end
 
@@ -231,32 +248,37 @@ Mirrors Legacy `HexahedraInfo` for use in VEFIE/SCFIE assembly.
 - `faces`: Detailed quadrilateral face information (for Fss surface corrections).
 - `inBfsID`: IDs of basis functions (6 for RBF, 3 for PWC with padding).
 """
-mutable struct HexahedraInfo{IT<:Integer, FT<:AbstractFloat, CT<:Complex}
-    hexaID      ::IT
-    tag         ::Int
-    volume      ::FT
-    ε           ::CT
-    κ           ::CT
-    center      ::SVector{3, FT}
-    verticesID  ::SVector{8, IT}
-    vertices    ::SMatrix{3, 8, FT, 24}
-    facesn̂      ::MMatrix{3, 6, FT, 18}
-    facesArea   ::MVector{6, FT}
-    faces       ::Vector{Quads4Hexa{FT}}
-    inBfsID     ::Vector{IT}
+mutable struct HexahedraInfo{IT<:Integer,FT<:AbstractFloat,CT<:Complex}
+    hexaID::IT
+    tag::Int
+    volume::FT
+    ε::CT
+    κ::CT
+    center::SVector{3,FT}
+    verticesID::SVector{8,IT}
+    vertices::SMatrix{3,8,FT,24}
+    facesn̂::MMatrix{3,6,FT,18}
+    facesArea::MVector{6,FT}
+    faces::Vector{Quads4Hexa{FT}}
+    inBfsID::Vector{IT}
 end
 
-function HexahedraInfo{IT, FT, CT}(hexaID::IT = zero(IT)) where {IT<:Integer, FT<:AbstractFloat, CT<:Complex}
-    HexahedraInfo{IT, FT, CT}(
-        hexaID, 0, zero(FT),
-        one(CT), zero(CT),
-        zero(SVector{3, FT}),
-        zero(SVector{8, IT}),
-        zero(SMatrix{3, 8, FT, 24}),
-        zero(MMatrix{3, 6, FT, 18}),
-        zero(MVector{6, FT}),
-        [Quads4Hexa{FT}() for _ in 1:6],
-        zeros(IT, 6)
+function HexahedraInfo{IT,FT,CT}(
+    hexaID::IT = zero(IT),
+) where {IT<:Integer,FT<:AbstractFloat,CT<:Complex}
+    HexahedraInfo{IT,FT,CT}(
+        hexaID,
+        0,
+        zero(FT),
+        one(CT),
+        zero(CT),
+        zero(SVector{3,FT}),
+        zero(SVector{8,IT}),
+        zero(SMatrix{3,8,FT,24}),
+        zero(MMatrix{3,6,FT,18}),
+        zero(MVector{6,FT}),
+        [Quads4Hexa{FT}() for _ = 1:6],
+        zeros(IT, 6),
     )
 end
 
@@ -268,7 +290,7 @@ Compute volume of a hexahedron by decomposing into 5 tetrahedra.
 """
 function hex_volume(v1, v2, v3, v4, v5, v6, v7, v8)
     # Decompose into 5 tetrahedra (same as Legacy)
-    vol  = tet_volume(v1, v2, v3, v6)
+    vol = tet_volume(v1, v2, v3, v6)
     vol += tet_volume(v1, v3, v4, v8)
     vol += tet_volume(v1, v5, v6, v8)
     vol += tet_volume(v1, v3, v6, v8)
@@ -291,26 +313,44 @@ end
 
 # Face ordering for RBF: u=1, u=0, v=1, v=0, w=1, w=0
 # Each face is defined by 4 vertex indices (1-based into the 8 hex vertices)
-const HEXA_FACE_VERTEX_IDS = SMatrix{4, 6, Int}(
-    2, 3, 7, 6,   # face 1: u=1
-    1, 4, 8, 5,   # face 2: u=0
-    4, 3, 7, 8,   # face 3: v=1
-    1, 2, 6, 5,   # face 4: v=0
-    5, 6, 7, 8,   # face 5: w=1
-    1, 2, 3, 4    # face 6: w=0
+const HEXA_FACE_VERTEX_IDS = SMatrix{4,6,Int}(
+    2,
+    3,
+    7,
+    6,   # face 1: u=1
+    1,
+    4,
+    8,
+    5,   # face 2: u=0
+    4,
+    3,
+    7,
+    8,   # face 3: v=1
+    1,
+    2,
+    6,
+    5,   # face 4: v=0
+    5,
+    6,
+    7,
+    8,   # face 5: w=1
+    1,
+    2,
+    3,
+    4,    # face 6: w=0
 )
 
 # Opposite face mapping: face i's opposite is HEXA_OPP_FACE[i]
-const HEXA_OPP_FACE = SVector{6, Int}(2, 1, 4, 3, 6, 5)
+const HEXA_OPP_FACE = SVector{6,Int}(2, 1, 4, 3, 6, 5)
 
 # Opposite face vertex IDs (for getFreeVns)
-const HEXA_OPP_FACE_VERTEX_IDS = SMatrix{4, 6, Int}(
+const HEXA_OPP_FACE_VERTEX_IDS = SMatrix{4,6,Int}(
     HEXA_FACE_VERTEX_IDS[:, HEXA_OPP_FACE[1]]...,
     HEXA_FACE_VERTEX_IDS[:, HEXA_OPP_FACE[2]]...,
     HEXA_FACE_VERTEX_IDS[:, HEXA_OPP_FACE[3]]...,
     HEXA_FACE_VERTEX_IDS[:, HEXA_OPP_FACE[4]]...,
     HEXA_FACE_VERTEX_IDS[:, HEXA_OPP_FACE[5]]...,
-    HEXA_FACE_VERTEX_IDS[:, HEXA_OPP_FACE[6]]...
+    HEXA_FACE_VERTEX_IDS[:, HEXA_OPP_FACE[6]]...,
 )
 
 """
@@ -358,7 +398,7 @@ Build a vector mapping linear hex GQ index (1:n1d³) to 3D tuple (i,j,k).
 Julia column-major: index = i + (j-1)*n1d + (k-1)*n1d²
 """
 function construct_gq3d_index_map(n1d::Integer)
-    return vec([(i, j, k) for i in 1:n1d, j in 1:n1d, k in 1:n1d])
+    return vec([(i, j, k) for i = 1:n1d, j = 1:n1d, k = 1:n1d])
 end
 
 """
@@ -372,26 +412,31 @@ Boundary face: δκ = ±κ (only one side contributes).
 function set_delta_kappa!(hexas_info::Vector{<:HexahedraInfo})
     # Reset
     for hexa in hexas_info
-        for f in 1:6
+        for f = 1:6
             hexa.faces[f] = Quads4Hexa(
-                hexa.faces[f].isbd, zero(hexa.faces[f].δκ),
-                hexa.faces[f].vertices, hexa.faces[f].edgel,
-                hexa.faces[f].edgev̂, hexa.faces[f].edgen̂
+                hexa.faces[f].isbd,
+                zero(hexa.faces[f].δκ),
+                hexa.faces[f].vertices,
+                hexa.faces[f].edgel,
+                hexa.faces[f].edgev̂,
+                hexa.faces[f].edgen̂,
             )
         end
     end
     # Accumulate
     for hexa in hexas_info
         κ = hexa.κ
-        for f in 1:6
+        for f = 1:6
             temp = hexa.facesArea[f] > 0 ? κ : -κ
             old_face = hexa.faces[f]
             hexa.faces[f] = Quads4Hexa(
-                old_face.isbd, old_face.δκ + temp,
-                old_face.vertices, old_face.edgel,
-                old_face.edgev̂, old_face.edgen̂
+                old_face.isbd,
+                old_face.δκ + temp,
+                old_face.vertices,
+                old_face.edgel,
+                old_face.edgev̂,
+                old_face.edgen̂,
             )
         end
     end
 end
-

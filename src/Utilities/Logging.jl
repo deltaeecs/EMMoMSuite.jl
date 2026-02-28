@@ -19,7 +19,11 @@ Initialize the global logger with multi-target output:
 - `console_level::LogLevel`: Minimum log level for console output.
 - `file_level::LogLevel`: Minimum log level for file output.
 """
-function init_logging(log_file::String; console_level::LogLevel=Logging.Info, file_level::LogLevel=Logging.Debug)
+function init_logging(
+    log_file::String;
+    console_level::LogLevel = Logging.Info,
+    file_level::LogLevel = Logging.Debug,
+)
     # Date format
     date_format = "yyyy-mm-dd HH:MM:SS"
 
@@ -35,10 +39,7 @@ function init_logging(log_file::String; console_level::LogLevel=Logging.Info, fi
 
     # Console Logger
     # We use FormatLogger for consistent formatting.
-    console_logger = MinLevelLogger(
-        FormatLogger(fmt, stderr),
-        console_level
-    )
+    console_logger = MinLevelLogger(FormatLogger(fmt, stderr), console_level)
 
     # File Logger
     # Ensure directory exists
@@ -46,18 +47,15 @@ function init_logging(log_file::String; console_level::LogLevel=Logging.Info, fi
     if !isempty(log_dir) && !isdir(log_dir)
         mkpath(log_dir)
     end
-    
-    file_logger = MinLevelLogger(
-        FormatLogger(fmt, log_file; append=true),
-        file_level
-    )
+
+    file_logger = MinLevelLogger(FormatLogger(fmt, log_file; append = true), file_level)
 
     # Tee Logger
     tee_logger = TeeLogger(console_logger, file_logger)
 
     # Set global logger
     global_logger(tee_logger)
-    
+
     @info "Logging initialized. Console level: $console_level, File level: $file_level, Log file: $log_file"
 end
 

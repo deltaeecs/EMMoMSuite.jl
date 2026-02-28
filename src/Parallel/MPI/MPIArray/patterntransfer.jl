@@ -10,12 +10,12 @@ recv_rk2idcs::Dict{Int, I}                      本 `rank` 接收的 `rank` 以�
 send_rk2idcs::Dict{Int, I}                      本 `rank` 发送的 `rank` 以及在本地数据中的索引。
 ```
 """
-struct PatternTransfer{T, I} <: TRANSFER
-    parent::MPIArray{T, IA, 3} where {IA}
+struct PatternTransfer{T,I} <: TRANSFER
+    parent::MPIArray{T,IA,3} where {IA}
     reqsIndices::I
-    reqsDatas::Dict{Int, SparseMatrixCSC{T, Int}}
-    recv_rk2idcs::Dict{Int, I}
-    send_rk2idcs::Dict{Int, I}
+    reqsDatas::Dict{Int,SparseMatrixCSC{T,Int}}
+    recv_rk2idcs::Dict{Int,I}
+    send_rk2idcs::Dict{Int,I}
 end
 
 
@@ -24,16 +24,22 @@ end
 
 创建缓冲区 `PatternTransfer` 存储辐射函数、配置函数 Pattern 交换数据.
 """
-function PatternTransfer(reqsIndices::NTuple{3, Union{UnitRange{Int}, Vector{Int}}}, a::MPIArray{T, IA, 3}; comm = a.comm, rank = a.myrank, np = MPI.Comm_size(comm)) where {T, IA}
-    
+function PatternTransfer(
+    reqsIndices::NTuple{3,Union{UnitRange{Int},Vector{Int}}},
+    a::MPIArray{T,IA,3};
+    comm = a.comm,
+    rank = a.myrank,
+    np = MPI.Comm_size(comm),
+) where {T,IA}
+
     # 收集所有进程需求的 indices
-    all_reqIndices      =   map(idc -> allgather_VecOrUnitRange(idc; comm = comm), reqsIndices)
-    rank2reqIndices     =   Dict(zip(0:(np-1), zip(all_reqIndices...)))
-    rank2indices        =   a.rank2indices
+    all_reqIndices = map(idc -> allgather_VecOrUnitRange(idc; comm = comm), reqsIndices)
+    rank2reqIndices = Dict(zip(0:(np-1), zip(all_reqIndices...)))
+    rank2indices = a.rank2indices
 
     # 需要接收的 rank 和数据的 indices.
-    recv_ranks  =   indice2ranks(reqsIndices, rank2indices)
-    recv_rank2indices   =   grank2indices(recv_ranks, reqsIndices, rank2indices)
+    recv_ranks = indice2ranks(reqsIndices, rank2indices)
+    recv_rank2indices = grank2indices(recv_ranks, reqsIndices, rank2indices)
 
     ## 先创建稀疏矩阵的行列索引并保存在字典里
     # 先找出所有的 cube id
@@ -41,7 +47,7 @@ function PatternTransfer(reqsIndices::NTuple{3, Union{UnitRange{Int}, Vector{Int
     for rkcubeIdc in values(recv_rank2indices)
         unique!(sort!(append!(cubeIndices, rkcubeIdc[3])))
     end
-    
+
     cubeIdc2IsJs = Dict([i => (Is = Int[], Js = Int[]) for i in cubeIndices])
 
     # 其次找出所有 cube 的索引
@@ -53,14 +59,26 @@ function PatternTransfer(reqsIndices::NTuple{3, Union{UnitRange{Int}, Vector{Int
         end
     end
 
-    reqsDatas = Dict([i => sparse(  cubeIdc2IsJs[i]..., zeros(T, length(cubeIdc2IsJs[i].Is)), 
-                                    size(a, 1), size(a, 2)) for i in cubeIndices])
-    
+    reqsDatas = Dict([
+        i => sparse(
+            cubeIdc2IsJs[i]...,
+            zeros(T, length(cubeIdc2IsJs[i].Is)),
+            size(a, 1),
+            size(a, 2),
+        ) for i in cubeIndices
+    ])
+
     # 需要发送的 rank 和数据在 a.data 内的 indice
     send_ranks = indice2ranks(a.indices, rank2reqIndices)
     send_rank2indices = remoterank2indices(send_ranks, a.indices, rank2reqIndices)
 
-    PatternTransfer{T, eltype(values(recv_rank2indices))}(a, reqsIndices, reqsDatas, recv_rank2indices, send_rank2indices)
+    PatternTransfer{T,eltype(values(recv_rank2indices))}(
+        a,
+        reqsIndices,
+        reqsDatas,
+        recv_rank2indices,
+        send_rank2indices,
+    )
 
 end
 
@@ -69,29 +87,34 @@ end
 
 同步 `t` 中的数据.
 """
-function sync!(t::PatternTransfer{T, I}; comm = t.parent.comm, rank = t.parent.myrank, np = MPI.Comm_size(comm)) where{T, I}
+function sync!(
+    t::PatternTransfer{T,I};
+    comm = t.parent.comm,
+    rank = t.parent.myrank,
+    np = MPI.Comm_size(comm),
+) where {T,I}
 
     # parent mpi array
     A = t.parent
     # restoring region
     reqsDatas = t.reqsDatas
     # 缓冲数据，用于接收数据然后再赋值给 reqsDatas 的稀疏矩阵
-    buffers =  Dict(k => zeros(T, map(length, v)) for (k, v) in t.recv_rk2idcs)
+    buffers = Dict(k => zeros(T, map(length, v)) for (k, v) in t.recv_rk2idcs)
 
     # begin sync
     req_all = MPI.Request[]
     begin
         for ghostrank in keys(t.recv_rk2idcs)
-            req = MPI.Irecv!(buffers[ghostrank], ghostrank, ghostrank*np + rank, A.comm)
+            req = MPI.Irecv!(buffers[ghostrank], ghostrank, ghostrank * np + rank, A.comm)
             push!(req_all, req)
         end
         for (remoterank, indices) in t.send_rk2idcs
-            req = MPI.Isend(A.data[indices...], remoterank, rank*np + remoterank, A.comm)
+            req = MPI.Isend(A.data[indices...], remoterank, rank * np + remoterank, A.comm)
             push!(req_all, req)
         end
     end
     MPI.Waitall(MPI.RequestSet(req_all), MPI.Status)
-    
+
     # 将数据存储进
     for (ghostrank, indices) in t.recv_rk2idcs
         buffer = buffers[ghostrank]
