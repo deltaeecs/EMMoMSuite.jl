@@ -14,7 +14,7 @@ struct PlaneWave <: AbstractSource
     phi::Float64
     polarization::Vector{Float64}
     k::Float64
-    
+
     function PlaneWave(frequency, theta, phi, polarization)
         k = 2 * pi * frequency / Constants.c0
         new(frequency, theta, phi, normalize(polarization), k)
@@ -30,11 +30,11 @@ end
 function incident_field(source::PlaneWave, r::AbstractVector)
     # k vector direction (propagation direction)
     # k = k0 * (sin theta cos phi, sin theta sin phi, cos theta)
-    
+
     st, ct = sincos(source.theta)
     sp, cp = sincos(source.phi)
-    k_dir = [st*cp, st*sp, ct]
-    
+    k_dir = [st * cp, st * sp, ct]
+
     # Phase factor exp(-j * k * r . k_dir)
     phase = exp(-im * source.k * dot(r, k_dir))
     return source.polarization * phase

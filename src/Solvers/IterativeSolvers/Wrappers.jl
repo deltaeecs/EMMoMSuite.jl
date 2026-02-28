@@ -28,20 +28,20 @@ struct GMRESSolver <: AbstractSolver
     verbose::Bool
 end
 
-function GMRESSolver(; restart=30, maxiter=100, tol=1e-6, verbose=false)
+function GMRESSolver(; restart = 30, maxiter = 100, tol = 1e-6, verbose = false)
     GMRESSolver(restart, maxiter, tol, verbose)
 end
 
-function solve!(solver::GMRESSolver, A, b, x0=nothing; Pl=Identity(), Pr=Identity())
+function solve!(solver::GMRESSolver, A, b, x0 = nothing; Pl = Identity(), Pr = Identity())
     kwargs = (
         restart = solver.restart,
         maxiter = solver.maxiter,
         reltol = solver.tol,
         verbose = solver.verbose,
         Pl = Pl,
-        Pr = Pr
+        Pr = Pr,
     )
-    
+
     if x0 !== nothing
         x = copy(x0)
         return gmres!(x, A, b; kwargs...)
@@ -68,18 +68,18 @@ struct BiCGSTABSolver <: AbstractSolver
     verbose::Bool
 end
 
-function BiCGSTABSolver(; maxiter=100, tol=1e-6, verbose=false)
+function BiCGSTABSolver(; maxiter = 100, tol = 1e-6, verbose = false)
     BiCGSTABSolver(maxiter, tol, verbose)
 end
 
-function solve!(solver::BiCGSTABSolver, A, b, x0=nothing; Pl=Identity(), Pr=Identity())
+function solve!(solver::BiCGSTABSolver, A, b, x0 = nothing; Pl = Identity(), Pr = Identity())
     kwargs = (
         max_mv_products = solver.maxiter * 4,
         reltol = solver.tol,
         verbose = solver.verbose,
-        Pl = Pl
+        Pl = Pl,
     )
-    
+
     if x0 !== nothing
         x = copy(x0)
         return bicgstabl!(x, A, b; kwargs...)

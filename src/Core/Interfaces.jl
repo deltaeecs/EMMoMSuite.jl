@@ -67,7 +67,7 @@ Must implement:
 """
 abstract type AbstractSolver end
 
-solve!(solver::AbstractSolver, A, b, x0=nothing) = error("Not implemented")
+solve!(solver::AbstractSolver, A, b, x0 = nothing) = error("Not implemented")
 
 # ==================== Source Interface ====================
 """
@@ -96,4 +96,3 @@ abstract type AbstractFastAlgorithm end
 
 setup!(algo::AbstractFastAlgorithm, basis, operator) = error("Not implemented")
 multiply(algo::AbstractFastAlgorithm, x) = error("Not implemented")
-

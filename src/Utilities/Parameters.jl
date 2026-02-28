@@ -18,7 +18,7 @@ mutable struct SimulationParameters
     omega::Float64
     k0::Float64
     eta0::Float64
-    
+
     function SimulationParameters()
         new(0.0, 0.0, 0.0, 376.73031346177)
     end

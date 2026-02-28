@@ -45,25 +45,25 @@ The surface divergence is constant in each triangle:
 - `signs`: Orientation sign relative to the local edge definition (+1 or -1).
 - `center`: Midpoint of the common edge.
 """
-struct RWG{IT, FT}
-    id          ::IT
-    is_boundary ::Bool
-    edge_length ::FT
-    
+struct RWG{IT,FT}
+    id::IT
+    is_boundary::Bool
+    edge_length::FT
+
     # Support triangles (indices in mesh)
     # For boundary edges, the second index is 0 or same as first
-    support     ::SVector{2, IT} 
-    
+    support::SVector{2,IT}
+
     # Local edge index in the support triangle (1, 2, or 3)
-    local_edge_idx ::SVector{2, IT}
-    
+    local_edge_idx::SVector{2,IT}
+
     # Sign relative to the edge direction in the triangle
     # +1 if edge direction matches basis direction, -1 otherwise
     # Typically RWG is defined as flowing from T+ to T-
     # We store signs to handle orientation
-    signs       ::SVector{2, Int}
-    
-    center      ::SVector{3, FT}
+    signs::SVector{2,Int}
+
+    center::SVector{3,FT}
 end
 
 """
@@ -81,9 +81,9 @@ It handles the connectivity logic to identify common edges and assign orientatio
   - `basis_map[k, t]` gives the ID of the basis function associated with the \$k\$-th edge of triangle \$t\$.
   - If 0, no basis function is assigned (e.g., boundary edge not used).
 """
-struct RWGBasis{IT, FT} <: AbstractBasisFunction
-    mesh::TriangleMesh{IT, FT}
-    functions::Vector{RWG{IT, FT}}
+struct RWGBasis{IT,FT} <: AbstractBasisFunction
+    mesh::TriangleMesh{IT,FT}
+    functions::Vector{RWG{IT,FT}}
     # Map from (local_edge, triangle) to Basis ID
     # 3 x Nt matrix. 0 indicates no basis (or boundary if not handled)
     basis_map::Matrix{IT}
@@ -120,7 +120,7 @@ Construct a set of RWG basis functions from a triangular mesh.
 # Returns
 - An `RWGBasis` object containing the generated basis functions.
 """
-function RWGBasis(mesh::TriangleMesh{IT, FT}) where {IT, FT}
+function RWGBasis(mesh::TriangleMesh{IT,FT}) where {IT,FT}
     # 1. Extract all edges
     # Each triangle has 3 edges.
     # Edge k connects vertices (k+1)%3 and (k+2)%3 ? 
@@ -128,56 +128,56 @@ function RWGBasis(mesh::TriangleMesh{IT, FT}) where {IT, FT}
     # Edge 1: v2 -> v3
     # Edge 2: v3 -> v1
     # Edge 3: v1 -> v2
-    
+
     nt = num_elements(mesh)
     tris = elements(mesh)
     nodes = vertices(mesh)
-    
+
     # Store edge info: (min_v, max_v, tri_idx, local_edge_idx)
     # We use min/max to identify the edge regardless of direction
-    EdgeInfo = Tuple{IT, IT, IT, IT}
+    EdgeInfo = Tuple{IT,IT,IT,IT}
     all_edges = Vector{EdgeInfo}(undef, nt * 3)
-    
+
     idx = 1
     # Match Legacy Order: [All Edge 1s, All Edge 2s, All Edge 3s]
     # This is crucial for stable sort to produce the same T+/T- assignment as legacy code.
-    
+
     # Edge 1: v2-v3
-    for t in 1:nt
+    for t = 1:nt
         v1, v2, v3 = tris[:, t]
         all_edges[idx] = (min(v2, v3), max(v2, v3), t, 1)
         idx += 1
     end
-    
+
     # Edge 2: v3-v1
-    for t in 1:nt
+    for t = 1:nt
         v1, v2, v3 = tris[:, t]
         all_edges[idx] = (min(v3, v1), max(v3, v1), t, 2)
         idx += 1
     end
-    
+
     # Edge 3: v1-v2
-    for t in 1:nt
+    for t = 1:nt
         v1, v2, v3 = tris[:, t]
         all_edges[idx] = (min(v1, v2), max(v1, v2), t, 3)
         idx += 1
     end
-    
+
     # 2. Sort edges to find pairs
     sort!(all_edges, by = x -> (x[1], x[2]))
-    
+
     # 3. Create RWG functions
-    functions = Vector{RWG{IT, FT}}()
+    functions = Vector{RWG{IT,FT}}()
     basis_map = zeros(IT, 3, nt)
-    
+
     i = 1
     while i <= length(all_edges)
         e1 = all_edges[i]
-        
+
         # Check if next edge is the same (internal edge)
         if i < length(all_edges) && all_edges[i+1][1] == e1[1] && all_edges[i+1][2] == e1[2]
             e2 = all_edges[i+1]
-            
+
             # Internal edge
             # Construct RWG
             # We need to calculate edge length and center
@@ -185,13 +185,13 @@ function RWGBasis(mesh::TriangleMesh{IT, FT}) where {IT, FT}
             v_end = nodes[:, e1[2]]
             len = norm(v_start - v_end)
             center = (v_start + v_end) / 2
-            
+
             # Determine signs/orientation
             # This requires careful definition. 
             # Standard RWG: f(r) = L/2A * rho
             # Current flows from T+ to T- across the edge.
             # Let's assign T+ = e1.tri, T- = e2.tri
-            
+
             rwg_id = IT(length(functions) + 1)
             rwg = RWG(
                 rwg_id,
@@ -200,14 +200,14 @@ function RWGBasis(mesh::TriangleMesh{IT, FT}) where {IT, FT}
                 SVector(e1[3], e2[3]),
                 SVector(e1[4], e2[4]),
                 SVector(1, -1), # Placeholder signs
-                SVector{3, FT}(center)
+                SVector{3,FT}(center),
             )
             push!(functions, rwg)
-            
+
             # Update map
             basis_map[e1[4], e1[3]] = rwg_id
             basis_map[e2[4], e2[3]] = rwg_id
-            
+
             i += 2
         else
             # Boundary edge
@@ -215,12 +215,12 @@ function RWGBasis(mesh::TriangleMesh{IT, FT}) where {IT, FT}
             # Construct boundary RWG (half basis) if needed, or skip
             # Usually we skip boundary edges for PEC EFIE
             # But let's store it marked as boundary
-            
+
             v_start = nodes[:, e1[1]]
             v_end = nodes[:, e1[2]]
             len = norm(v_start - v_end)
             center = (v_start + v_end) / 2
-            
+
             rwg_id = IT(length(functions) + 1)
             rwg = RWG(
                 rwg_id,
@@ -229,14 +229,14 @@ function RWGBasis(mesh::TriangleMesh{IT, FT}) where {IT, FT}
                 SVector(e1[3], e1[3]), # Second tri is same (or 0)
                 SVector(e1[4], e1[4]),
                 SVector(1, 0),
-                SVector{3, FT}(center)
+                SVector{3,FT}(center),
             )
             # push!(functions, rwg) # Uncomment to include boundary edges
             # If we don't push, we don't update map (it remains 0)
-            
+
             i += 1
         end
     end
-    
+
     return RWGBasis(mesh, functions, basis_map)
 end
