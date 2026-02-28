@@ -411,62 +411,60 @@ end
 function calc_interaction!(Z_local::AbstractMatrix{CT}, efie::EFIE{FT, CT}, tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}, r_test, r_src) where {IT, FT, CT}
     gq = efie.gq_far
     C4divk2 = efie.C4divk2
+    k = efie.k
     
     w_src = gq.weight
     w_test = gq.weight
+    n_src = length(w_src)
+    n_test = length(w_test)
+    
+    v_src_1 = tri_source.vertices[:, 1]
+    v_src_2 = tri_source.vertices[:, 2]
+    v_src_3 = tri_source.vertices[:, 3]
+    v_test_1 = tri_test.vertices[:, 1]
+    v_test_2 = tri_test.vertices[:, 2]
+    v_test_3 = tri_test.vertices[:, 3]
     
     # Loop over quadrature points
-    for j in 1:length(w_src)
+    @inbounds for j in 1:n_src
         rj = r_src[j]
         wj = w_src[j] * tri_source.area
         
         # Precompute rho_src
-        rho_src_1 = rj - tri_source.vertices[:, 1]
-        rho_src_2 = rj - tri_source.vertices[:, 2]
-        rho_src_3 = rj - tri_source.vertices[:, 3]
-        rhos_src = (rho_src_1, rho_src_2, rho_src_3)
+        rho_src_1 = rj - v_src_1
+        rho_src_2 = rj - v_src_2
+        rho_src_3 = rj - v_src_3
         
-        for i in 1:length(w_test)
+        for i in 1:n_test
             ri = r_test[i]
             wi = w_test[i] * tri_test.area
             
-            G = green_function_free_space(ri, rj, efie.k)
+            # Inline Green's function for better optimization
+            R = norm(ri - rj)
+            @fastmath G = exp(-im * k * R) / R
             
-            rho_test_1 = ri - tri_test.vertices[:, 1]
-            rho_test_2 = ri - tri_test.vertices[:, 2]
-            rho_test_3 = ri - tri_test.vertices[:, 3]
+            rho_test_1 = ri - v_test_1
+            rho_test_2 = ri - v_test_2
+            rho_test_3 = ri - v_test_3
             
-            # Vectorized computation
-            # Rt columns are rho_test vectors
-            Rt = SMatrix{3, 3, FT, 9}(
-                rho_test_1[1], rho_test_1[2], rho_test_1[3],
-                rho_test_2[1], rho_test_2[2], rho_test_2[3],
-                rho_test_3[1], rho_test_3[2], rho_test_3[3]
-            )
-            # Rs columns are rho_src vectors
-            Rs = SMatrix{3, 3, FT, 9}(
-                rho_src_1[1], rho_src_1[2], rho_src_1[3],
-                rho_src_2[1], rho_src_2[2], rho_src_2[3],
-                rho_src_3[1], rho_src_3[2], rho_src_3[3]
-            )
+            val_common = G * wi * wj
             
-            # M = Rt' * Rs (3x3 matrix mult)
-            M = Rt' * Rs
-            
-            val_common = (G * wi * wj)
-            
-            for n in 1:3
-                for m in 1:3
-                    Z_local[m, n] += (M[m, n] - C4divk2) * val_common
-                end
+            # Direct dot products (avoids SMatrix construction overhead)
+            @simd for n in 1:3
+                rho_src_n = n == 1 ? rho_src_1 : n == 2 ? rho_src_2 : rho_src_3
+                d1 = dot(rho_test_1, rho_src_n) - C4divk2
+                d2 = dot(rho_test_2, rho_src_n) - C4divk2
+                d3 = dot(rho_test_3, rho_src_n) - C4divk2
+                Z_local[1, n] += d1 * val_common
+                Z_local[2, n] += d2 * val_common
+                Z_local[3, n] += d3 * val_common
             end
         end
     end
     
     # Multiply by edge lengths and divide by areas
-    # Legacy Parity: Factor 1.0 matches Legacy Z magnitude.
     inv_areas = 1.0 / (tri_test.area * tri_source.area)
-    for n in 1:3
+    @inbounds for n in 1:3
         ln = tri_source.edgel[n]
         for m in 1:3
             lm = tri_test.edgel[m]
