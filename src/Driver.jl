@@ -32,7 +32,7 @@ function run_simulation(config_path::String)
         error("Unsupported mesh format: $(config.geometry.mesh_file)")
     end
     
-    # Apply scaling if needed (not implemented in Mesh types yet, so we skip or assume 1.0)
+    # Apply scaling if needed
     if config.geometry.unit_scale != 1.0
         @warn "Mesh scaling not yet implemented. Ignoring unit_scale."
     end
@@ -43,27 +43,59 @@ function run_simulation(config_path::String)
         basis = RWGBasis(mesh)
     elseif config.basis.type == "SWG"
         basis = SWGBasis(mesh)
+    elseif config.basis.type == "PWC"
+        basis = PWCBasis(mesh)
     else
         error("Unsupported basis type: $(config.basis.type)")
     end
     
-    # 5. Define Operator & Solver
-    @info "Assembling system matrix..."
-    # For now, assume EFIE
-    efie = EFIE(config.simulation.frequency)
+    # 5. Define Operator & Solve
+    ie_type = config.simulation.ie_type
+    @info "Integral equation type: $ie_type"
     
-    # Matrix Assembly
-    Z = assemble_impedance_matrix(efie, basis)
+    # Setup operator
+    freq = config.simulation.frequency
+    
+    if ie_type == "EFIE"
+        @info "Assembling EFIE system matrix..."
+        op = EFIE(freq)
+        Z = assemble_impedance_matrix(op, basis)
+    elseif ie_type == "MFIE"
+        @info "Assembling MFIE system matrix..."
+        op = MFIE(freq)
+        Z = assemble_impedance_matrix(op, basis)
+    elseif ie_type == "CFIE"
+        alpha = config.simulation.cfie_alpha
+        @info "Assembling CFIE system matrix (α=$alpha)..."
+        op = CFIE(freq, alpha)
+        Z = assemble_impedance_matrix(op, basis)
+    elseif ie_type == "VEFIE"
+        perms = config.simulation.permittivities
+        @info "Assembling VEFIE system matrix..."
+        op = VEFIE(freq, perms)
+        Z = assemble_impedance_matrix(op, basis)
+    elseif ie_type == "SCFIE"
+        # Surface-Volume coupled IE: requires both surface and volume meshes
+        error("SCFIE requires explicit surface+volume mesh setup via scripting API.")
+    else
+        error("Unsupported integral equation type: $ie_type")
+    end
     
     # 6. Excitation
     @info "Setting up excitation..."
     if config.excitation.type == "PlaneWave"
-        source = PlaneWave(config.simulation.frequency, config.excitation.theta, config.excitation.phi, config.excitation.polarization)
+        source = PlaneWave(freq, config.excitation.theta, config.excitation.phi, config.excitation.polarization)
     else
         error("Unsupported excitation type: $(config.excitation.type)")
     end
     
-    V = excitation_vector(source, basis)
+    if ie_type == "VEFIE" && basis isa SWGBasis
+        V = excitation_vector(op, source, basis, config.simulation.permittivities)
+    elseif ie_type == "VEFIE" && basis isa PWCBasis
+        V = excitation_vector(op, source, basis)
+    else
+        V = excitation_vector(source, basis)
+    end
     
     # 7. Solve
     @info "Solving linear system using $(config.simulation.solver_type)..."

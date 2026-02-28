@@ -15,4 +15,5 @@ using Test
     include("test_integration.jl")
     include("test_workflow.jl")
     include("test_scfie.jl")
+    include("test_pwc.jl")
 end

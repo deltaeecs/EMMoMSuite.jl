@@ -7,7 +7,7 @@ using ...Utilities.Parameters
 using ...BasisFunctions
 using ...CoreModule: num_elements, vertices, elements
 
-export r̂θϕInfo, raditionalIntegralNθϕCal, radiation_integral_rwg, radiation_integral_swg, ∠Info
+export r̂θϕInfo, raditionalIntegralNθϕCal, radiation_integral_rwg, radiation_integral_swg, radiation_integral_pwc, ∠Info
 
 struct ∠Info{FT<:Real}
     val::FT
@@ -372,6 +372,82 @@ function radiation_integral_swg(r̂θϕ::r̂θϕInfo{FT}, basis::SWGBasis{IT, FT
                 Nxyz .+= factor .* integral_val
             end
         end
+    end
+    
+    Nθϕ[1] = dot(θhat, Nxyz)
+    Nθϕ[2] = dot(ϕhat, Nxyz)
+    
+    return Nθϕ
+end
+
+"""
+    radiation_integral_pwc(r̂θϕ, basis, ICoeff, permittivities)
+
+Calculate the radiation integral N(θ, ϕ) using PWC basis functions for VEFIE.
+
+PWC stores 3 DOFs per tetrahedron (x, y, z components). The equivalent current
+density is J_eq = jωκD, where D is the unknown. For PWC, D is constant over
+each tetrahedron with components [I[3(t-1)+1], I[3(t-1)+2], I[3(t-1)+3]].
+
+N(θ, ϕ) = Σ_t V_t * κ_t * Σ_gq J_t * exp(jk r̂·r_gq) * w_gq
+
+# Legacy Parity
+Matches `MoM_Kernels` `raditionalIntegralNθϕCal` for tetrahedra with PWC.
+"""
+function radiation_integral_pwc(r̂θϕ::r̂θϕInfo{FT}, basis::PWCBasis{IT, FT}, ICoeff::Vector{CT}, permittivities::Vector{CT}) where {IT, FT, CT}
+    Nxyz = zero(MVector{3, CT})
+    Nθϕ = zero(MVector{2, CT})
+    
+    r̂ = r̂θϕ.r̂
+    θhat = r̂θϕ.θhat
+    ϕhat = r̂θϕ.ϕhat
+    
+    k0 = get_k0()
+    jk0 = im * k0
+    
+    # Quadrature for Tetrahedron
+    points, weights = Geometry.gaussQuadratureTet(4, FT)
+    n_points = length(weights)
+    
+    mesh = basis.mesh
+    nodes = mesh.node
+    tetras_elem = mesh.tetras
+    ntet = length(basis.functions)
+    
+    for t in 1:ntet
+        pwc = basis.functions[t]
+        vol = pwc.volume
+        
+        # Material kappa
+        eps_r = permittivities[t]
+        kappa = (eps_r - 1.0) / eps_r
+        
+        # Current coefficients for this tetrahedron (3 components)
+        Jt = SVector{3, CT}(ICoeff[pwc.inBfsID[1]], ICoeff[pwc.inBfsID[2]], ICoeff[pwc.inBfsID[3]])
+        
+        # Integrate J * exp(jk r̂·r) over tetrahedron
+        v_indices = tetras_elem[:, t]
+        r1 = nodes[:, v_indices[1]]
+        r2 = nodes[:, v_indices[2]]
+        r3 = nodes[:, v_indices[3]]
+        r4 = nodes[:, v_indices[4]]
+        
+        Jtexp = zero(MVector{3, CT})
+        
+        for gi in 1:n_points
+            u = points[1, gi]
+            v = points[2, gi]
+            w = points[3, gi]
+            x = points[4, gi]
+            
+            rgi = u * r1 + v * r2 + w * r3 + x * r4
+            
+            phase = exp(jk0 * dot(r̂, rgi))
+            Jtexp .+= Jt .* (phase * weights[gi])
+        end
+        
+        Jtexp .*= vol * kappa
+        Nxyz .+= Jtexp
     end
     
     Nθϕ[1] = dot(θhat, Nxyz)

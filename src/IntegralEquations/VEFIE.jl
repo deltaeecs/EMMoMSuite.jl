@@ -595,4 +595,244 @@ function vefie_element_interaction_kernel(vefie::VEFIE, tet_t::TetrahedraInfo, t
     return Z_ts
 end
 
+# ============================================================================
+# PWC (Piecewise Constant) Assembly for VEFIE
+# ============================================================================
+
+"""
+    assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis)
+
+Assemble the impedance matrix Z for the VEFIE using PWC basis functions.
+Each tetrahedron contributes 3 DOFs (x, y, z components).
+The interaction kernel is the dyadic Green's function L operator:
+    (k²I + ∇∇) G(R) 
+"""
+function assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis)
+    return assemble_impedance_matrix(vefie, basis, vefie.permittivities)
+end
+
+"""
+    assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis, permittivities)
+
+Assemble the VEFIE impedance matrix for PWC basis functions.
+
+The matrix element between test tet t (component i) and source tet s (component j) is:
+
+    Z[3(t-1)+i, 3(s-1)+j] = (jη₀/k) * κₛ * V_t * V_s * 
+        Σ_gi Σ_gj w_i w_j * G₀(R) * L_dyad[i,j]  +  δ_ts * δ_ij * V/(jωε)
+
+where L_dyad is the dyadic L operator:
+    L[i,j] = (δ_ij - R̂_i R̂_j) k² - (δ_ij - 3R̂_i R̂_j)(jk + 1/R)/R
+
+# Legacy Parity
+Matches `MoM_Kernels` `EFIEPWCTetra.jl` `impedancemat4VIE!` with `discreteVar = "D"`.
+"""
+function assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis, permittivities::Vector{ComplexF64})
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    
+    nbf = num_basis(basis)
+    Z = zeros(CT, nbf, nbf)
+    
+    # Precompute geometry
+    tetras = get_tetrahedra_info(basis.mesh, basis, permittivities)
+    ntet = length(tetras)
+    
+    # Constants
+    k = vefie.k
+    k² = k^2
+    jk = im * k
+    omega = 2π * vefie.freq
+    mu0 = 4π * 1e-7
+    eps0 = 8.854187817e-12
+    eta0 = sqrt(mu0 / eps0)
+    # jη₀/k = j/(ωε₀) 
+    Jη₀divK = im * eta0 / k
+    div4π = 1.0 / (4π)
+    
+    # Progress tracking
+    progress_counter = Threads.Atomic{Int}(0)
+    next_idx = Threads.Atomic{Int}(1)
+    
+    # Locks for thread safety (one per column block)
+    col_locks = [SpinLock() for _ in 1:ntet]
+    
+    println("VEFIE-PWC Assembly: $ntet tetrahedra, $nbf unknowns. (Symmetric + Threading)")
+    
+    # Precompute quadrature points for all tetrahedra
+    gq = vefie.gq_info
+    gq_far = vefie.gq_far
+    Nq = length(gq.weight)
+    Nq_far = length(gq_far.weight)
+    
+    # Precompute GQ points
+    rq_near = Vector{Matrix{FT}}(undef, ntet)
+    rq_far_pts = Vector{Matrix{FT}}(undef, ntet)
+    Threads.@threads for i in 1:ntet
+        rq_near[i] = tetras[i].vertices * gq.coordinate
+        rq_far_pts[i] = tetras[i].vertices * gq_far.coordinate
+    end
+    
+    # Dynamic scheduling: loop over source tets
+    Threads.@threads for _ in 1:Threads.nthreads()
+        # Thread-local 3×3 buffer for element interaction
+        Z_ts_buf = zeros(CT, 3, 3)
+        
+        while true
+            ti = Threads.atomic_add!(next_idx, 1)
+            if ti > ntet; break; end
+            
+            tet_t = tetras[ti]
+            κₜ = tet_t.κ
+            
+            for sj in ti:ntet
+                tet_s = tetras[sj]
+                κₛ = tet_s.κ
+                
+                # Compute distance between centers
+                dist_ts = norm(tet_t.center - tet_s.center)
+                
+                # Adaptive quadrature
+                rad_t = cbrt(tet_t.volume)
+                rad_s = cbrt(tet_s.volume)
+                threshold = 3.0 * (rad_t + rad_s)
+                
+                if dist_ts > threshold
+                    # Far field: 1-point rule
+                    _pwc_dyad_kernel!(Z_ts_buf, tet_t, tet_s, 
+                                      rq_far_pts[ti], rq_far_pts[sj],
+                                      gq_far, Nq_far, k, k², jk, Jη₀divK, div4π)
+                else
+                    # Near field: 5-point rule
+                    _pwc_dyad_kernel!(Z_ts_buf, tet_t, tet_s,
+                                      rq_near[ti], rq_near[sj],
+                                      gq, Nq, k, k², jk, Jη₀divK, div4π)
+                end
+                
+                # Fill matrix using symmetry
+                if ti == sj
+                    # Self-term: Z_ts * κₜ + mass matrix
+                    for ni in 1:3
+                        n = tet_s.inBfsID[ni]
+                        for mi in 1:3
+                            m = tet_t.inBfsID[mi]
+                            Z[m, n] = Z_ts_buf[mi, ni] * κₜ
+                        end
+                    end
+                    # Add mass matrix diagonal: V/(jωε)
+                    selfImp = 1.0 / (im * omega) / tet_t.ε * tet_t.volume
+                    for ni in 1:3
+                        n = tet_t.inBfsID[ni]
+                        Z[n, n] += selfImp
+                    end
+                else
+                    # Off-diagonal: use symmetry
+                    for ni in 1:3
+                        n = tet_s.inBfsID[ni]
+                        for mi in 1:3
+                            m = tet_t.inBfsID[mi]
+                            Z[m, n] = Z_ts_buf[mi, ni] * κₛ
+                            Z[n, m] = Z_ts_buf[mi, ni] * κₜ
+                        end
+                    end
+                end
+            end
+            
+            # Print progress
+            c = Threads.atomic_add!(progress_counter, 1)
+            if c % 10 == 0
+                print("\rVEFIE-PWC Assembly: $c / $ntet source elements processed.")
+            end
+        end
+    end
+    println("\nVEFIE-PWC Assembly Completed.")
+    
+    return Z
+end
+
+"""
+    _pwc_dyad_kernel!(Z_ts, tet_t, tet_s, rq_t, rq_s, gq, Nq, k, k², jk, Jη₀divK, div4π)
+
+Compute the 3×3 dyadic interaction matrix between test tet t and source tet s
+using the L operator: (k²I + ∇∇) G(R).
+
+Result stored in Z_ts (3×3 mutable buffer).
+Does NOT include κ — caller must multiply by appropriate κ.
+
+# Legacy Parity
+Matches `EFIEOnTetrasPWC` in `MoM_Kernels/EFIEPWCTetra.jl`.
+"""
+function _pwc_dyad_kernel!(Z_ts::Matrix{CT}, 
+                           tet_t::TetrahedraInfo, tet_s::TetrahedraInfo,
+                           rq_t::Matrix{FT}, rq_s::Matrix{FT},
+                           gq, Nq::Int,
+                           k::FT, k²::FT, jk::CT, Jη₀divK::CT, div4π::FT) where {FT, CT}
+    # Reset buffer
+    fill!(Z_ts, zero(CT))
+    
+    dVtdVs = tet_t.volume * tet_s.volume
+    Jη₀divKdVtdVs = Jη₀divK * dVtdVs
+    
+    # Double loop over quadrature points
+    @inbounds for gj in 1:Nq
+        rgj = @view rq_s[:, gj]
+        
+        for gi in 1:Nq
+            rgi = @view rq_t[:, gi]
+            
+            # Distance vector
+            Rx = rgi[1] - rgj[1]
+            Ry = rgi[2] - rgj[2]
+            Rz = rgi[3] - rgj[3]
+            R = sqrt(Rx^2 + Ry^2 + Rz^2)
+            
+            if R < 1e-10
+                continue  # Skip self-coincident points
+            end
+            
+            divR = 1.0 / R
+            # (jk + 1/R) / R
+            jkplusR1stdivR1st = (jk + divR) * divR
+            
+            # R̂ components
+            R̂x = Rx * divR
+            R̂y = Ry * divR
+            R̂z = Rz * divR
+            
+            # Green's function × quadrature weights
+            GR = exp(-jk * R) * div4π * divR * gq.weight[gi] * gq.weight[gj]
+            
+            # Combined constant
+            fac = Jη₀divKdVtdVs * GR
+            
+            # R̂R̂ dyad components (symmetric)
+            RR11 = R̂x * R̂x
+            RR12 = R̂x * R̂y
+            RR13 = R̂x * R̂z
+            RR22 = R̂y * R̂y
+            RR23 = R̂y * R̂z
+            RR33 = R̂z * R̂z
+            
+            # Diagonal terms (i == j): (1 - R̂ᵢR̂ⱼ)*k² - (1 - 3R̂ᵢR̂ⱼ)*(jk+1/R)/R
+            Z_ts[1, 1] += fac * ((1 - RR11) * k² - (1 - 3RR11) * jkplusR1stdivR1st)
+            Z_ts[2, 2] += fac * ((1 - RR22) * k² - (1 - 3RR22) * jkplusR1stdivR1st)
+            Z_ts[3, 3] += fac * ((1 - RR33) * k² - (1 - 3RR33) * jkplusR1stdivR1st)
+            
+            # Off-diagonal terms (i ≠ j): -R̂ᵢR̂ⱼ*k² + 3R̂ᵢR̂ⱼ*(jk+1/R)/R
+            offdiag12 = fac * (-RR12 * k² + 3RR12 * jkplusR1stdivR1st)
+            offdiag13 = fac * (-RR13 * k² + 3RR13 * jkplusR1stdivR1st)
+            offdiag23 = fac * (-RR23 * k² + 3RR23 * jkplusR1stdivR1st)
+            
+            Z_ts[1, 2] += offdiag12
+            Z_ts[2, 1] += offdiag12
+            Z_ts[1, 3] += offdiag13
+            Z_ts[3, 1] += offdiag13
+            Z_ts[2, 3] += offdiag23
+            Z_ts[3, 2] += offdiag23
+        end
+    end
+    
+    return nothing
+end
+
 end
