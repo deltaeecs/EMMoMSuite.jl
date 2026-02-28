@@ -92,25 +92,23 @@ EMSuite.jl/src/
 
 ### 8.2 已识别热点与优化路线
 
-#### 热点 1: SpinLock 全局锁 — Z 矩阵组装瓶颈 (P0)
+#### 热点 1: SpinLock 全局锁 — Z 矩阵组装瓶颈 (P0) ✅ Phase 8.1
 
-**现状**: `Impedance.jl` 中每个三角形对都要 `lock(spinlock)` / `unlock(spinlock)` 写入全局 Z 矩阵。多线程扩展性极差。
+**现状**: ~~`Impedance.jl` 中每个三角形对都要 `lock(spinlock)` / `unlock(spinlock)` 写入全局 Z 矩阵。多线程扩展性极差。~~
 
-**方案**: 线程局部缓冲 + 最后归约
-```julia
-# Before: 
-lock(spinlock); Z[m, n] += val; unlock(spinlock)
-# After:
-Z_local = [zeros(CT, N, N) for _ in 1:nthreads()]
-@threads for i in workload
-    Z_local[threadid()][m, n] += val  # 无锁
-end
-Z .= sum(Z_local)  # 一次归约
-```
+**已完成方案**: 全局 SpinLock → Per-row SpinLock 数组 (N 把锁)
+- 争用概率: ~nthreads/N ≈ 0.03%，几乎为零
+- 额外内存: N × sizeof(SpinLock) ≈ 可忽略
+- 保持原有缓存友好的 3×3 立即写入模式
 
-**预期收益**: 4 线程加速比 1.2× → 3.5×+
+**实测结果** (4 线程):
+| 用例 | 优化前 | 优化后 | 变化 |
+|------|--------|--------|------|
+| Plate EFIE (N=2640) | 1.02s | 0.47s | **-54%** |
+| Jet EFIE (N=14559) | 20.70s | 18.30s | **-12%** |
+| Jet CFIE (N=14559) | 168.29s | 165.11s | -2% |
 
-**风险**: 内存增加 (nthreads 倍 Z 矩阵)。对于 N>10000 的 Dense Z，可改用**按行分块**: 每个线程负责固定行范围，无需锁也无需额外内存。
+> 注: CFIE 改善不大因为主瓶颈是双遍历 (热点 2)。
 
 #### 热点 2: CFIE 组装 9× EFIE (P0)
 
