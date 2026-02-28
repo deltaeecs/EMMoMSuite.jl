@@ -16,6 +16,9 @@ Base.@kwdef struct SimulationConfig
     name::String = "Simulation"
     frequency::Float64
     solver_type::String = "GMRES"
+    ie_type::String = "EFIE"
+    cfie_alpha::Float64 = 0.5
+    permittivities::Vector{ComplexF64} = ComplexF64[]
 end
 
 """
@@ -110,7 +113,10 @@ function load_config(path::String)
     simulation = SimulationConfig(;
         name = get(sim_data, "name", "Simulation"),
         frequency = Float64(sim_data["frequency"]),
-        solver_type = get(sim_data, "solver_type", "GMRES")
+        solver_type = get(sim_data, "solver_type", "GMRES"),
+        ie_type = get(sim_data, "ie_type", "EFIE"),
+        cfie_alpha = Float64(get(sim_data, "cfie_alpha", 0.5)),
+        permittivities = Vector{ComplexF64}(get(sim_data, "permittivities", ComplexF64[]))
     )
 
     # Parse Geometry

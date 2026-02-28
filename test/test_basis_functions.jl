@@ -136,13 +136,17 @@ end
     
     basis = PWCBasis(mesh)
     
-    @test num_basis(basis) == 1
+    # 3 DOFs per tetrahedron (x, y, z components)
+    @test num_basis(basis) == 3
     
     pwc = basis.functions[1]
     @test pwc.support == 1
     
     # Volume of unit tetrahedron = 1/6
     @test isapprox(pwc.volume, 1.0/6.0)
+    
+    # Check inBfsID mapping: tet 1 → global IDs 1,2,3
+    @test pwc.inBfsID == SVector(1, 2, 3)
 end
 
 @testset "RBF Basis Functions" begin

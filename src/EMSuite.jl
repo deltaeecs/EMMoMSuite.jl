@@ -90,7 +90,7 @@ export save_RCS_txt, save_results_hdf5, save_result, save_vtk
 
 # Re-export BasisFunctions symbols
 using .BasisFunctions
-export RWGBasis, RWG, SWGBasis, SWG, evaluate_swg, PWCBasis, PWC, RBFBasis, RBF, get_triangle_info
+export RWGBasis, RWG, SWGBasis, SWG, evaluate_swg, PWCBasis, PWC, RBFBasis, RBF, get_triangle_info, get_tetrahedra_info
 
 # Re-export IntegralEquations symbols
 using .IntegralEquations

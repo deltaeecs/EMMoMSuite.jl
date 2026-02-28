@@ -313,5 +313,126 @@ function excitation_vector(source::AbstractSource, surface_basis::RWGBasis, volu
     return [V_surf; V_vol]
 end
 
+"""
+    excitation_vector(op::VEFIE, source::PlaneWave, basis::PWCBasis)
+
+Compute the VEFIE excitation vector for PWC basis functions.
+
+For each tetrahedron t, the 3 excitation components (x, y, z) are:
+    V[3(t-1)+i] = V_t * Σ_gq w_gq * E_inc(r_gq)[i]
+
+# Legacy Parity
+Matches `MoM_Kernels` `excitationVectorEFIE` for `ConstBasisFunction` (tetrahedra).
+"""
+function excitation_vector(op::VEFIE, source::PlaneWave, basis::PWCBasis{IT, FT}) where {IT, FT}
+    CT = Complex{FT}
+    N = num_basis(basis)
+    V = zeros(CT, N)
+    
+    quad = op.gq_info
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+    ntet = length(basis.functions)
+    
+    for t in 1:ntet
+        pwc = basis.functions[t]
+        
+        # Get tetra vertices
+        v_indices = elems[:, t]
+        v1 = verts[:, v_indices[1]]
+        v2 = verts[:, v_indices[2]]
+        v3 = verts[:, v_indices[3]]
+        v4 = verts[:, v_indices[4]]
+        
+        vol = pwc.volume
+        
+        # Integrate E_inc over tetrahedron
+        E_sum = zero(MVector{3, CT})
+        for q in 1:num_q
+            u = quad.coordinate[1, q]
+            v = quad.coordinate[2, q]
+            w = quad.coordinate[3, q]
+            s = quad.coordinate[4, q]
+            
+            r = u*v1 + v*v2 + w*v3 + s*v4
+            
+            E_inc = incident_field(source, r)
+            E_sum .+= E_inc .* quad.weight[q]
+        end
+        E_sum .*= vol
+        
+        # Scatter to global indices
+        for i in 1:3
+            V[pwc.inBfsID[i]] = E_sum[i]
+        end
+    end
+    
+    return V
 end
 
+"""
+    excitation_vector(source::PlaneWave, basis::PWCBasis)
+
+Compute the VEFIE excitation vector for PWC basis functions (without VEFIE operator).
+Uses 4-point GQ by default.
+"""
+function excitation_vector(source::PlaneWave, basis::PWCBasis{IT, FT}) where {IT, FT}
+    CT = Complex{FT}
+    N = num_basis(basis)
+    V = zeros(CT, N)
+    
+    quad = GaussQuadratureInfo(:Tetrahedron, 4, FT)
+    num_q = length(quad.weight)
+    
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+    ntet = length(basis.functions)
+    
+    for t in 1:ntet
+        pwc = basis.functions[t]
+        
+        v_indices = elems[:, t]
+        v1 = verts[:, v_indices[1]]
+        v2 = verts[:, v_indices[2]]
+        v3 = verts[:, v_indices[3]]
+        v4 = verts[:, v_indices[4]]
+        
+        vol = pwc.volume
+        
+        E_sum = zero(MVector{3, CT})
+        for q in 1:num_q
+            u = quad.coordinate[1, q]
+            v = quad.coordinate[2, q]
+            w = quad.coordinate[3, q]
+            s = quad.coordinate[4, q]
+            
+            r = u*v1 + v*v2 + w*v3 + s*v4
+            E_inc = incident_field(source, r)
+            E_sum .+= E_inc .* quad.weight[q]
+        end
+        E_sum .*= vol
+        
+        for i in 1:3
+            V[pwc.inBfsID[i]] = E_sum[i]
+        end
+    end
+    
+    return V
+end
+
+"""
+    excitation_vector(source, surface_basis::RWGBasis, volume_basis::PWCBasis)
+
+Compute combined excitation vector for SCFIE (RWG + PWC).
+"""
+function excitation_vector(source::AbstractSource, surface_basis::RWGBasis, volume_basis::PWCBasis)
+    V_surf = excitation_vector(source, surface_basis)
+    V_vol = excitation_vector(source, volume_basis)
+    return [V_surf; V_vol]
+end
+
+end

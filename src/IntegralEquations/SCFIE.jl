@@ -513,5 +513,210 @@ function assemble_fss_boundary_correction_sparse(scfie::SCFIE, surf_basis::RWGBa
     
     return sparse(Is, Js, Vs, n_total, n_total)
 end
+
+# ============================================================================
+# SCFIE for RWG + PWC (Surface-Volume Coupled IE with PWC volume basis)
+# ============================================================================
+
+"""
+    assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCBasis)
+
+Assemble the full coupled impedance matrix for SCFIE using PWC volume basis.
+
+Structure:
+    [ Z_SS  Z_SV ]
+    [ Z_VS  Z_VV ]
+
+where Z_SS is the CFIE surface block (RWG), Z_VV is the VEFIE volume block (PWC),
+and Z_SV/Z_VS are the dyadic coupling blocks.
+
+# Legacy Parity
+Matches `MoM_Kernels` `impedancemat4RWGPWC!` coupling with `EFIEOnRWGPWC` kernel.
+"""
+function assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCBasis)
+    FT = eltype(scfie.freq)
+    CT = Complex{FT}
+    
+    n_surf = num_basis(surf_basis)
+    n_vol = num_basis(vol_basis)
+    n_total = n_surf + n_vol
+    
+    Z = zeros(CT, n_total, n_total)
+    
+    # Block 1: Z_SS (Surface CFIE)
+    cfie = CFIE(scfie.freq, scfie.alpha)
+    Z_SS = assemble_impedance_matrix(cfie, surf_basis)
+    Z[1:n_surf, 1:n_surf] = Z_SS
+    
+    # Block 4: Z_VV (Volume VEFIE with PWC)
+    vefie = VEFIE(scfie.freq, scfie.permittivities)
+    Z_VV = assemble_impedance_matrix(vefie, vol_basis)
+    Z[n_surf+1:end, n_surf+1:end] = Z_VV
+    
+    # Block 2 & 3: Coupling (RWG-PWC dyadic coupling)
+    assemble_coupling_blocks_pwc!(Z, scfie, surf_basis, vol_basis)
+    
+    return Z
+end
+
+"""
+    assemble_coupling_blocks_pwc!(Z, scfie, surf_basis, vol_basis)
+
+Assemble the surface-volume coupling blocks Z_SV and Z_VS for RWG+PWC.
+
+Uses the dyadic L operator: (k²I + ∇∇) G(R) to couple:
+- Surface RWG test functions with volume PWC source unknowns (Z_SV, with κ)
+- Volume PWC test functions with surface RWG source current (Z_VS, no κ)
+
+No Fss boundary correction is needed for PWC (PWC has no half-basis functions).
+"""
+function assemble_coupling_blocks_pwc!(Z::Matrix{CT}, scfie::SCFIE, 
+                                        surf_basis::RWGBasis, vol_basis::PWCBasis) where {CT}
+    # Precompute geometry
+    tris = get_triangles_info(surf_basis.mesh, surf_basis)
+    tetras = get_tetrahedra_info(vol_basis.mesh, vol_basis, scfie.permittivities)
+    
+    ntri = length(tris)
+    ntet = length(tetras)
+    n_surf = num_basis(surf_basis)
+    n_total = size(Z, 1)
+    
+    # Constants
+    FT = eltype(scfie.freq)
+    k = scfie.k
+    k² = k^2
+    jk = im * k
+    omega = 2π * scfie.freq
+    mu0 = 4π * 1e-7
+    eps0 = 8.854187817e-12
+    eta0 = sqrt(mu0 / eps0)
+    Jη₀divK = im * eta0 / k  # = j/(ωε₀)
+    div4π = 1.0 / (4π)
+    
+    # Quadrature
+    gq_s = scfie.gq_surf
+    gq_v = scfie.gq_vol
+    Nq_s = length(gq_s.weight)
+    Nq_v = length(gq_v.weight)
+    
+    # Thread safety locks
+    row_locks = [SpinLock() for _ in 1:n_total]
+    
+    println("SCFIE-PWC Coupling Assembly: $ntri triangles x $ntet tetrahedra.")
+    
+    Threads.@threads for it in 1:ntri
+        tri = tris[it]
+        
+        # Precompute triangle quadrature points
+        r_q_tri = tri.vertices * gq_s.coordinate
+        
+        for js in 1:ntet
+            tet = tetras[js]
+            κs = tet.κ
+            Vs = tet.volume
+            
+            # Precompute tetrahedron quadrature points
+            r_q_tet = tet.vertices * gq_v.coordinate
+            
+            # Compute dyadic L integral for each surface GQ point
+            # Z_SV[mi, ni]: surfTest mi, volSource ni
+            # Z_VS[ni, mi]: volTest ni, surfSource mi
+            
+            for gi in 1:Nq_s
+                rgi = @view r_q_tri[:, gi]
+                
+                # Compute dyadic Green's function integral over the volume tetrahedron
+                # dyadG (3×3) = Σ_gj w_gj * GR * L_dyad
+                dyadG = zeros(CT, 3, 3)
+                
+                for gj in 1:Nq_v
+                    rgj = @view r_q_tet[:, gj]
+                    
+                    Rx = rgi[1] - rgj[1]
+                    Ry = rgi[2] - rgj[2]
+                    Rz = rgi[3] - rgj[3]
+                    R = sqrt(Rx^2 + Ry^2 + Rz^2)
+                    
+                    if R < 1e-10
+                        continue
+                    end
+                    
+                    divR = 1.0 / R
+                    jkplusR1stdivR1st = (jk + divR) * divR
+                    
+                    R̂x = Rx * divR
+                    R̂y = Ry * divR
+                    R̂z = Rz * divR
+                    
+                    GR = exp(-jk * R) * div4π * divR * gq_v.weight[gj]
+                    
+                    # R̂R̂ dyad
+                    RR11 = R̂x * R̂x; RR12 = R̂x * R̂y; RR13 = R̂x * R̂z
+                    RR22 = R̂y * R̂y; RR23 = R̂y * R̂z; RR33 = R̂z * R̂z
+                    
+                    # L_dyad diagonal: (1-R̂ᵢR̂ⱼ)*k² - (1-3R̂ᵢR̂ⱼ)*(jk+1/R)/R
+                    dyadG[1,1] += GR * ((1-RR11)*k² - (1-3RR11)*jkplusR1stdivR1st)
+                    dyadG[2,2] += GR * ((1-RR22)*k² - (1-3RR22)*jkplusR1stdivR1st)
+                    dyadG[3,3] += GR * ((1-RR33)*k² - (1-3RR33)*jkplusR1stdivR1st)
+                    
+                    # L_dyad off-diagonal: -R̂ᵢR̂ⱼ*k² + 3R̂ᵢR̂ⱼ*(jk+1/R)/R
+                    od12 = GR * (-RR12*k² + 3RR12*jkplusR1stdivR1st)
+                    od13 = GR * (-RR13*k² + 3RR13*jkplusR1stdivR1st)
+                    od23 = GR * (-RR23*k² + 3RR23*jkplusR1stdivR1st)
+                    
+                    dyadG[1,2] += od12; dyadG[2,1] += od12
+                    dyadG[1,3] += od13; dyadG[3,1] += od13
+                    dyadG[2,3] += od23; dyadG[3,2] += od23
+                end
+                
+                # Contract with surface RWG basis functions
+                for mi in 1:3
+                    m = tri.inBfsID[mi]
+                    if m == 0; continue; end
+                    
+                    lm = tri.edgel[mi]
+                    freeVm = tri.vertices[:, mi]
+                    ρmi = SVector(rgi[1] - freeVm[1], rgi[2] - freeVm[2], rgi[3] - freeVm[3])
+                    
+                    temp = gq_s.weight[gi] * lm / 2
+                    
+                    for ni in 1:3
+                        n = tet.inBfsID[ni]
+                        
+                        # Z_SV: ρ · dyadG[:, ni] — surface test, volume source
+                        # In Z_SV, κ is included
+                        dot_sv = ρmi[1]*dyadG[1,ni] + ρmi[2]*dyadG[2,ni] + ρmi[3]*dyadG[3,ni]
+                        z_sv = temp * dot_sv * Jη₀divK * Vs * κs
+                        
+                        # Z_VS: ρ · dyadG[ni, :] — volume test, surface source
+                        # In Z_VS, no κ
+                        dot_vs = ρmi[1]*dyadG[ni,1] + ρmi[2]*dyadG[ni,2] + ρmi[3]*dyadG[ni,3]
+                        z_vs = temp * dot_vs * Jη₀divK * Vs
+                        
+                        # Fill Z_SV (row: m, col: n_surf + n)
+                        lock(row_locks[m])
+                        try
+                            Z[m, n_surf + n] += z_sv
+                        finally
+                            unlock(row_locks[m])
+                        end
+                        
+                        # Fill Z_VS (row: n_surf + n, col: m)
+                        row_idx = n_surf + n
+                        lock(row_locks[row_idx])
+                        try
+                            Z[row_idx, m] += z_vs
+                        finally
+                            unlock(row_locks[row_idx])
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    println("SCFIE-PWC Coupling Assembly Completed.")
+end
+
     
 end

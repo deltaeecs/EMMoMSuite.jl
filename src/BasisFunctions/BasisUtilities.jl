@@ -130,7 +130,28 @@ function get_triangle_info(mesh::TriangleMesh{IT, FT}, basis::RWGBasis{IT, FT}, 
 end
 
 """
-    get_tetrahedra_info(mesh, basis, permittivities)
+    get_tetrahedra_info(mesh, basis::PWCBasis, permittivities)
+
+Construct a vector of TetrahedraInfo for the entire mesh using PWC basis functions.
+PWC uses 3 DOFs per tetrahedron (x, y, z components), stored in inBfsID[1:3].
+The 4th entry of inBfsID is set to 0 (unused).
+"""
+function get_tetrahedra_info(mesh::TetrahedraMesh{IT, FT}, basis::PWCBasis{IT, FT}, permittivities::Vector{ComplexF64}) where {IT, FT}
+    ntet = mesh.tetnum
+    infos = Vector{TetrahedraInfo{IT, FT, ComplexF64}}(undef, ntet)
+    
+    Threads.@threads for i in 1:ntet
+        # PWC: 3 basis functions (x,y,z) per tet, 4th = 0
+        bf_ids = SVector{4, IT}(3*(i-1)+1, 3*(i-1)+2, 3*(i-1)+3, 0)
+        bf_signs = SVector{4, Int}(1, 1, 1, 0)
+        infos[i] = TetrahedraInfo(mesh, i, bf_ids, bf_signs, permittivities[i])
+    end
+    
+    return infos
+end
+
+"""
+    get_tetrahedra_info(mesh, basis::SWGBasis, permittivities)
 
 Construct a vector of TetrahedraInfo for the entire mesh.
 """
