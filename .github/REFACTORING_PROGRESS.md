@@ -1,8 +1,8 @@
 # EMSuite 重构进度
 
-> 最后更新: 2026-07-29
+> 最后更新: 2026-03-01
 
-## 当前阶段: Phase 10 精度验证补全 — **已完成** ✅
+## 当前阶段: Phase 8.9 深度性能优化 — **已完成** ✅
 
 ---
 
@@ -201,17 +201,24 @@
 - [x] 修复 Sphere CFIE MLFMA OOM (COO 初始分配上限)
 - [x] 生成 `test_results/PERFORMANCE_REPORT.md`
 
-**Phase 8 最终结果:**
+**Phase 8 最终结果 (2026-03-01 更新):**
 
-| 用例 | N | 基线组装 | 最终组装 | 变化 | 基线总计 | 最终总计 | 变化 |
-|------|---|---------|---------|-----|---------|---------|-----|
-| Plate EFIE | 2640 | 1.02s | 1.94s | +90%¹ | 4.50s | 5.84s | +30%¹ |
-| Jet EFIE | 14559 | 20.70s | 29.01s | +40%¹ | 54.10s | 61.90s | +14%¹ |
-| **Jet CFIE** | 14559 | **168.29s** | **64.88s** | **-61%** | 202.50s | 97.98s | **-52%** |
-| Jet MLFMA | 14559 | 76.69s | 108.93s | +42%² | 92.24s | 178.35s | +93%² |
-| Sphere MLFMA | 26424 | 323.25s | 285.81s | -12% | 541.00s | 539.93s | 0% |
-| **VEFIE** | 15828 | 46.13s | 66.24s | +44%³ | **213.55s** | **102.76s** | **-52%** |
-| **SCFIE** | 15860 | 66.68s | 96.94s | +45%³ | 155.86s | 130.73s | **-16%** |
+| 用例 | N | 原始基线 | Phase 8.8 | **Phase 8.9** | 说明 |
+|------|---|---------|---------|----------|------|
+| Plate EFIE | 2640 | 1.02s | 1.94s | **0.153s** | EFIE 内核重写 |
+| Jet EFIE | 14559 | 20.70s | 29.01s | **4.26s** | EFIE SIMD 修复 |
+| **Jet CFIE** | 14559 | **168.29s** | **64.88s** | **14.48s** | CFIE 架构 + `@.` |
+| Jet MLFMA | 14559 | 76.69s | 108.93s | 未重测 | — |
+| Sphere MLFMA | 26424 | 323.25s | 285.81s | 未重测 | — |
+| **VEFIE** | 15828 | 46.13s | 66.24s | 未重测 | — |
+| **SCFIE** | 15860 | 66.68s | 96.94s | 未重测 | Fss 并行化 |
+
+#### 8.9 EFIE/CFIE/SCFIE 深度优化 ✅ (commit `8f8dfc3`, `f520609`)
+- [x] **EFIE `calc_interaction!` 重写**: 移除 `@simd for n in 1:3` + 三元分支，改用 tuple-indexed rho + 完全展开 3×3 内积 → Jet EFIE **4.26s** (-79.4% vs 20.7s 原始基线)
+- [x] **CFIE 架构修复**: 合并汇编实测比分离汇编慢 (register/cache pressure)，改为分离调用 + `@.` 就地加权求和 (避免第三个 N×N 分配) → Jet CFIE **14.48s** (-91.4% vs 168.3s 原始基线)
+- [x] **SCFIE Fss 并行化**: `assemble_fss_boundary_correction!` 添加 `@threads` + 行级 SpinLock
+- [x] **单元测试**: 179/179 通过 (Testing EMSuite tests passed)
+
 
 ¹ EFIE 组装增幅: @fastmath/SIMD 重写主要优化 MFIE 路径, 对纯 EFIE 有轻微开销
 ² MLFMA EFIE 增幅: 预条件器 LU 变慢 (8.89s→47.27s), 非代码回归
@@ -353,6 +360,7 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-03-01 | **Phase 8.9 EFIE/CFIE/SCFIE 深度优化** — EFIE 内核重写 (移除@simd+三元分支) → Jet EFIE 20.7s→4.26s (-79%); CFIE 架构修复 (分离汇编+`@.`就地) → Jet CFIE 168s→14.5s (-91%); SCFIE Fss 并行化. 179/179 通过. commits: 8f8dfc3, f520609 |
 | 2026-07-29 | **Phase 10 精度验证补全完成** — 补齐剩余 9 子测试 (D2/E2/D3/E3/A2/B2/A4/B3/C3-MPI). 15/16 通过, A2 条件通过 (GMRES 收敛受限). Bug 修复: CFIE MPI 并行装配 (`cfie_interaction!` 不存在 → EFIE+MFIE 独立交互+线性组合). 179/179 单元测试通过 |
 | 2026-03-04 | **Phase 12 六面体完整支持完成** — PWCHexBasis 3 DOFs/hex + RBF evaluate + 边界面。GQ (hex/quad)、MeshIO (CHEXA)、VEFIE (PWCHex/RBF/Mixed)、SCFIE (RWG+PWCHex/RBF)、激励向量、辐射积分/RCS。179/179 测试通过。+2296 行 |
 | 2026-03-04 | **Phase 11 PWC 基函数扩展完成** — PWCBasis 3 DOFs/tet, VEFIE+PWC 并矢组装, PWC 激励/辐射积分/RCS, SCFIE+RWG+PWC 耦合, Driver.jl 多IE扩展, SimulationConfig 增强, 新增 test_pwc.jl. 139+/139+ 测试全通过 |
