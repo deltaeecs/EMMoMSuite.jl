@@ -16,7 +16,7 @@ using .Singularities
 
 import ..CoreModule: assemble_impedance_matrix
 
-export EFIE, assemble_impedance_matrix, efie_interaction
+export EFIE, assemble_impedance_matrix, efie_interaction, efie_interaction!
 
 """
     EFIE{FT, CT} <: AbstractIntegralOperator
