@@ -44,7 +44,7 @@ struct MFIE{FT<:AbstractFloat, CT<:Complex} <: AbstractIntegralOperator
     freq::FT
     k::FT
     eta::FT
-    gq_info::GaussQuadratureInfoStruct{FT, 7, 3}
+    gq_info::GaussQuadratureInfoStruct{FT, 4, 3}  # 4-point Gauss (matches Legacy GQPNTri=4)
 end
 
 function MFIE(freq::FT) where {FT}
@@ -54,7 +54,10 @@ function MFIE(freq::FT) where {FT}
     k = 2π * freq / c0
     eta = sqrt(mu0 / eps0)
     
-    gq_info = GaussQuadratureInfo(:Triangle, 7, FT)
+    # Legacy uses GQPNTri=4 for MFIE (non-singular K-operator).
+    # 4-point integrates degree ≤ 3 polynomials exactly on triangles,
+    # sufficient for both K-operator and mass matrix self-term.
+    gq_info = GaussQuadratureInfo(:Triangle, 4, FT)
     
     return MFIE{FT, Complex{FT}}(freq, k, eta, gq_info)
 end
@@ -64,9 +67,31 @@ end
 
 Assemble the impedance matrix Z for the MFIE using RWG basis functions.
 Z = eta * (0.5 * M + K)
+
+Quad points are precomputed once to avoid per-pair heap allocations.
 """
 function assemble_impedance_matrix(mfie::MFIE{FT, CT}, basis::RWGBasis{IT, FT}) where {IT, FT, CT}
-    return assemble_generic(mfie, basis, mfie_interaction!)
+    # Precompute quadrature points for all triangles (like EFIE does)
+    mesh = basis.mesh
+    nt = num_elements(mesh)
+    gq = mfie.gq_info
+    N_points = length(gq.weight)
+
+    quad_points = Vector{SVector{N_points, SVector{3, FT}}}(undef, nt)
+    Threads.@threads for t in 1:nt
+        v_indices = mesh.triangles[:, t]
+        v1 = SVector{3, FT}(mesh.node[:, v_indices[1]])
+        v2 = SVector{3, FT}(mesh.node[:, v_indices[2]])
+        v3 = SVector{3, FT}(mesh.node[:, v_indices[3]])
+        quad_points[t] = SVector{N_points, SVector{3, FT}}(
+            v1 * gq.coordinate[1, i] + v2 * gq.coordinate[2, i] + v3 * gq.coordinate[3, i]
+            for i in 1:N_points
+        )
+    end
+
+    # Wrapper with precomputed points
+    wrapper = (Z, op, t1, t2) -> mfie_interaction!(Z, op, t1, t2, quad_points)
+    return assemble_generic(mfie, basis, wrapper)
 end
 
 function mfie_interaction!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}) where {IT, FT, CT}
@@ -75,6 +100,18 @@ function mfie_interaction!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri_
         calc_self_term!(Z_local, mfie, tri_test)
     else
         calc_k_term!(Z_local, mfie, tri_test, tri_source)
+    end
+    return nothing
+end
+
+# Fast path with precomputed quad points (eliminates per-pair allocation)
+function mfie_interaction!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}, quad_points::Vector) where {IT, FT, CT}
+    if tri_test.triID == tri_source.triID
+        calc_self_term!(Z_local, mfie, tri_test)
+    else
+        r_test = quad_points[tri_test.triID]
+        r_src = quad_points[tri_source.triID]
+        calc_k_term_fast!(Z_local, mfie, tri_test, tri_source, r_test, r_src)
     end
     return nothing
 end
@@ -127,74 +164,99 @@ function calc_self_term!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri::T
 end
 
 function calc_k_term!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}) where {IT, FT, CT}
-    # K-term calculation based on legacy MFIERWGTri.jl
-    # Zmn = eta * <fm, n x (fn x grad G)>
-    
+    # Slow path: compute quad points on the fly
     gq = mfie.gq_info
     r_test = get_global_quad_points(tri_test, gq)
-    w_test = gq.weight
     r_src = get_global_quad_points(tri_source, gq)
-    w_src = gq.weight
-    
-    nt = tri_test.facen̂
-    ns = tri_source.facen̂
-    
+    calc_k_term_fast!(Z_local, mfie, tri_test, tri_source, r_test, r_src)
+end
+
+"""
+    calc_k_term_fast!(Z_local, mfie, tri_test, tri_source, r_test, r_src)
+
+Optimized K-term kernel. Key improvements over original:
+1. Loop order: (i,j) outer, (m,n) inner → rvec/R/divr/temp computed once per (i,j)
+2. Precomputed quad points → zero per-pair allocations
+3. Pre-hoisted rho_m/rho_n vectors outside innermost loop
+"""
+function calc_k_term_fast!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri_test::TriangleInfo{IT, FT}, tri_source::TriangleInfo{IT, FT}, r_test, r_src) where {IT, FT, CT}
+    gq = mfie.gq_info
+    w = gq.weight
+    n_pts = length(w)
+
+    nt_hat = tri_test.facen̂
     JK_0 = im * mfie.k
-    eta_div_16pi = mfie.eta / (16 * π)
-    
-    # Precompute Green's function and weights
-    gw = zeros(CT, length(w_test), length(w_src))
-    for j in 1:length(w_src)
-        for i in 1:length(w_test)
-            R_vec = r_test[i] - r_src[j]
-            R = norm(R_vec)
-            if R > 1e-12
-                gw[i, j] = (exp(-JK_0 * R) / R) * w_test[i] * w_src[j]
-            end
-        end
-    end
-    
-    for n in 1:3
-        ln = tri_source.edgel[n]
-        if tri_source.inBfsID[n] == 0; continue; end
-        vn = tri_source.vertices[:, n] # Free vertex for source
-        
-        for m in 1:3
-            lm = tri_test.edgel[m]
-            if tri_test.inBfsID[m] == 0; continue; end
-            vm = tri_test.vertices[:, m] # Free vertex for test
-            
-            Zmn = zero(CT)
-            
-            for j in 1:length(w_src)
-                rgj = r_src[j]
-                rho_n = rgj - vn
-                
-                for i in 1:length(w_test)
-                    rgi = r_test[i]
-                    rho_m = rgi - vm
-                    
-                    rvec = rgi - rgj
-                    R = norm(rvec)
-                    if R < 1e-12; continue; end
-                    
-                    divr = 1.0 / R
-                    temp = (JK_0 + divr) * divr * gw[i, j]
-                    
-                    # Legacy expansion:
-                    # Zmn += ((ρmi ⋅ rvec) * (n̂t ⋅ ρnj) - (n̂t ⋅ rvec) * (ρmi ⋅ ρnj)) * temp
-                    
-                    term1 = dot(rho_m, rvec) * dot(nt, rho_n)
-                    term2 = dot(nt, rvec) * dot(rho_m, rho_n)
-                    
-                    Zmn += (term1 - term2) * temp
+    eta_div_16pi = mfie.eta / (16 * FT(π))
+
+    # Precompute free vertices (SVector for stack allocation)
+    v_test = SVector{3, SVector{3, FT}}(
+        SVector{3, FT}(tri_test.vertices[:, 1]),
+        SVector{3, FT}(tri_test.vertices[:, 2]),
+        SVector{3, FT}(tri_test.vertices[:, 3])
+    )
+    v_src = SVector{3, SVector{3, FT}}(
+        SVector{3, FT}(tri_source.vertices[:, 1]),
+        SVector{3, FT}(tri_source.vertices[:, 2]),
+        SVector{3, FT}(tri_source.vertices[:, 3])
+    )
+
+    # Loop order: (j, i) outer, (m, n) inner
+    # This computes rvec/R/divr/temp/Green ONCE per (i,j) pair (7×7 = 49 times)
+    # instead of 9× per (i,j) pair (7×7×9 = 441 times in old code)
+    @inbounds for j in 1:n_pts
+        rgj = r_src[j]
+        wj = w[j]
+        # Precompute source rho vectors for all 3 BFs
+        rho_n1 = rgj - v_src[1]
+        rho_n2 = rgj - v_src[2]
+        rho_n3 = rgj - v_src[3]
+        nt_dot_rho_n1 = dot(nt_hat, rho_n1)
+        nt_dot_rho_n2 = dot(nt_hat, rho_n2)
+        nt_dot_rho_n3 = dot(nt_hat, rho_n3)
+
+        for i in 1:n_pts
+            rgi = r_test[i]
+            wi = w[i]
+
+            rvec = rgi - rgj
+            R = norm(rvec)
+            R < 1e-12 && continue
+            divr = one(FT) / R
+
+            # Green's function: exp(-jkR)/R, gradient factor: (jk + 1/R)/R
+            G_over_R = exp(-JK_0 * R) * divr  # exp(-jkR)/R
+            gw_ij = G_over_R * divr * wi * wj   # exp(-jkR)/R² * wi * wj
+            temp = (JK_0 + divr) * gw_ij        # (jk + 1/R) * exp(-jkR)/R² * wi * wj
+
+            # Precompute test rho and shared dot products
+            rho_m1 = rgi - v_test[1]
+            rho_m2 = rgi - v_test[2]
+            rho_m3 = rgi - v_test[3]
+            nt_dot_rvec = dot(nt_hat, rvec)
+
+            # Accumulate all 3×3 (m,n) contributions at this (i,j)
+            # Zmn += ((ρm·rvec)(n̂t·ρn) - (n̂t·rvec)(ρm·ρn)) * temp
+            for (ni, rho_n, nt_rho_n) in ((1, rho_n1, nt_dot_rho_n1),
+                                           (2, rho_n2, nt_dot_rho_n2),
+                                           (3, rho_n3, nt_dot_rho_n3))
+                for (mi, rho_m) in ((1, rho_m1), (2, rho_m2), (3, rho_m3))
+                    term1 = dot(rho_m, rvec) * nt_rho_n
+                    term2 = nt_dot_rvec * dot(rho_m, rho_n)
+                    Z_local[mi, ni] += (term1 - term2) * temp
                 end
             end
-            
-            Z_local[m, n] += Zmn * lm * ln * eta_div_16pi
         end
     end
-    
+
+    # Apply edge lengths and constant factor
+    @inbounds for n in 1:3
+        ln = tri_source.edgel[n]
+        for m in 1:3
+            lm = tri_test.edgel[m]
+            Z_local[m, n] *= lm * ln * eta_div_16pi
+        end
+    end
+
     return nothing
 end
 
