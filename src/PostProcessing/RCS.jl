@@ -83,16 +83,9 @@ function radarCrossSection(θs_obs::Vector{FT}, ϕs_obs::Vector{FT},
     RCS_flat = zeros(FT, 2, nobs)
     
     # Construct TriangleInfo for radiation integral
-    # We need this because raditionalIntegralNθϕCal expects it.
-    # Ideally we should refactor raditionalIntegralNθϕCal to take Mesh, but for now:
+    # (kept for backward compatibility, not used in radiation_integral_rwg path)
     mesh = basis.mesh
     ntri = num_elements(mesh)
-    trianglesInfo = Vector{TriangleInfo{IT, FT}}(undef, ntri)
-    for t in 1:ntri
-        # We use the constructor from TriangleInfoConstructor.jl
-        # Note: We don't need inBfsID here as it's not used in radiation integral
-        trianglesInfo[t] = TriangleInfo(mesh, t)
-    end
     
     # We can use @threads for parallel execution
     @threads for ii in 1:nobs
