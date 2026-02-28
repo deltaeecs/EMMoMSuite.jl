@@ -222,7 +222,7 @@ function calc_k_term_fast!(Z_local::AbstractMatrix{CT}, mfie::MFIE{FT, CT}, tri_
             divr = one(FT) / R
 
             # Green's function: exp(-jkR)/R, gradient factor: (jk + 1/R)/R
-            G_over_R = exp(-JK_0 * R) * divr  # exp(-jkR)/R
+            @fastmath G_over_R = exp(-JK_0 * R) * divr  # exp(-jkR)/R
             gw_ij = G_over_R * divr * wi * wj   # exp(-jkR)/R² * wi * wj
             temp = (JK_0 + divr) * gw_ij        # (jk + 1/R) * exp(-jkR)/R² * wi * wj
 
