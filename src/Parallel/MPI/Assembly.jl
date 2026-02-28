@@ -10,7 +10,6 @@ using ..MPIArrays
 using ...IntegralEquations.Impedance: get_triangle_info
 using ...IntegralEquations.EFIEModule: efie_interaction!
 using ...IntegralEquations.MFIEModule: mfie_interaction!
-using ...IntegralEquations.CFIEModule: cfie_interaction!
 
 export assemble_impedance_matrix_parallel
 
@@ -48,6 +47,8 @@ function assemble_impedance_matrix_parallel(operator, basis::RWGBasis{IT, FT}) w
     tris_info = [get_triangle_info(mesh, basis, t) for t in 1:nt]
     
     Z_local = zeros(CT, 3, 3)
+    Z_efie_local = zeros(CT, 3, 3)  # Workspace for CFIE
+    Z_mfie_local = zeros(CT, 3, 3)  # Workspace for CFIE
     
     # Loop over RELEVANT source triangles
     for t_source in src_tris_vec
@@ -60,12 +61,18 @@ function assemble_impedance_matrix_parallel(operator, basis::RWGBasis{IT, FT}) w
             # Compute interaction
             fill!(Z_local, zero(CT))
             
-            if isa(operator, EFIE)
+            if isa(operator, CFIE)
+                # CFIE = alpha * EFIE + (1-alpha) * MFIE
+                fill!(Z_efie_local, zero(CT))
+                fill!(Z_mfie_local, zero(CT))
+                efie_interaction!(Z_efie_local, operator.efie, tri_test, tri_source)
+                mfie_interaction!(Z_mfie_local, operator.mfie, tri_test, tri_source)
+                α = operator.alpha
+                @. Z_local = α * Z_efie_local + (1 - α) * Z_mfie_local
+            elseif isa(operator, EFIE)
                 efie_interaction!(Z_local, operator, tri_test, tri_source)
             elseif isa(operator, MFIE)
                 mfie_interaction!(Z_local, operator, tri_test, tri_source)
-            elseif isa(operator, CFIE)
-                cfie_interaction!(Z_local, operator, tri_test, tri_source)
             else
                 error("Unknown operator type for parallel assembly")
             end
