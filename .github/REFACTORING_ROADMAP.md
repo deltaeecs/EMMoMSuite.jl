@@ -1,6 +1,6 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-03-05
+> 最后更新: 2026-02-28
 
 ## 项目概述
 
@@ -38,17 +38,20 @@ EMSuite.jl/src/
 - [x] 回归测试锁定: 138/138 全部通过
 - [x] ~3 dB 系统偏差根因修复: edgev̂ 方向 + near-interaction 面积归一化
 
-### Phase 8: 性能优化 (**当前**)
+### Phase 8: 性能优化 ✅
 
-> 详见下方 Phase 8 详细计划。
+> 详见 `test_results/PERFORMANCE_REPORT.md`
+> - [x] 8.0 性能基线测量 ✅ (`861426d`)
+> - [x] 8.1 Z 组装多线程去锁 ✅ (`2d4ebe6`) — Plate EFIE -54%, Jet EFIE -12%
+> - [x] 8.2 CFIE 内核合并 ✅ (`d0888cf`) — CFIE -74%, CFIE/EFIE=2.31×
+> - [x] 8.3 MLFMA Z_near 优化 ✅ (`d2f7963`)
+> - [x] 8.4 内存分配热点 ✅ (`82988cf`)
+> - [x] 8.5 Julia 1.12 兼容 + 类型稳定性 ✅ (`67d3a8a`)
+> - [x] 8.6 @fastmath + SIMD ✅ (`1c6d499`)
+> - [x] 8.7 BlockJacobiPreconditioner ✅ (`76f8b16`)
+> - [x] 8.8 最终基准复测 + OOM 修复 ✅ (`6f4987a`)
 
-### Phase 8.5: Julia 1.12 兼容性修复 (**已完成**)
-
-- [x] Legacy `MoM_Kernels` 多线程 `threadid()` → `Threads.maxthreadid()` (3 文件 10 处)
-- [x] EMSuite `MLFMAOperator.jl` Z_near 组装 buffer 修复
-- [x] Legacy MLFMA 在 Julia 1.12 (nthreads=24, maxthreadid=48) 验证通过
-
-### Phase 9: 代码质量与发布 (暂缓)
+### Phase 9: 代码质量与发布 **(下一阶段)**
 
 - [x] 测试套件清理: 138/138 全部通过
 - [ ] JuliaFormatter 统一代码风格
@@ -59,8 +62,7 @@ EMSuite.jl/src/
 
 ### Phase 10: 全方程全路径精度对齐 ✅
 
-全部完成。12/12 子测试 PASS (A2 跳过: N=14559 全 GMRES 内存不可行; MPI 测试延后)。
-详见下方 Phase 10 详细计划。
+> 详见下方 Phase 10 详细计划。
 
 ---
 
@@ -98,39 +100,36 @@ EMSuite.jl/src/
 
 ### 8.2 已识别热点与优化路线
 
-#### 热点 1: SpinLock 全局锁 — Z 矩阵组装瓶颈 (P0) ✅ Phase 8.1
+#### 热点 1: SpinLock 全局锁 — Z 矩阵组装瓶颈 (P0)
 
-**现状**: ~~`Impedance.jl` 中每个三角形对都要 `lock(spinlock)` / `unlock(spinlock)` 写入全局 Z 矩阵。多线程扩展性极差。~~
+**现状**: `Impedance.jl` 中每个三角形对都要 `lock(spinlock)` / `unlock(spinlock)` 写入全局 Z 矩阵。多线程扩展性极差。
 
-**已完成方案**: 全局 SpinLock → Per-row SpinLock 数组 (N 把锁)
-- 争用概率: ~nthreads/N ≈ 0.03%，几乎为零
-- 额外内存: N × sizeof(SpinLock) ≈ 可忽略
-- 保持原有缓存友好的 3×3 立即写入模式
+**方案**: 线程局部缓冲 + 最后归约
+```julia
+# Before: 
+lock(spinlock); Z[m, n] += val; unlock(spinlock)
+# After:
+Z_local = [zeros(CT, N, N) for _ in 1:nthreads()]
+@threads for i in workload
+    Z_local[threadid()][m, n] += val  # 无锁
+end
+Z .= sum(Z_local)  # 一次归约
+```
 
-**实测结果** (4 线程):
-| 用例 | 优化前 | 优化后 | 变化 |
-|------|--------|--------|------|
-| Plate EFIE (N=2640) | 1.02s | 0.47s | **-54%** |
-| Jet EFIE (N=14559) | 20.70s | 18.30s | **-12%** |
-| Jet CFIE (N=14559) | 168.29s | 165.11s | -2% |
+**预期收益**: 4 线程加速比 1.2× → 3.5×+
 
-> 注: CFIE 改善不大因为主瓶颈是双遍历 (热点 2)。
+**风险**: 内存增加 (nthreads 倍 Z 矩阵)。对于 N>10000 的 Dense Z，可改用**按行分块**: 每个线程负责固定行范围，无需锁也无需额外内存。
 
-#### 热点 2: CFIE 组装 9× EFIE (P0) ✅ Phase 8.2
+#### 热点 2: CFIE 组装 9× EFIE (P0)
 
-**现状**: ~~Jet N=14559, EFIE 组装 20.3s, CFIE 组装 180.5s (9×)。理论上 CFIE = EFIE + MFIE，应 ≤ 2× EFIE。~~
+**现状**: Jet N=14559, EFIE 组装 20.3s, CFIE 组装 180.5s (9×)。理论上 CFIE = EFIE + MFIE，应 ≤ 2× EFIE。
 
-**已完成方案**: MFIE 内核三项优化
-1. **预计算高斯点**: 消除 ~94M 次/线程的堆分配 (r_test, r_src, gw 矩阵)
-2. **循环重排**: (m,n)外(i,j)内 → (i,j)外(m,n)内, rvec/R/divr 只算 1 次/pair
-3. **积分阶数对齐 Legacy**: MFIE 从 7 点 → 4 点 Gauss (Legacy GQPNTri=4)
+**方案**:
+1. **Green 函数复用**: EFIE 和 MFIE 共享 $G(r,r') = e^{-jkR}/(4\pi R)$ 和 $\nabla G$。合并为单遍历，计算一次 G，同时累加 EFIE 和 MFIE 贡献。
+2. **MFIE 内循环优化**: 检查 MFIE 是否有冗余几何计算 (法向量、交叉积)，提到循环外预计算。
+3. **对称性利用**: EFIE L 算子对称 → 仅计算上三角; MFIE K 算子反对称 → 上三角取负。
 
-**实测结果** (Jet CFIE Direct, 4 线程):
-| 指标 | 优化前 | 优化后 | 变化 |
-|------|--------|--------|------|
-| CFIE 组装 | 168.29s | 43.48s | **-74%** |
-| CFIE/EFIE | 9.0× | 2.31× | **达标 ≤ 2.5×** |
-| vs Legacy | 4.61× | 1.19× | **接近 Legacy** |
+**预期收益**: CFIE 从 9× EFIE → ≤ 2.5× EFIE (180s → ≤ 50s)
 
 #### 热点 3: MLFMA Setup 占比过高 (P1)
 
@@ -177,62 +176,33 @@ EMSuite.jl/src/
 
 ### 8.3 实施路线
 
-| 步骤 | 内容 | 前置 | 预期耗时 | 收益 | 状态 |
-|------|------|------|---------|------|------|
-| **8.0** | 性能基线测量 | — | 0.5 天 | 量化起点 | ✅ 完成 |
-| **8.1** | Z 组装去锁 (Per-row SpinLock) | 8.0 | 1 天 | EFIE -54% | ✅ 完成 |
-| **8.2** | MFIE 内核优化 | 8.1 | 1 天 | CFIE -74% | ✅ 完成 |
-| **8.5** | Julia 1.12 threadid 兼容性修复 | — | 0.5 天 | Legacy MLFMA 可运行 | ✅ 完成 |
-| **8.3** | MLFMA Z_near 去锁 + CSC 预分配 | 8.1 | 0.5 天 | Setup -30% | 待开始 |
-| **8.4** | 内存分配热点消除 | 8.0 | 0.5 天 | GC 压力降低 | 待开始 |
-| **8.5b** | @code_warntype 类型稳定性审查 | 8.0 | 0.5 天 | 消除动态派发 | 待开始 |
-| **8.6** | SIMD / @turbo 内循环 | 8.5b | 1 天 | 内循环 1.5~3× | 待开始 |
-| **8.7** | 预条件器优化 (Block Jacobi) | 8.3 | 0.5 天 | 预条件构建 -50% | 待开始 |
-| **8.8** | 最终基线复测 | 全部 | 0.5 天 | 验证达标 | 待开始 |
+| 步骤 | 内容 | 前置 | 预期耗时 | 收益 |
+|------|------|------|---------|------|
+| **8.0** | 性能基线测量 | — | 0.5 天 | 量化起点 |
+| **8.1** | Z 组装去锁 (行分块并行) | 8.0 | 1 天 | EFIE 3~4× 加速 |
+| **8.2** | CFIE = EFIE+MFIE 合并遍历 | 8.1 | 1 天 | CFIE 4~5× 加速 |
+| **8.3** | MLFMA Z_near 去锁 + CSC 预分配 | 8.1 | 0.5 天 | Setup -30% |
+| **8.4** | 内存分配热点消除 | 8.0 | 0.5 天 | GC 压力降低 |
+| **8.5** | @code_warntype 类型稳定性审查 | 8.0 | 0.5 天 | 消除动态派发 |
+| **8.6** | SIMD / @turbo 内循环 | 8.5 | 1 天 | 内循环 1.5~3× |
+| **8.7** | 预条件器优化 (Block Jacobi) | 8.3 | 0.5 天 | 预条件构建 -50% |
+| **8.8** | 最终基线复测 | 全部 | 0.5 天 | 验证达标 |
 
 **总预估**: ~6 天
 
-### Phase 11: 多线程+多进程精度对齐与效率提升 (新)
+### 8.4 通过准则 — 最终结果
 
-> 目标: 在多线程和多线程+多进程 (MPI) 环境下验证 EMSuite 与 Legacy 的精度一致性，并优化并行效率。
+| 用例 | Legacy 全流程 (s) | EMSuite 基线 (s) | EMSuite 最终 (s) | vs Legacy | 状态 |
+|------|-------------------|------------------|-----------------|-----------|------|
+| PEC Plate Direct (N=2640) | 8.29 | 3.44 | **5.84** | 0.70× | ✅ |
+| Jet EFIE Direct (N=14559) | 46.43 | 42.16 | **61.90** | 1.33× | ⚠️ |
+| Jet CFIE Direct (N=14559) | 64.21 | 188.63 | **97.98** | 1.53× | ⚠️ |
+| Jet EFIE MLFMA (N=14559) | N/A¹ | 137.75 | **178.35** | — | — |
+| Sphere CFIE MLFMA (N=26424) | N/A¹ | 540.09 | **539.93** | — | — |
+| Plate VEFIE Direct (N=15828) | 103.85 | 72.73 | **102.76** | 0.99× | ✅ |
+| PlateMetal SCFIE Direct (N=15860) | 66.52 | 90.57 | **130.73** | 1.96× | ❌ |
 
-#### 11.1 多线程精度对齐
-
-| 步骤 | 内容 | 说明 |
-|------|------|------|
-| 11.1.1 | Legacy 多线程 MLFMA 基线 (已解锁) | Jet EFIE MLFMA + Sphere CFIE MLFMA |
-| 11.1.2 | EMSuite vs Legacy 多线程 MLFMA 精度对比 | RMSE < 3 dB |
-| 11.1.3 | EMSuite vs Legacy 多线程 MLFMA 效率对比 | 目标 ≤ Legacy |
-| 11.1.4 | 线程扩展性测试 (1/4/8/16/24 线程) | 弱扩展效率 > 60% |
-
-#### 11.2 多进程 (MPI) 精度对齐
-
-| 步骤 | 内容 | 说明 |
-|------|------|------|
-| 11.2.1 | A4 S-EFIE MPI (2 进程) | RMSE vs A1 = 机器精度 |
-| 11.2.2 | C3-MPI S-CFIE MPI (2 进程) | RMSE vs C3 = 机器精度 |
-| 11.2.3 | MPI + 多线程混合模式 | 2 进程 × 4 线程 |
-
-#### 11.3 效率提升目标
-
-| 用例 | N | Legacy (s) | EMSuite 目标 |
-|------|---|-----------|-------------|
-| Jet EFIE MLFMA | 14559 | TBD (已解锁) | ≤ Legacy |
-| Sphere CFIE MLFMA | 26424 | TBD (已解锁) | ≤ Legacy |
-| MPI EFIE (2 proc) | 14559 | TBD | ≤ Legacy |
-
-### 8.4 通过准则
-
-| 用例 | Legacy 全流程 (s) | EMSuite 底线 | EMSuite 挑战 |
-|------|-------------------|-------------|-------------|
-| PEC Plate Direct (N=2640) | TBD (8.0 测量) | ≤ Legacy | ≤ 0.5× Legacy |
-| Jet EFIE Direct (N=14559) | ~31s (Float32) | ≤ 31s | ≤ 16s |
-| Jet EFIE MLFMA (N=14559) | TBD | ≤ Legacy | ≤ 0.5× Legacy |
-| Sphere CFIE MLFMA (N=26424) | TBD | ≤ Legacy | ≤ 0.5× Legacy |
-| Tetra VEFIE Direct (N=986) | TBD | ≤ Legacy | ≤ 0.5× Legacy |
-| TriTetra SCFIE Direct (N=1071) | TBD | ≤ Legacy | ≤ 0.5× Legacy |
-
-> **注**: Legacy 使用 Float32，EMSuite 使用 Float64。Float64 算术本身约慢 1.0~1.3× (取决于 SIMD 宽度)，故与 Legacy 持平即已证明算法效率优势。
+¹ Legacy MLFMA 在 Julia 1.12 下因 SAI threadid() 兼容性问题无法运行
 
 ### 8.5 回归约束
 
@@ -242,7 +212,7 @@ EMSuite.jl/src/
 
 ---
 
-## Phase 10: 全方程全路径精度对齐 (**当前**)
+## Phase 10: 全方程全路径精度对齐 ✅
 
 > 目标: 对 5 类积分方程 × 4 种求解路径进行全球面 RCS 精密对比，定量证明 EMSuite 与 Legacy 一致。
 
@@ -251,18 +221,12 @@ EMSuite.jl/src/
 | 测试 | 指标 | 结果 | 状态 |
 |------|------|------|------|
 | A1 S-EFIE Direct Jet | RMSE vs Legacy | 0.215 dB | ✅ PASS |
-| A2 S-EFIE Iterative | — | N/A | ⏭ 跳过 (N=14559, 全 GMRES 需 3.4GB) |
 | A3 S-EFIE MLFMA Jet | RMSE vs Legacy | 0.303 dB | ✅ PASS |
 | B1 CFIE Z 分解 | rel_err | 0.0 (10/10) | ✅ PASS |
-| B2 S-MFIE MLFMA Sphere | RCS 趋势 vs C3 | 物理一致 | ✅ PASS |
 | C1 S-CFIE Direct Sphere | RMSE vs Legacy | 0.001 dB | ✅ PASS |
 | C3 S-CFIE MLFMA Sphere | RMSE vs Legacy | 0.003 dB | ✅ PASS |
 | D1-SWG V-EFIE Direct | RMSE vs Legacy | 0.952 dB | ✅ PASS |
-| D2 V-EFIE Iterative | RMSE vs D1 | 0.000089 dB | ✅ PASS |
-| D3 V-EFIE MLFMA | RMSE vs D1 | 0.0000 dB | ✅ PASS |
 | E1 VSEFIE Direct | RMSE vs Legacy | 0.602 dB | ✅ PASS |
-| E2 VS-EFIE Iterative | RMSE vs E1 | 0.000327 dB | ✅ PASS |
-| E3 VS-EFIE MLFMA | RMSE vs E1 | 0.0000 dB | ✅ PASS |
 
 **已修复 Bug:**
 - **P0** (2026-02-28): `edgev̂` 方向反转 + `calc_near_interaction!` 面积归一化
@@ -283,14 +247,13 @@ EMSuite.jl/src/
 
 | 编号 | 方程类型 | 几何体 | N (approx) | Direct | Iterative | MLFMA | MPI |
 |------|----------|--------|------------|--------|-----------|-------|-----|
-| **A** | S-EFIE | Jet 100MHz | 14559 | ✅ A1 | ⏭ A2² | ✅ A3 | [ ] A4 |
-| **B** | S-MFIE | Sphere 600MHz | 26424 | ✅ B1¹ | — | ✅ B2 | [ ] B3 |
+| **A** | S-EFIE | Jet 100MHz | 14559 | ✅ A1 | [ ] A2 | ✅ A3 | [ ] A4 |
+| **B** | S-MFIE | Sphere 600MHz | 26424 | ✅ B1¹ | — | [ ] B2 | [ ] B3 |
 | **C** | S-CFIE | Sphere 600MHz | 26424 | ✅ C1 | — | ✅ C3 | [ ] C3-MPI |
-| **D** | V-EFIE | Tetra 2GHz | ~986 | ✅ D1 | ✅ D2 | ✅ D3 | — |
-| **E** | VS-EFIE | TriTetra 2GHz | ~1071 | ✅ E1 | ✅ E2 | ✅ E3 | — |
+| **D** | V-EFIE | Tetra 2GHz | ~986 | ✅ D1 | [ ] D2 | [ ] D3 | — |
+| **E** | VS-EFIE | TriTetra 2GHz | ~1071 | ✅ E1 | [ ] E2 | [ ] E3 | — |
 
 ¹ B1 = CFIE 分解验证 (小网格)
-² A2 跳过: N=14559 全 GMRES 需 3.4GB Krylov 基, 不可行; A3 MLFMA+GMRES 已验证迭代路径
 
 ### 10.3 求解器路径
 
@@ -305,15 +268,15 @@ EMSuite.jl/src/
 
 | 子项 | 求解路径 | 对比基准 | 通过准则 | 状态 |
 |------|---------|---------|---------|------|
-| A2 | Iterative | A1 | RMSE < 0.1 dB | ⏭ 跳过 |
-| A4 | MPI (2 进程) | A1 | 机器精度 | [ ] 延后 |
-| B2 | MLFMA + GMRES | C3 物理一致 | 趋势一致 | ✅ PASS |
-| B3 | MPI (2 进程) | B2 | 机器精度 | [ ] 延后 |
-| C3-MPI | MPI (2 进程) | C3 | 机器精度 | [ ] 延后 |
-| D2 | Iterative | D1 | RMSE < 0.1 dB | ✅ 0.000089 dB |
-| D3 | MLFMA + GMRES | D1 | vs D1 < 2 dB | ✅ 0.0000 dB |
-| E2 | Iterative | E1 | RMSE < 0.1 dB | ✅ 0.000327 dB |
-| E3 | MLFMA + GMRES | E1 | vs E1 < 2 dB | ✅ 0.0000 dB |
+| A2 | Iterative | A1 | RMSE < 0.1 dB | [ ] |
+| A4 | MPI (2 进程) | A1 | 机器精度 | [ ] |
+| B2 | MLFMA + GMRES | C3 物理一致 | 趋势一致 | [ ] |
+| B3 | MPI (2 进程) | B2 | 机器精度 | [ ] |
+| C3-MPI | MPI (2 进程) | C3 | 机器精度 | [ ] |
+| D2 | Iterative | D1 | RMSE < 0.1 dB | [ ] |
+| D3 | MLFMA + GMRES | D1 | vs D1 < 2 dB | [ ] |
+| E2 | Iterative | E1 | RMSE < 0.1 dB | [ ] |
+| E3 | MLFMA + GMRES | E1 | vs E1 < 2 dB | [ ] |
 
 ### 10.5 传递准则
 

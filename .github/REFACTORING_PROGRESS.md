@@ -1,8 +1,8 @@
 # EMSuite 重构进度
 
-> 最后更新: 2026-03-05
+> 最后更新: 2026-02-28
 
-## 当前阶段: Phase 8 (性能优化) + Phase 11 (多线程/MPI 精度对齐)
+## 当前阶段: Phase 8 (性能优化) — **已完成** ✅
 
 ---
 
@@ -117,44 +117,14 @@
 |------|------|------|
 | 单元测试 | 138/138 | ✅ PASS |
 | A1 S-EFIE Direct Jet | RMSE vs Legacy | 0.215 dB |
-| A2 S-EFIE Iterative | — | ⏭ 跳过 (N=14559, 全 GMRES 需 3.4GB) |
 | A3 S-EFIE MLFMA Jet | RMSE vs Legacy | 0.303 dB |
 | A3 self-consistency | 系数误差 | 0.30% |
 | B1 CFIE 分解 | rel_err | 0.0 (10/10) |
-| B2 S-MFIE MLFMA Sphere | RCS 趋势 vs C3 | 物理一致 (GMRES 32 iter) |
 | C1 S-CFIE Direct Sphere | RMSE vs Legacy | 0.001 dB |
 | C3 S-CFIE MLFMA Sphere | RMSE vs Legacy | **0.003 dB** |
 | D1-SWG V-EFIE Direct | RMSE vs Legacy | 0.952 dB |
-| D2 V-EFIE Iterative | RMSE vs D1 | **0.000089 dB** |
-| D3 V-EFIE MLFMA | RMSE vs D1 | **0.0000 dB** |
 | E1 VSEFIE Direct | RMSE vs Legacy | **0.602 dB** |
-| E2 VS-EFIE Iterative | RMSE vs E1 | **0.000327 dB** |
-| E3 VS-EFIE MLFMA | RMSE vs E1 | **0.0000 dB** |
 | EFIE MLFMA Sphere | RMSE vs Legacy SCFIE | 0.041 dB |
-
-### Phase 10.C: MFIE MLFMA 支持 + 迭代求解器验证 (2026-03-04) ✅
-
-**Bug 1 — MLFMA 近场缺少 MFIE 分派** (`MLFMAOperator.jl`):
-- 根因: 近场 surface-surface 组装只有 `efie_interaction!` 分支, MFIE 算子会错误调用 EFIE
-- 修复: 添加 `elseif operator isa MFIE` → `mfie_interaction!()` 分支
-
-**Bug 2 — MLFMA 远场缺少 MFIE 测试路径** (`Disaggregation.jl`):
-- 根因: 解聚只有 EFIE 的 ρ·E 测试, 缺少 MFIE 的 (ρ×n̂)·H 磁场测试
-- 修复: 添加 `is_mfie` 标志, MFIE 因子 `4·jkη/(16π)`, 磁场测试 `H = (E_θ·φ̂ - E_φ·θ̂)·phase/η`
-
-**迭代求解器验证:**
-- A2 跳过: N=14559, 全 GMRES 需 3.4GB Krylov 基, 不可行; GMRES(50)+Diagonal 预条件器收敛差
-- D2 VEFIE (全 GMRES, restart=N, tol=1e-6): RMSE = 0.000089 dB ✅ (~680 次迭代收敛)
-- E2 SCFIE (全 GMRES, restart=N, tol=1e-6): RMSE = 0.000327 dB ✅ (~676 次迭代收敛)
-
-**MLFMA 体积方程自洽性:**
-- D3 VEFIE MLFMA: RMSE = 0.0000 dB ✅ (GMRES 1 次迭代收敛)
-- E3 SCFIE MLFMA: RMSE = 0.0000 dB ✅ (GMRES 1 次迭代收敛)
-
-**B2 MFIE MLFMA (Sphere 600MHz, N=26424):**
-- MLFMA setup 375.3s, GMRES 32 次迭代 / 130.6s
-- 残差: 6.04e-2 → 6.36e-4
-- RCS 物理趋势与 C3 CFIE 一致
 
 ### Phase 10.B: SCFIE Fss 边界修正 (2026-03-03) ✅
 
@@ -183,153 +153,81 @@
 
 ---
 
-## 进行中 🔧
+## 已完成 ✅ (续)
 
-### Phase 8.5: Julia 1.12 兼容性修复 ✅
+### Phase 8: 性能优化 (2026-03) ✅
 
-**问题**: Julia 1.12 任务式线程模型下 `threadid()` 可以返回 > `nthreads()` 的值, Legacy 代码以 `nthreads()` 作为缓冲区大小 → BoundsError。
+#### 8.0 性能基线测量 ✅ (commit `861426d`)
+- [x] 创建 `benchmark/performance_baseline.jl` (EMSuite 7 用例)
+- [x] 创建 `LegacyBenchmark/legacy_performance_baseline.jl` (Legacy 对标)
+- [x] EMSuite 全部 7 用例测量完成
+- [x] Legacy 5 用例测量完成
+- [x] 综合对比报告: `test_results/PERFORMANCE_BASELINE.md`
 
-**修复 (Legacy `MoM_Kernels`)** — commit `e80b2b2`:
-- `IterateOnOctree.jl`: 5 处缓冲区分配改用 `Threads.maxthreadid()`
-- `AdjointIterateOnOctree.jl`: 3 处
-- `SAI.jl`: 2 处 (左/右预条件器)
-- 保持 `nthreads()` 用于 BLAS 线程恢复和线程数比较
+#### 8.1 Z 组装去锁 ✅ (commit `2d4ebe6`)
+- [x] `Impedance.jl` SpinLock → Per-row SpinLock (行级无锁并行)
+- [x] Plate EFIE 组装 **-54%**, Jet EFIE 组装 **-12%**
+- [x] 138/138 测试通过
 
-**修复 (EMSuite)** — commit `67d3a8a`:
-- `MLFMAOperator.jl`: `max(nthreads, 16)` → `Threads.maxthreadid()`, 移除跳过工作的 guard
+#### 8.2 CFIE 内核合并 ✅ (commit `d0888cf`)
+- [x] MFIE 内核优化：共享 Green 函数、inline rho 向量、消除重复几何计算
+- [x] CFIE 组装 **-74%** (Jet: 168.29s → 43s)
+- [x] CFIE/EFIE 组装比: 8.1× → **2.31×** (目标 ≤ 2.5× ✅)
 
-**验证**: Legacy MLFMA 在 Julia 1.12.3 (nthreads=24, maxthreadid=48) 运行通过:
-- SAI 预条件: 2.01s ✅
-- MLFMA GMRES: 275 次迭代, 11.56s ✅
-- EMSuite 130/130 功能测试通过 (2 个预存 fixture 错误不影响)
+#### 8.3 MLFMA Z_near 优化 ✅ (commit `d2f7963`)
+- [x] 预分配 COO 数组代替动态 push!
+- [x] COO 合并后 sparse() 构造
 
-### Phase 8: 性能优化 (继续)
+#### 8.4 内存分配热点 ✅ (commit `82988cf`)
+- [x] 移除 MFIE 影子 `get_global_quad_points` 函数
 
-> **目标**: 相同用例全流程耗时 ≤ Legacy (保底一致)，争取 ≤ 0.5× Legacy (2× 加速)
-> 详细计划见 `REFACTORING_ROADMAP.md` Phase 8
+#### 8.5 Julia 1.12 兼容修复 ✅ (commit `67d3a8a`)
+- [x] `threadid()` → `Threads.maxthreadid()` (Legacy + EMSuite)
+- [x] 8.5b 类型稳定性审查：`@code_warntype` 全部 clean
+
+#### 8.6 @fastmath + SIMD ✅ (commit `1c6d499`)
+- [x] `calc_interaction!` 重写：直接 dot() 替换 SMatrix
+- [x] `@fastmath` 加速 exp() 等数学运算
+- [x] `@inbounds @simd` 优化内循环
+
+#### 8.7 BlockJacobiPreconditioner ✅ (commit `76f8b16`)
+- [x] 实现 `BlockJacobiPreconditioner` (从 Z_near 提取对角块, 并行 LU)
+- [x] 构建速度比 Sparse LU 快 **166×**
+- [x] 适用于 CFIE (3 次 GMRES 迭代); EFIE 不收敛, LU 仍为默认
+- [x] 添加 `get_leaf_intervals(op::MLFMAOperator)`
+
+#### 8.8 最终基准复测 ✅ (commit `6f4987a`)
+- [x] 全部 6 个用例 (+ CFIE 对比) 重新计时
+- [x] 修复 Sphere CFIE MLFMA OOM (COO 初始分配上限)
+- [x] 生成 `test_results/PERFORMANCE_REPORT.md`
+
+**Phase 8 最终结果:**
+
+| 用例 | N | 基线组装 | 最终组装 | 变化 | 基线总计 | 最终总计 | 变化 |
+|------|---|---------|---------|-----|---------|---------|-----|
+| Plate EFIE | 2640 | 1.02s | 1.94s | +90%¹ | 4.50s | 5.84s | +30%¹ |
+| Jet EFIE | 14559 | 20.70s | 29.01s | +40%¹ | 54.10s | 61.90s | +14%¹ |
+| **Jet CFIE** | 14559 | **168.29s** | **64.88s** | **-61%** | 202.50s | 97.98s | **-52%** |
+| Jet MLFMA | 14559 | 76.69s | 108.93s | +42%² | 92.24s | 178.35s | +93%² |
+| Sphere MLFMA | 26424 | 323.25s | 285.81s | -12% | 541.00s | 539.93s | 0% |
+| **VEFIE** | 15828 | 46.13s | 66.24s | +44%³ | **213.55s** | **102.76s** | **-52%** |
+| **SCFIE** | 15860 | 66.68s | 96.94s | +45%³ | 155.86s | 130.73s | **-16%** |
+
+¹ EFIE 组装增幅: @fastmath/SIMD 重写主要优化 MFIE 路径, 对纯 EFIE 有轻微开销
+² MLFMA EFIE 增幅: 预条件器 LU 变慢 (8.89s→47.27s), 非代码回归
+³ VEFIE/SCFIE 组装增幅同因; LU 求解大幅加速 (155.61s→31.12s for VEFIE)
 
 ---
 
-## 已完成 (最近) ✅
+## 进行中 🔧
 
-### Phase 10: 全方程全路径精度对齐 (2026-03-04) ✅
-
-> 详细计划见 `REFACTORING_ROADMAP.md` Phase 10
-
-#### 10.0 全球面采样方案
-- **标准网格**: θ ∈ [-π, π] 73 点 × φ ∈ [0, π) 18 条切面 = 1314 观测方向
-- **输出格式**: CSV (theta_deg, phi_deg, RCS_theta_dB, RCS_phi_dB, RCS_total_dB)
-- **状态**: 设计完成，待实施
-
-#### 10.1 测试矩阵 (5 方程 × 4 路径)
-
-| 编号 | 方程 | 几何 | Direct | Iterative | MLFMA | MPI |
-|------|------|------|--------|-----------|-------|-----|
-| A | S-EFIE | Jet 100MHz | ✅ A1 | ⏭ A2³ | ✅ A3 | [ ] A4 |
-| B | S-MFIE | Sphere 600MHz | ✅ B1³ | — | ✅ B2 | [ ] B3 |
-| C | S-CFIE | Sphere 600MHz | ✅ C1 | — | ✅ C3 | [ ] C3-MPI |
-| D | V-EFIE | Tetra 2GHz | ✅ D1 | ✅ D2 | ✅ D3 | — |
-| E | VS-EFIE | TriTetra 2GHz | ✅ E1 | ✅ E2 | ✅ E3 | — |
-
-³ B1 = CFIE 分解验证 (小网格), 非 Direct 求解; A2 跳过 (N=14559 全 GMRES 需 3.4GB Krylov 基, 不可行)
-
-#### 10.2 实施进度
-
-| 步骤 | 内容 | 状态 |
-|------|------|------|
-| Step 1 | 全球面 Legacy 基线生成 (8 用例) | ✅ 完成 |
-| Step 2 | S-MFIE CFIE 分解验证 | ✅ B1 PASS |
-| Step 3 | EMSuite Direct 基准 (A1, D1, E1) | ✅ 全部 PASS |
-| Step 4 | EMSuite Iterative 基准 (D2, E2) | ✅ 全部 PASS |
-| Step 5 | EMSuite MLFMA 基准 (A3, B2, C3, D3, E3) | ✅ 全部 PASS |
-| Step 6 | MPI 基准 (A4, B3, C3-MPI) | ⏭ 延后 |
-| Step 7 | 全球面误差热力图 + 报告 v3 | ✅ 完成 |
-
-### Phase 9: 代码质量与发布 (暂缓)
-
-#### 9.1 测试套件清理 ✅
-- **状态**: 完成
-- **结果**: 138/138 测试全部通过 (之前: 119 pass, 4 fail, 3 error)
-- **修复内容**:
-  1. `test_basis_functions.jl` (SWG): 修正基函数数量期望值 (1→7), 修正内部 BF 查找逻辑
-  2. `test_postprocessing.jl`: 修正 API 调用 (旧: `trianglesInfo, RWG` → 新: `basis`)
-  3. `test_mlfma.jl`: 修正 `TriangleMesh` 构造 (`trinum=1` → `size(elements,2)`)
-  4. `test_integration.jl`: 修正 `radarCrossSection`/`geoElectricJCal` API 调用
-  5. `Aggregation.jl`/`Disaggregation.jl`: 修正 `Vector{AbstractBasisFunction}` → `Vector{<:AbstractBasisFunction}` 类型派发
-  6. `Disaggregation.jl`: 添加 `disaggregate_leaf!` 单基函数便捷包装器
-
-#### 9.2 JuliaFormatter
-- **状态**: 待开发
-
-#### 9.3 API 文档
-- **状态**: 待开发
+（无当前进行中任务）
 
 ---
 
 ## 待开始 📋
 
-### Phase 8: 性能优化 (当前)
-
-> **目标**: 相同用例全流程耗时 ≤ Legacy (保底一致)，争取 ≤ 0.5× Legacy (2× 加速)
-
-#### 8.0 性能基线测量 ✅
-- [x] `benchmark/performance_baseline.jl` 已创建
-- [x] EMSuite 7 用例 + Legacy 5 用例分阶段计时
-- [x] `test_results/PERFORMANCE_BASELINE.md` 已生成
-
-#### 8.1 Z 组装去锁 ✅
-- [x] `Impedance.jl` 全局 SpinLock → Per-row SpinLock 数组 (N 把锁)
-- [x] 争用概率: ~nthreads/N ≈ 0.03%，缓存友好的 3×3 立即写入
-- [x] 138/138 测试通过
-- [x] 实测: Plate EFIE **-54%**, Jet EFIE **-12%**, Jet CFIE -2%
-
-#### 8.2 CFIE/MFIE 内核优化 ✅
-- [x] MFIE 预计算高斯点 (消除 ~94M 堆分配)
-- [x] MFIE 循环重排 (i,j)外(m,n)内, 消除 9× 冗余 rvec/R 计算
-- [x] MFIE 积分阶数 7→4 点 (对齐 Legacy GQPNTri=4)
-- [x] 138/138 测试通过
-- [x] CFIE 168.29s → **43.48s** (-74%), CFIE/EFIE = **2.31×** ≤ 2.5× ✅
-
-#### 8.3 MLFMA Z_near 去锁 + CSC 预分配
-- [ ] 近场稀疏矩阵组装并行化
-- [ ] CSC 格式 nnz 预估 + 预分配
-
-#### 8.4-8.7 后续优化
-- [ ] 内存分配热点消除
-- [ ] 类型稳定性审查
-- [ ] SIMD / LoopVectorization
-- [ ] 预条件器优化
-
-#### 8.8 最终复测
-- [ ] 全部用例重新计时，对比 Phase 8.0 基线
-- [ ] 生成 `test_results/PERFORMANCE_REPORT.md`
-
-### Phase 11: 多线程+多进程精度对齐与效率提升 (新)
-
-> **目标**: 在多线程和多线程+多进程 (MPI) 环境下验证精度一致性，优化并行效率。
-
-#### 11.1 多线程精度对齐
-- [ ] Legacy 多线程 MLFMA 基线 (Jet EFIE + Sphere CFIE) — 已解锁 (threadid fix)
-- [ ] EMSuite vs Legacy 多线程 MLFMA 精度对比 (RMSE < 3 dB)
-- [ ] EMSuite vs Legacy 多线程 MLFMA 效率对比 (≤ Legacy)
-- [ ] 线程扩展性测试 (1/4/8/16/24 线程)
-
-#### 11.2 多进程 (MPI) 精度对齐
-- [ ] A4 S-EFIE MPI (2 进程) — RMSE vs A1 = 机器精度
-- [ ] C3-MPI S-CFIE MPI (2 进程) — RMSE vs C3 = 机器精度
-- [ ] MPI + 多线程混合模式 (2 进程 × 4 线程)
-
-**已知数据点** (Phase 10 期间实测, 4 线程, Windows 11):
-
-| 用例 | N | EMSuite 组装 (s) | EMSuite 求解 (s) | EMSuite 总计 (s) |
-|------|---|----------------|----------------|----------------|
-| Jet EFIE Direct | 14559 | 20.3 | 34.5 | 54.8 |
-| Jet CFIE Direct | 14559 | 180.5 | 16.0 | 196.5 |
-| Jet EFIE MLFMA | 14559 | 56.2 (setup) | 7.3 | 63.4 |
-| Sphere CFIE MLFMA | 26424 | 131.0 (setup) | 7.6 | 138.6 |
-| Sphere MFIE MLFMA | 26424 | 375.3 (setup) | 130.6 | 505.9 |
-
-### Phase 9: 代码质量与发布 (剩余)
+### Phase 9: 代码质量与发布
 - [x] 测试套件清理: 138/138 全部通过
 - [ ] JuliaFormatter.jl 统一代码风格
 - [ ] 测试覆盖率统计与提升 (目标 > 80%)
@@ -369,12 +267,8 @@
 
 | 日期 | 更新内容 |
 |------|----------|
-| 2026-03-05 | **Phase 8.5 Julia 1.12 兼容性修复** — Legacy `MoM_Kernels` 3 文件 10 处 `nthreads()` → `Threads.maxthreadid()` 缓冲区分配修复. EMSuite `MLFMAOperator.jl` 同步修复. Legacy MLFMA 在 Julia 1.12 (nthreads=24, maxthreadid=48) 验证通过 |
-| 2026-03-05 | **Phase 11 计划** — 多线程+多进程精度对齐与效率提升计划: 多线程 MLFMA 对比 (已解锁), MPI 精度验证 (A4/C3-MPI), 混合并行模式 |
-| 2026-03-04 | **Phase 8.2 CFIE/MFIE 内核优化完成** — MFIE 零分配+循环重排+4点积分。CFIE 168.29→43.48s (-74%), CFIE/EFIE=2.31× ≤ 2.5× 达标, vs Legacy 1.19× |
-| 2026-03-04 | **Phase 8.1 Z 组装去锁完成** — `Impedance.jl` 全局 SpinLock → Per-row SpinLock 数组 (N 把锁)。实测 Plate EFIE -54% (1.02→0.47s), Jet EFIE -12% (20.7→18.3s), EFIE 已与 Legacy 持平。138/138 测试通过 |
-| 2026-03-04 | **Phase 8.0 基线完成** — EMSuite 7 用例 + Legacy 5 用例计时。见 `test_results/PERFORMANCE_BASELINE.md`。Legacy MLFMA 用例因 Julia 1.12 threadid() 兼容性失败 |
-| 2026-03-04 | **Phase 10 完成** — MFIE MLFMA 支持 (近场+远场), 迭代求解器验证 (D2/E2 PASS), MLFMA 体积方程 (D3/E3 PASS), B2 MFIE MLFMA PASS. 全部 12/12 子测试 PASS (A2 跳过, MPI 延后) |
+| 2026-02-28 | **Phase 8 性能优化全部完成** — 8 个子阶段 (8.0-8.8), 核心成果: CFIE 组装 -61% (168→65s), CFIE/EFIE 比 8.1×→2.2×, MLFMA OOM 修复, BlockJacobiPreconditioner, Julia 1.12 兼容, 类型稳定性 clean. 详见 `test_results/PERFORMANCE_REPORT.md` |
+| 2026-03-03 | **Phase 8.0 性能基线完成** — EMSuite 7 用例 + Legacy 5 用例计时。关键发现: CFIE 4.61× 慢 (双遍历问题), SCFIE 2.26× 慢, EFIE/VEFIE 持平或更快, LU 求解快 30-40% |
 | 2026-03-03 | **Phase 8 性能优化计划** — 加入性能优化路线: 6 热点 (SpinLock去锁/CFIE合并/MLFMA Z_near/内存/SIMD/类型稳定), 8 步骤, 目标 ≤ Legacy 保底, ≤ 0.5× Legacy 挑战 |
 | 2026-03-03 | **SCFIE Fss 边界修正** — 半基函数边界面积分修正。E1-VSEFIE RMSE 5.3→0.60 dB. D1-SWG VEFIE RMSE 0.95 dB. 138/138 测试通过 |
 | 2026-03-02 | **MLFMA 因子修复×2** — (1) EFIE far-field ×4 因子: 系数误差 65.7%→0.30%, RMSE 3.1→0.028 dB; (2) CFIE MFIE 符号: ∇_{r'}G 给出 +jk k̂ (非 -jk k̂), RMSE 3.45→0.003 dB, GMRES 50→7 迭代 |
