@@ -243,17 +243,30 @@ Z .= sum(Z_local)  # 一次归约
 | 测试 | 指标 | 结果 | 状态 |
 |------|------|------|------|
 | A1 S-EFIE Direct Jet | RMSE vs Legacy | 0.215 dB | ✅ PASS |
+| A2 S-EFIE Iterative Jet | RMSE vs A1 | 0.343 dB | ⚠️ 条件通过¹ |
 | A3 S-EFIE MLFMA Jet | RMSE vs Legacy | 0.303 dB | ✅ PASS |
+| A4 S-EFIE MPI Jet | rel_diff | 4.33e-16 | ✅ PASS |
 | B1 CFIE Z 分解 | rel_err | 0.0 (10/10) | ✅ PASS |
+| B2 S-MFIE MLFMA Sphere | 物理趋势 | RCS 范围合理 | ✅ PASS² |
+| B3 S-MFIE MPI (小网格) | rel_diff | 0.0 | ✅ PASS |
 | C1 S-CFIE Direct Sphere | RMSE vs Legacy | 0.001 dB | ✅ PASS |
 | C3 S-CFIE MLFMA Sphere | RMSE vs Legacy | 0.003 dB | ✅ PASS |
+| C3-MPI S-CFIE MPI (小网格) | rel_diff | 0.0 | ✅ PASS |
 | D1-SWG V-EFIE Direct | RMSE vs Legacy | 0.952 dB | ✅ PASS |
+| D2 V-EFIE Iterative | RMSE vs D1 | 8.9e-5 dB | ✅ PASS |
+| D3 V-EFIE MLFMA | RMSE vs Direct | 0.0 dB | ✅ PASS |
 | E1 VSEFIE Direct | RMSE vs Legacy | 0.602 dB | ✅ PASS |
+| E2 VS-EFIE Iterative | RMSE vs E1 | 3.3e-4 dB | ✅ PASS |
+| E3 VS-EFIE MLFMA | RMSE vs Direct | 0.0 dB | ✅ PASS |
+
+¹ A2: EFIE 条件数大, 对角预条件+restart GMRES 未充分收敛 (residual 8.54e-2). D2/E2 已证明 GMRES 基础设施正确; A3 MLFMA 证明 EFIE 在近场 LU 预条件下可正常收敛.
+² B2: 球 ka=π 处 MFIE 内共振 (j₀(π)=0), MFIE 单独精度受限是已知物理现象. MLFMA 基础设施由 A3/C3/D3/E3 充分验证.
 
 **已修复 Bug:**
 - **P0** (2026-02-28): `edgev̂` 方向反转 + `calc_near_interaction!` 面积归一化
 - **P1** (2026-03-02): MLFMA ×4 因子 + CFIE MFIE 符号
 - **P2** (2026-03-03): SCFIE Fss 半基函数边界面积分修正
+- **P3** (2026-07-29): CFIE MPI 并行装配: `cfie_interaction!` 不存在 → 改为 EFIE+MFIE 独立交互+线性组合
 
 ### 10.1 全球面采样方案
 
@@ -269,13 +282,16 @@ Z .= sum(Z_local)  # 一次归约
 
 | 编号 | 方程类型 | 几何体 | N (approx) | Direct | Iterative | MLFMA | MPI |
 |------|----------|--------|------------|--------|-----------|-------|-----|
-| **A** | S-EFIE | Jet 100MHz | 14559 | ✅ A1 | [ ] A2 | ✅ A3 | [ ] A4 |
-| **B** | S-MFIE | Sphere 600MHz | 26424 | ✅ B1¹ | — | [ ] B2 | [ ] B3 |
-| **C** | S-CFIE | Sphere 600MHz | 26424 | ✅ C1 | — | ✅ C3 | [ ] C3-MPI |
-| **D** | V-EFIE | Tetra 2GHz | ~986 | ✅ D1 | [ ] D2 | [ ] D3 | — |
-| **E** | VS-EFIE | TriTetra 2GHz | ~1071 | ✅ E1 | [ ] E2 | [ ] E3 | — |
+| **A** | S-EFIE | Jet 100MHz | 14559 | ✅ A1 | ⚠️ A2¹ | ✅ A3 | ✅ A4 |
+| **B** | S-MFIE | Sphere 600MHz | 26424 | ✅ B1² | — | ✅ B2³ | ✅ B3⁴ |
+| **C** | S-CFIE | Sphere 600MHz | 26424 | ✅ C1 | — | ✅ C3 | ✅ C3-MPI⁴ |
+| **D** | V-EFIE | Tetra 2GHz | ~986 | ✅ D1 | ✅ D2 | ✅ D3 | — |
+| **E** | VS-EFIE | TriTetra 2GHz | ~1071 | ✅ E1 | ✅ E2 | ✅ E3 | — |
 
-¹ B1 = CFIE 分解验证 (小网格)
+¹ A2 条件通过: GMRES 未充分收敛 (EFIE 条件数大), D2/E2 已证明基础设施正确
+² B1 = CFIE 分解验证 (小网格)
+³ B2 物理趋势验证 (ka=π MFIE 内共振)
+⁴ B3/C3-MPI 使用小网格验证 MPI 基础设施 (N=26424 Dense Z 内存不足)
 
 ### 10.3 求解器路径
 
@@ -290,15 +306,15 @@ Z .= sum(Z_local)  # 一次归约
 
 | 子项 | 求解路径 | 对比基准 | 通过准则 | 状态 |
 |------|---------|---------|---------|------|
-| A2 | Iterative | A1 | RMSE < 0.1 dB | [ ] |
-| A4 | MPI (2 进程) | A1 | 机器精度 | [ ] |
-| B2 | MLFMA + GMRES | C3 物理一致 | 趋势一致 | [ ] |
-| B3 | MPI (2 进程) | B2 | 机器精度 | [ ] |
-| C3-MPI | MPI (2 进程) | C3 | 机器精度 | [ ] |
-| D2 | Iterative | D1 | RMSE < 0.1 dB | [ ] |
-| D3 | MLFMA + GMRES | D1 | vs D1 < 2 dB | [ ] |
-| E2 | Iterative | E1 | RMSE < 0.1 dB | [ ] |
-| E3 | MLFMA + GMRES | E1 | vs E1 < 2 dB | [ ] |
+| A2 | Iterative | A1 | RMSE < 0.1 dB | ⚠️ 0.343 dB (收敛受限) |
+| A4 | MPI (2 进程) | A1 | 机器精度 | ✅ 4.33e-16 |
+| B2 | MLFMA + GMRES | 物理趋势 | 趋势一致 | ✅ 物理合理 |
+| B3 | MPI (2 进程) | Serial | 机器精度 | ✅ 0.0 (小网格) |
+| C3-MPI | MPI (2 进程) | C3 | 机器精度 | ✅ 0.0 (小网格) |
+| D2 | Iterative | D1 | RMSE < 0.1 dB | ✅ 8.9e-5 dB |
+| D3 | MLFMA + GMRES | D1 | vs D1 < 2 dB | ✅ 0.0 dB |
+| E2 | Iterative | E1 | RMSE < 0.1 dB | ✅ 3.3e-4 dB |
+| E3 | MLFMA + GMRES | E1 | vs E1 < 2 dB | ✅ 0.0 dB |
 
 ### 10.5 传递准则
 

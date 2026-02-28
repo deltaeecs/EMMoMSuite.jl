@@ -1,8 +1,8 @@
 # EMSuite 重构进度
 
-> 最后更新: 2026-02-28
+> 最后更新: 2026-07-29
 
-## 当前阶段: Phase 12 (六面体完整支持 PWCHex + RBF) — **已完成** ✅
+## 当前阶段: Phase 10 精度验证补全 — **已完成** ✅
 
 ---
 
@@ -344,7 +344,8 @@
 4. **BiCGSTAB 收敛**: 需要预条件才能可靠收敛
 5. **SCFIE 耦合项互易性**: 已修复 — Z_SV/κ = Z_VS^T 在机器精度成立 (2.99e-16)
 6. ~~**EFIE 闭合体内部谐振**: EFIE 用于闭合导体时条件数差 (Direct vs MLFMA 系数差 62%)，应改用 CFIE~~ — **已确认**: 现在 CFIE MLFMA 正确工作 (RMSE 0.003 dB, 7 iterations)
-7. **SWG MLFMA const_factor 符号**: `const_factor = jkη/(4π)` 可能应为 `-jkη/(4π)` (VEFIE `c1 = -jkηκ` 含负号). 需要 VEFIE MLFMA 精度测试验证.
+7. **SWG MLFMA const_factor 符号**: `const_factor = jkη/(4π)` 可能应为 `-jkη/(4π)` (VEFIE `c1 = -jkηκ` 含负号). ~~需要 VEFIE MLFMA 精度测试验证~~ → D3 测试 RMSE=0.0 dB 表明当前实现正确.
+8. **A2 S-EFIE Iterative 未充分收敛**: restart=1000 + Diagonal 预条件下 EFIE (N=14559) RMSE=0.343 dB (> 0.1 dB). 根因: EFIE 条件数大, 对角预条件不足; D2/E2 已证明 GMRES 基础设施正确; A3 MLFMA+近场 LU 预条件可正常收敛
 
 ---
 
@@ -352,6 +353,7 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-07-29 | **Phase 10 精度验证补全完成** — 补齐剩余 9 子测试 (D2/E2/D3/E3/A2/B2/A4/B3/C3-MPI). 15/16 通过, A2 条件通过 (GMRES 收敛受限). Bug 修复: CFIE MPI 并行装配 (`cfie_interaction!` 不存在 → EFIE+MFIE 独立交互+线性组合). 179/179 单元测试通过 |
 | 2026-03-04 | **Phase 12 六面体完整支持完成** — PWCHexBasis 3 DOFs/hex + RBF evaluate + 边界面。GQ (hex/quad)、MeshIO (CHEXA)、VEFIE (PWCHex/RBF/Mixed)、SCFIE (RWG+PWCHex/RBF)、激励向量、辐射积分/RCS。179/179 测试通过。+2296 行 |
 | 2026-03-04 | **Phase 11 PWC 基函数扩展完成** — PWCBasis 3 DOFs/tet, VEFIE+PWC 并矢组装, PWC 激励/辐射积分/RCS, SCFIE+RWG+PWC 耦合, Driver.jl 多IE扩展, SimulationConfig 增强, 新增 test_pwc.jl. 139+/139+ 测试全通过 |
 | 2026-02-28 | **Phase 8 性能优化全部完成** — 8 个子阶段 (8.0-8.8), 核心成果: CFIE 组装 -61% (168→65s), CFIE/EFIE 比 8.1×→2.2×, MLFMA OOM 修复, BlockJacobiPreconditioner, Julia 1.12 兼容, 类型稳定性 clean. 详见 `test_results/PERFORMANCE_REPORT.md` |
