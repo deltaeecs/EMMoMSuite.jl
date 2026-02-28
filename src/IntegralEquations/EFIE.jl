@@ -426,38 +426,35 @@ function calc_interaction!(Z_local::AbstractMatrix{CT}, efie::EFIE{FT, CT}, tri_
     v_test_3 = tri_test.vertices[:, 3]
     
     # Loop over quadrature points
+    # Optimization: fully unrolled 3×3 dot products, no ternary branching,
+    # tuple-indexed rho vectors for zero-cost access.
     @inbounds for j in 1:n_src
         rj = r_src[j]
         wj = w_src[j] * tri_source.area
         
-        # Precompute rho_src
-        rho_src_1 = rj - v_src_1
-        rho_src_2 = rj - v_src_2
-        rho_src_3 = rj - v_src_3
+        # Precompute source rho vectors as tuple (zero alloc, stack only)
+        rho_src = (rj - v_src_1, rj - v_src_2, rj - v_src_3)
         
         for i in 1:n_test
             ri = r_test[i]
             wi = w_test[i] * tri_test.area
             
-            # Inline Green's function for better optimization
-            R = norm(ri - rj)
+            # Green's function: exp(-jkR)/R
+            diff = ri - rj
+            R = sqrt(diff[1]^2 + diff[2]^2 + diff[3]^2)
             @fastmath G = exp(-im * k * R) / R
             
-            rho_test_1 = ri - v_test_1
-            rho_test_2 = ri - v_test_2
-            rho_test_3 = ri - v_test_3
+            # Precompute test rho vectors as tuple
+            rho_test = (ri - v_test_1, ri - v_test_2, ri - v_test_3)
             
             val_common = G * wi * wj
             
-            # Direct dot products (avoids SMatrix construction overhead)
-            @simd for n in 1:3
-                rho_src_n = n == 1 ? rho_src_1 : n == 2 ? rho_src_2 : rho_src_3
-                d1 = dot(rho_test_1, rho_src_n) - C4divk2
-                d2 = dot(rho_test_2, rho_src_n) - C4divk2
-                d3 = dot(rho_test_3, rho_src_n) - C4divk2
-                Z_local[1, n] += d1 * val_common
-                Z_local[2, n] += d2 * val_common
-                Z_local[3, n] += d3 * val_common
+            # Fully unrolled 3×3 accumulation — no branching, no @simd overhead
+            for n in 1:3
+                rho_n = rho_src[n]
+                for m in 1:3
+                    Z_local[m, n] += (dot(rho_test[m], rho_n) - C4divk2) * val_common
+                end
             end
         end
     end
