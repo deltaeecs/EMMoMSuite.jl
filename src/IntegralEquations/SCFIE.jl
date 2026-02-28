@@ -201,6 +201,7 @@ function assemble_fss_boundary_correction!(Z::Matrix{CT}, scfie::SCFIE,
     coeff = im * omega * mu0 / (4π * k^2)
     
     n_surf = num_basis(surf_basis)
+    N_total = size(Z, 1)
     
     # Triangle quadrature for the face-to-face integral
     FT = eltype(scfie.freq)
@@ -212,14 +213,27 @@ function assemble_fss_boundary_correction!(Z::Matrix{CT}, scfie::SCFIE,
     vol_nodes = vol_mesh.node
     vol_elems = vol_mesh.tetras
     
-    n_boundary = 0
-    
+    # Collect boundary SWG indices for parallel iteration
+    boundary_indices = Int[]
     for n in 1:num_basis(vol_basis)
-        bf = vol_basis.functions[n]
-        if !bf.is_boundary
-            continue
+        if vol_basis.functions[n].is_boundary
+            push!(boundary_indices, n)
         end
-        n_boundary += 1
+    end
+    n_boundary = length(boundary_indices)
+    
+    if n_boundary == 0
+        println("Fss Boundary Correction: 0 boundary SWG functions (skipped).")
+        return
+    end
+    
+    # Per-row locks for thread-safe Z updates
+    row_locks = [Base.Threads.SpinLock() for _ in 1:N_total]
+    
+    # Parallel over boundary SWG functions
+    Threads.@threads for idx in 1:n_boundary
+        n = boundary_indices[idx]
+        bf = vol_basis.functions[n]
         
         # Get boundary face vertices
         tet_idx = bf.support[1]
@@ -241,10 +255,9 @@ function assemble_fss_boundary_correction!(Z::Matrix{CT}, scfie::SCFIE,
         perm_idx = tet_idx
         eps_r = scfie.permittivities[perm_idx]
         κ_tet = (eps_r - 1.0) / eps_r
-        # For boundary face: δκ = +κ (from Legacy analysis)
         δκ = κ_tet
         
-        # Face area (should equal bf.area)
+        # Face area
         abs_arean = bf.area
         
         # Precompute quadrature points on the boundary face
@@ -264,8 +277,6 @@ function assemble_fss_boundary_correction!(Z::Matrix{CT}, scfie::SCFIE,
             r_tri = tri.vertices * gq.coordinate
             
             # Compute Fss = ∫∫ G(r_tri, r_face) dS_tri dS_face
-            # G = exp(-jkR)/R (Legacy convention, no 1/4π)
-            # Quadrature weights sum to 1, areas come from Fss *= l * |A|
             Fss = zero(CT)
             for gi in 1:Nq
                 @views rgi = r_tri[:, gi]
@@ -274,10 +285,9 @@ function assemble_fss_boundary_correction!(Z::Matrix{CT}, scfie::SCFIE,
                     R_vec = rgi - rgj
                     R = norm(R_vec)
                     if R < 1e-10
-                        # Skip self-term singular point
                         continue
                     end
-                    G = exp(-im * k * R) / R
+                    @fastmath G = exp(-im * k * R) / R
                     Fss += G * gq.weight[gi] * gq.weight[gj]
                 end
             end
@@ -288,20 +298,23 @@ function assemble_fss_boundary_correction!(Z::Matrix{CT}, scfie::SCFIE,
                 if m == 0; continue; end
                 
                 lm = tri.edgel[mi]
-                
-                # temp = coeff × l_m × |A_n| × Fss
                 temp = coeff * lm * abs_arean * Fss
                 
-                # Z_VS correction: Z[n_surf + n, m] += temp
-                Z[n_surf + n, m] += temp
+                # Z_VS correction: Z[n_surf + n, m] += temp (thread-safe)
+                vol_row = n_surf + n
+                lock(row_locks[vol_row])
+                Z[vol_row, m] += temp
+                unlock(row_locks[vol_row])
                 
-                # Z_SV correction: Z[m, n_surf + n] += δκ × temp
-                Z[m, n_surf + n] += δκ * temp
+                # Z_SV correction: Z[m, n_surf + n] += δκ × temp (thread-safe)
+                lock(row_locks[m])
+                Z[m, vol_row] += δκ * temp
+                unlock(row_locks[m])
             end
         end
     end
     
-    println("Fss Boundary Correction: $n_boundary boundary SWG functions processed.")
+    println("Fss Boundary Correction: $n_boundary boundary SWG functions processed (parallel).")
 end
 
 function scfie_coupling_interaction(scfie::SCFIE{FT, CT, N_GQ_S, N_GQ_V}, tri::TriangleInfo, tet::TetrahedraInfo) where {FT, CT, N_GQ_S, N_GQ_V}
