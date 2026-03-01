@@ -13,7 +13,8 @@ using Base.Threads
 
 import ..CoreModule: assemble_impedance_matrix
 
-export SCFIE, assemble_impedance_matrix, assemble_fss_boundary_correction_sparse
+export SCFIE, assemble_impedance_matrix, assemble_fss_boundary_correction_sparse,
+       scfie_sv_only_interaction
 
 """
     SCFIE{FT, CT, N_GQ_S, N_GQ_V} <: AbstractIntegralOperator

@@ -15,6 +15,9 @@ using .FastExpModule
 import ..CoreModule: assemble_impedance_matrix
 
 export VEFIE, assemble_impedance_matrix
+export get_tetrahedra_info, precompute_vefie_basis,
+       vefie_element_interaction_kernel, vefie_mass_matrix_cached,
+       TetBasisCache
 
 """
     VEFIE{FT, CT, N_GQ} <: AbstractIntegralOperator
