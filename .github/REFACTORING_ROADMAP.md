@@ -53,10 +53,11 @@ EMSuite.jl/src/
 > - [x] 8.9 CFIE 单循环直接填充 ✅ (`ee6e2b1`) — Jet CFIE 14.48s
 > - [x] 8.10 VEFIE 上三角对称优化 ✅ (`bbf8fdd`) — VEFIE **41.30s** (快 Legacy 12%); SCFIE **65.67s** (快 Legacy 1.5%)
 
-### Phase 9: 代码质量与发布 **(下一阶段)**
+### Phase 9: 代码质量与发布 **(进行中)**
 
-- [x] 测试套件清理: 138/138 全部通过
-- [ ] JuliaFormatter 统一代码风格
+- [x] 测试套件清理: 179/179 全部通过 ✅
+- [x] JuliaFormatter 统一代码风格 ✅ (`0535576`) — 79 个 `src/` 文件, default style, indent=4, margin=100
+- [x] CHANGELOG.md 完善 ✅ — 记录 Phase 8-12 所有性能/功能里程碑
 - [ ] 测试覆盖率 > 80%
 - [ ] API 文档完善 (Documenter.jl)
 - [ ] 用户教程和理论文档

@@ -317,16 +317,16 @@
 
 ---
 
-## 待开始 📋
+## 进行中 🚀
 
 ### Phase 9: 代码质量与发布
-- [x] 测试套件清理: 139+/139+ 全部通过 (含 PWC 新测试)
-- [ ] JuliaFormatter.jl 统一代码风格
+- [x] 测试套件清理: 179/179 全部通过 ✅ (含 PWC/RBF/PWCHex 新测试)
+- [x] JuliaFormatter.jl 统一代码风格 ✅ (`0535576`) — 79 个 `src/` 文件
+- [x] CHANGELOG.md 完善 ✅ — 记录 Phase 8-12 所有性能/功能里程碑
 - [ ] 测试覆盖率统计与提升 (目标 > 80%)
 - [ ] API 文档补全 (所有公共接口)
 - [ ] 用户教程 (Quick Start, Advanced)
 - [ ] 理论文档 (MoM, MLFMA, 积分方程推导)
-- [ ] CHANGELOG.md 完善
 - [ ] 发布到 Julia General Registry
 
 ---
@@ -360,6 +360,8 @@
 
 | 日期 | 更新内容 |
 |------|----------|
+| 2026-07-30 | **Phase 9.1 JuliaFormatter + CHANGELOG** — 对 79 个 `src/` 文件应用 JuliaFormatter (indent=4, margin=100, default style); CHANGELOG.md 全面更新 (Phase 8-12 性能/功能); 179/179 测试通过. commits: `0535576` |
+| 2026-07-29 | **Phase 8.10 VEFIE 对称优化** — 推导 Z_st[j,i]=(κ_t/κ_s)·Z_ts[i,j]; 上三角四面体遍历减少 50% 核函数调用; 动态工作窃取(`Threads.Atomic`) + 全局 SpinLock. VEFIE **41.30s** (快 Legacy 12%); SCFIE **65.67s** (快 Legacy 1.5%). 179/179 通过. commit: `bbf8fdd` |
 | 2026-03-01 | **Phase 8.9 EFIE/CFIE/SCFIE 深度优化** — EFIE 内核重写 (移除@simd+三元分支) → Jet EFIE 20.7s→4.26s (-79%); CFIE 架构修复 (分离汇编+`@.`就地) → Jet CFIE 168s→14.5s (-91%); SCFIE Fss 并行化. 179/179 通过. commits: 8f8dfc3, f520609 |
 | 2026-07-29 | **Phase 10 精度验证补全完成** — 补齐剩余 9 子测试 (D2/E2/D3/E3/A2/B2/A4/B3/C3-MPI). 15/16 通过, A2 条件通过 (GMRES 收敛受限). Bug 修复: CFIE MPI 并行装配 (`cfie_interaction!` 不存在 → EFIE+MFIE 独立交互+线性组合). 179/179 单元测试通过 |
 | 2026-03-04 | **Phase 12 六面体完整支持完成** — PWCHexBasis 3 DOFs/hex + RBF evaluate + 边界面。GQ (hex/quad)、MeshIO (CHEXA)、VEFIE (PWCHex/RBF/Mixed)、SCFIE (RWG+PWCHex/RBF)、激励向量、辐射积分/RCS。179/179 测试通过。+2296 行 |
