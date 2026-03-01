@@ -9,6 +9,8 @@ include("MPI/MPIArray/MPIArrays.jl")
 using .MPIArrays
 include("MPI/Assembly.jl")
 using .Assembly
+# VolumeAssembly extends Assembly.assemble_impedance_matrix_parallel in-place
+include("MPI/VolumeAssembly.jl")
 
 export init_parallel!, mpi_rank, nprocs, barrier, @root
 export MPIArray, mpiarray, sync!, gather

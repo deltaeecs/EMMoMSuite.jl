@@ -2,102 +2,96 @@
 """
 benchmark_mpi_performance.jl
 
-系统测试 MPI 并行性能 — 强扩展性（固定问题规模，增加进程数）。
+MPI 并行性能基准 — V-EFIE 强扩展性测试.
 
-用法:
-  单次运行: mpiexecjl -n <N> julia --project=EMSuite EMSuite/benchmark/benchmark_mpi_performance.jl
-  自动化扫描: julia EMSuite/benchmark/run_mpi_sweep.jl
+用法（需从 MoM 根目录运行）:
+  1 进程: julia --project=EMSuite -t 4 EMSuite/benchmark/benchmark_mpi_performance.jl
+  N 进程: <mpiexec> -n <N> julia --project=EMSuite -t 4 EMSuite/benchmark/benchmark_mpi_performance.jl
 """
 
 using MPI
+MPI.Init()
+
 using EMSuite
 using EMSuite.Geometry
 using EMSuite.BasisFunctions
 using EMSuite.IntegralEquations
+using EMSuite.IntegralEquations.VEFIEModule: VEFIE
 using EMSuite.Parallel
 using LinearAlgebra
-using Printf
 
-function benchmark_mpi_efies_efie()
-    MPI.Init()
-    comm = MPI.COMM_WORLD
-    rank = MPI.Comm_rank(comm)
-    n_procs = MPI.Comm_size(comm)
-    
-    # 初始化并行模块
-    init_parallel!()
-    
-    # ══════════════════════════════════════════════════════════════════════
-    #  测试配置
-    # ══════════════════════════════════════════════════════════════════════
-    const MOM_DIR = joinpath(@__DIR__, "../../MoM_AllinOne/meshfiles")
-    
-    # 测试用例1: Plate 300MHz (N=2640) — 适合快速测试
-    test_cases = [
-        (name="Plate_300MHz", file="plate_standard_0p3GHz.nas", freq=300e6, scale=1.0),
-    ]
-    
-    rank == 0 && println("="^70)
-    rank == 0 && println("  MPI 并行性能基准 — S-EFIE 强扩展性")
-    rank == 0 && println("="^70)
-    rank == 0 && @printf("  MPI processes: %d\n", n_procs)
-    rank == 0 && @printf("  Threads per process: %d\n", Threads.nthreads())
-    rank == 0 && println("="^70)
-    
-    for (idx, tc) in enumerate(test_cases)
-        mesh_file = joinpath(MOM_DIR, tc.file)
-        
-        if !isfile(mesh_file)
-            rank == 0 && @warn "Mesh not found: $(tc.file), skipping..."
-            continue
-        end
-        
-        rank == 0 && println("\n[$idx/$(length(test_cases))] $(tc.name)")
-        
-        # ── 加载网格 ────────────────────────────────────────────────────
-        mesh = read_nas_mesh(mesh_file; scale=tc.scale)
-        basis = RWGBasis(mesh)
-        N = num_basis(basis)
-        
-        rank == 0 && @printf("  N = %d basis functions\n", N)
-        
-        # ── 装配 Z 矩阵（并行）──────────────────────────────────────────
-        efie = EFIE(tc.freq)
-        
-        MPI.Barrier(comm)
-        t_assembly_start = MPI.Wtime()
-        
-        Z = assemble_impedance_matrix_parallel(efie, basis)
-        
-        MPI.Barrier(comm)
-        t_assembly_end = MPI.Wtime()
-        t_assembly = t_assembly_end - t_assembly_start
-        
-        rank == 0 && @printf("  Assembly time: %.4f s\n", t_assembly)
-        rank == 0 && @printf("  Matrix size: %s\n", size(Z))
-        
-        # ══════════════════════════════════════════════════════════════════
-        #  输出结果（仅 rank 0）
-        # ══════════════════════════════════════════════════════════════════
-        if rank == 0
-            # 保存到文件供外部脚本分析
-            results_file = "benchmark_mpi_n$(n_procs)_$(tc.name).txt"
-            open(results_file, "w") do io
-                println(io, "Test: $(tc.name)")
-                println(io, "N: $N")
-                println(io, "MPI_processes: $n_procs")
-                println(io, "Threads: $(Threads.nthreads())")
-                println(io, "Assembly_time: $t_assembly")
-            end
-            println("  Result saved to: $results_file")
-        end
-    end
-    
-    rank == 0 && println("\n" * "="^70)
-    rank == 0 && println("  Benchmark complete.")
-    rank == 0 && println("="^70)
-    
+comm    = MPI.COMM_WORLD
+rank    = MPI.Comm_rank(comm)
+n_procs = MPI.Comm_size(comm)
+
+init_parallel!()
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  测试配置
+# ══════════════════════════════════════════════════════════════════════════════
+MOM_DIR    = joinpath(@__DIR__, "../../MoM_AllinOne/meshfiles")
+mesh_file  = joinpath(MOM_DIR, "plate_and_metal_1dot2GHz.nas")
+freq       = 1.2e9
+eps_r_diel = complex(2.56, -0.02)   # 电介质相对介电常数
+eps_r_bg   = complex(1.0,  0.0)     # 背景（金属内部不参与, 自动跳过）
+
+rank == 0 && println("="^70)
+rank == 0 && println("  MPI 并行性能基准 — V-EFIE 强扩展性")
+rank == 0 && println("="^70)
+rank == 0 && println("  MPI processes : $n_procs")
+rank == 0 && println("  Threads/proc  : $(Threads.nthreads())")
+rank == 0 && println("="^70)
+
+if !isfile(mesh_file)
+    rank == 0 && @warn "Mesh not found: $mesh_file\nSkipping V-EFIE benchmark."
     MPI.Finalize()
+    exit(1)
 end
 
-benchmark_mpi_efies_efie()
+# ── 加载网格 ─────────────────────────────────────────────────────────────────
+mesh = read_nas_mesh(mesh_file; scale=1.0)
+basis = SWGBasis(mesh)
+N = num_basis(basis)
+
+rank == 0 && println("  Mesh  : $(basename(mesh_file))")
+rank == 0 && println("  N_SWG : $N")
+rank == 0 && println()
+
+# 材料属性 (dielectric slab; background = vacuum)
+n_tets = length(mesh.tetras)
+permittivities = fill(eps_r_bg, n_tets)
+# 对所有四面体赋予介质参数 (简化: 整体介质体)
+fill!(permittivities, eps_r_diel)
+
+# ── 并行组装 ─────────────────────────────────────────────────────────────────
+vefie = VEFIE(freq, permittivities)
+
+MPI.Barrier(comm)
+t_start = MPI.Wtime()
+
+Z = assemble_impedance_matrix_parallel(vefie, basis, permittivities)
+
+MPI.Barrier(comm)
+t_assembly = MPI.Wtime() - t_start
+
+# ── 输出结果 ─────────────────────────────────────────────────────────────────
+if rank == 0
+    println("  Assembly time : $(round(t_assembly; digits=3)) s")
+    println("  Matrix size   : $(size(Z))")
+    println()
+
+    # 保存结果供自动化脚本读取
+    results_file = joinpath(@__DIR__, "mpi_result_n$(n_procs)_t$(Threads.nthreads()).txt")
+    open(results_file, "w") do io
+        println(io, "Test: VEFIE_$(basename(mesh_file))")
+        println(io, "N: $N")
+        println(io, "MPI_processes: $n_procs")
+        println(io, "Threads: $(Threads.nthreads())")
+        println(io, "Assembly_time: $t_assembly")
+    end
+    println("  Result saved → $(basename(results_file))")
+    println("="^70)
+end
+
+MPI.Finalize()
+
