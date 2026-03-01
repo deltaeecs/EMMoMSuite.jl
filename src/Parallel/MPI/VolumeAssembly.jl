@@ -53,16 +53,34 @@ function assemble_impedance_matrix_parallel(
     CT = Complex{FT}
     N  = num_basis(basis)
 
-    Z_local = zeros(CT, N, N)
+    # Phase 14.1: 列分区策略 — 每进程仅分配 N × (N/P) 列，消除 Allreduce 全复制
+    Z = mpiarray(CT, N, N; comm = comm)
+    local_cols    = Z.indices[2]          # 本进程负责的列范围 (UnitRange)
+    local_col_set = Set{Int}(local_cols)  # O(1) 成员查询
 
-    rank == 0 && println("VEFIE-SWG MPI Assembly: N=$N, procs=$n_procs, threads=$(Threads.nthreads())")
-    rank == 0 && flush(stdout)
+    rank == 0 && println("VEFIE-SWG MPI Assembly (column partition): N=$N, procs=$n_procs, threads=$(Threads.nthreads())")
+    MPI.Barrier(comm)
+    println("  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))")
+    MPI.Barrier(comm)
+    flush(stdout)
 
     tetras      = get_tetrahedra_info(basis.mesh, basis, permittivities)
     ntet        = length(tetras)
     basis_cache = precompute_vefie_basis(vefie, tetras)
 
-    my_its    = [it for it in 1:ntet if ((it - 1) % n_procs) == rank]
+    # 找出源四面体：其 SWG 基函数 ID 至少有一个落在 local_cols 内
+    src_tets = Int[]
+    for js = 1:ntet
+        tet = tetras[js]
+        for j = 1:4
+            n = tet.inBfsID[j]
+            if n != 0 && n in local_col_set
+                push!(src_tets, js)
+                break
+            end
+        end
+    end
+
     lockZ     = SpinLock()
     next_idx  = Threads.Atomic{Int}(1)
     n_threads = Threads.nthreads()
@@ -70,40 +88,40 @@ function assemble_impedance_matrix_parallel(
     Threads.@threads for _ = 1:n_threads
         while true
             tidx = Threads.atomic_add!(next_idx, 1)
-            tidx > length(my_its) && break
+            tidx > length(src_tets) && break
 
-            it      = my_its[tidx]
-            tet_t   = tetras[it]
-            cache_t = basis_cache[it]
+            js      = src_tets[tidx]
+            tet_s   = tetras[js]
+            cache_s = basis_cache[js]
 
-            # 鑷」 (it == it)
-            Z_self = vefie_element_interaction_kernel(vefie, tet_t, tet_t, cache_t, cache_t)
-            M      = vefie_mass_matrix_cached(vefie, tet_t, cache_t)
+            # 自项 (test == source == tet_s)
+            Z_self = vefie_element_interaction_kernel(vefie, tet_s, tet_s, cache_s, cache_s)
+            M      = vefie_mass_matrix_cached(vefie, tet_s, cache_s)
             lock(lockZ)
-            @inbounds for i = 1:4
-                m = tet_t.inBfsID[i]; m == 0 && continue
-                @inbounds for j = 1:4
-                    n = tet_t.inBfsID[j]; n == 0 && continue
-                    Z_local[m, n] += Z_self[i, j] + M[i, j]
+            @inbounds for j = 1:4
+                n = tet_s.inBfsID[j]; n == 0 && continue
+                n in local_col_set || continue
+                @inbounds for i = 1:4
+                    m = tet_s.inBfsID[i]; m == 0 && continue
+                    Z[m, n] += Z_self[i, j] + M[i, j]
                 end
             end
             unlock(lockZ)
 
-            # 涓婁笁瑙?js > it (瀵圭О鎬?
-            κ_t = tet_t.κ
-            for js = it+1:ntet
-                tet_s   = tetras[js]
-                cache_s = basis_cache[js]
-                Z_ts    = vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s)
-                κ_ratio = κ_t / tet_s.κ
+            # 交叉项：所有 it != js 测试四面体
+            for it = 1:ntet
+                it == js && continue
+                tet_t   = tetras[it]
+                cache_t = basis_cache[it]
+                # Z_ts[i,j] = 测试 tet_t 行 i、源 tet_s 列 j 的贡献
+                Z_ts = vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s)
                 lock(lockZ)
-                @inbounds for i = 1:4
-                    m = tet_t.inBfsID[i]; m == 0 && continue
-                    @inbounds for j = 1:4
-                        n = tet_s.inBfsID[j]; n == 0 && continue
-                        zval = Z_ts[i, j]
-                        Z_local[m, n] += zval
-                        Z_local[n, m] += κ_ratio * zval
+                @inbounds for j = 1:4
+                    n = tet_s.inBfsID[j]; n == 0 && continue
+                    n in local_col_set || continue
+                    @inbounds for i = 1:4
+                        m = tet_t.inBfsID[i]; m == 0 && continue
+                        Z[m, n] += Z_ts[i, j]
                     end
                 end
                 unlock(lockZ)
@@ -111,13 +129,14 @@ function assemble_impedance_matrix_parallel(
         end
     end
 
-    MPI.Allreduce!(Z_local, MPI.SUM, comm)
+    sync!(Z)  # 同步 ghost 数据（列分区下通常为空操作）
 
     rank == 0 && println("VEFIE-SWG MPI Assembly Completed.")
     rank == 0 && flush(stdout)
 
-    return Z_local
+    return Z  # 返回 MPIMatrix（列分布式）
 end
+
 
 # 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 #  SCFIE + RWGBasis + SWGBasis  (MPI 骞惰)
