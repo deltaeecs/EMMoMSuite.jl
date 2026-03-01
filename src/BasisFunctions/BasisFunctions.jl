@@ -15,7 +15,7 @@ export RWGBasis, RWG
 export SWGBasis, SWG, evaluate_swg
 export PWCBasis, PWCHexBasis, PWC
 export RBFBasis, RBF
-export get_triangle_info, get_tetrahedra_info, get_hexahedra_info
+export get_triangle_info, get_triangles_info, get_tetrahedra_info, get_hexahedra_info
 
 # Re-export utilities
 # using .BasisUtilities # Removed because BasisUtilities is now included directly
