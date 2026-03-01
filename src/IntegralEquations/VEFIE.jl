@@ -9,6 +9,9 @@ using LinearAlgebra
 using SparseArrays
 using Base.Threads
 
+include("FastExp.jl")
+using .FastExpModule
+
 import ..CoreModule: assemble_impedance_matrix
 
 export VEFIE, assemble_impedance_matrix
@@ -33,6 +36,7 @@ struct VEFIE{FT<:AbstractFloat,CT<:Complex,N_GQ,N_GQ_FAR} <: AbstractIntegralOpe
     gq_info::GaussQuadratureInfoStruct{FT,N_GQ,4}
     gq_far::GaussQuadratureInfoStruct{FT,N_GQ_FAR,4}
     permittivities::Vector{CT}
+    exp_table::FastExpTable{FT}  # Fast exponential lookup table
 end
 
 struct TetBasisCache{CT,NQ,NQ_FAR}
@@ -55,8 +59,11 @@ function VEFIE(freq::FT, permittivities::Vector{Complex{FT}}) where {FT}
     gq_info = GaussQuadratureInfo(:Tetrahedron, 5, FT)
     # Use 1-point rule for far field
     gq_far = GaussQuadratureInfo(:Tetrahedron, 1, FT)
+    
+    # Create fast exponential lookup table (20λ range, 10000 entries ≈ 80KB)
+    exp_table = FastExpTable(k)
 
-    return VEFIE{FT,Complex{FT},5,1}(freq, k, eta, gq_info, gq_far, permittivities)
+    return VEFIE{FT,Complex{FT},5,1}(freq, k, eta, gq_info, gq_far, permittivities, exp_table)
 end
 
 """
@@ -241,15 +248,11 @@ function vefie_element_interaction(
             w_i = gq.weight[i]
             r_i = r_q_t[:, i]
 
-            # Green's function
+            # Green's function (using FastExp lookup table)
             R_vec = r_i - r_j
             R = norm(R_vec)
-
-            if R < 1e-10
-                G = zero(CT)
-            else
-                G = exp(-im * k * R) / (4π * R)
-            end
+            
+            G = fast_green_func(vefie.exp_table, R)
 
             factor = w_i * w_j * vol_factor * G
 
@@ -571,15 +574,11 @@ function vefie_element_interaction_kernel(
             w_i = gq.weight[i]
             r_i = r_q_t[:, i]
 
-            # Green's function
+            # Green's function (using FastExp lookup table)
             R_vec = r_i - r_j
             R = norm(R_vec)
-
-            if R < 1e-10
-                G = zero(CT)
-            else
-                G = exp(-im * k * R) / (4π * R)
-            end
+            
+            G = fast_green_func(vefie.exp_table, R)
 
             factor = w_i * w_j * vol_factor * G
 

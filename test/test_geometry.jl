@@ -10,21 +10,25 @@ using EMSuite.Geometry
         #   | \      |
         #   |  \     |
         # (0,0) -- (1,0)
-        
-        nodes = [0.0 1.0 0.0 1.0;
-                 0.0 0.0 1.0 1.0;
-                 0.0 0.0 0.0 0.0]
-        
+
+        nodes = [
+            0.0 1.0 0.0 1.0
+            0.0 0.0 1.0 1.0
+            0.0 0.0 0.0 0.0
+        ]
+
         # Triangle 1: 1-2-3
         # Triangle 2: 2-4-3
-        tris = [1 2;
-                2 4;
-                3 3]
-        
+        tris = [
+            1 2
+            2 4
+            3 3
+        ]
+
         tags = [1, 2] # Different tags for testing
-        
+
         mesh = TriangleMesh(2, nodes, tris, tags)
-        
+
         @test num_vertices(mesh) == 4
         @test num_elements(mesh) == 2
         @test dimension(mesh) == 2
@@ -54,7 +58,7 @@ CTRIA3, 1, 100, 1, 2, 3
             @test mesh.tags[1] == 100
             @test mesh.node[:, 1] ≈ [0.0, 0.0, 0.0]
         finally
-            rm(path, force=true)
+            rm(path, force = true)
         end
     end
 
@@ -85,11 +89,11 @@ CTRIA3, 1, 100, 1, 2, 3
         # Block 1: dim=2, tag=1, parametric=0, num=3
         # Node tags: 1, 2, 3
         # Coords: (0,0,0), (1,0,0), (0,1,0)
-        
+
         # Elements: 1 block, 1 element.
         # Block 1: dim=2, tag=1 (Physical Tag), type=2 (Triangle), num=1
         # Element 1: tag=1, nodes=1, 2, 3
-        
+
         path = "test_mesh.msh"
         open(path, "w") do f
             write(f, msh_content)
@@ -102,7 +106,7 @@ CTRIA3, 1, 100, 1, 2, 3
             @test mesh.tags[1] == 1
             @test mesh.node[:, 1] ≈ [0.0, 0.0, 0.0]
         finally
-            rm(path, force=true)
+            rm(path, force = true)
         end
     end
 end

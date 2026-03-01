@@ -19,7 +19,7 @@ radius = L / 200
 # Cylinder mesh
 # We need a thin cylinder.
 # Let's use the new generator
-mesh = generate_cylinder_mesh(radius, L, 12, 20; closed=true)
+mesh = generate_cylinder_mesh(radius, L, 12, 20; closed = true)
 
 println("Mesh generated: $(num_vertices(mesh)) vertices, $(num_elements(mesh)) elements")
 
@@ -30,18 +30,18 @@ println("Basis functions: $(num_basis(basis))")
 # 3. Find the center edge for excitation
 # We look for edges at z=0
 
-    
+
 # Find all edges at the center (z=0)
 center_edges = Int[]
 tol = L / 100 # Tolerance for z=0
 
-for n in 1:num_basis(basis)
+for n = 1:num_basis(basis)
     bf = basis.functions[n]
     # Get edge center
     # We can use bf.center if available, or calculate it
     # bf struct has center field? Let's check RWG.jl
     # Yes, it has center::SVector{3, FT}
-    
+
     if abs(bf.center[3]) < tol
         push!(center_edges, n)
     end
@@ -57,7 +57,7 @@ efie = EFIE(freq)
 Z = assemble_impedance_matrix(efie, basis)
 V = excitation_vector(source, basis)
 
-solver = GMRESSolver(tol=1e-4, maxiter=500)
+solver = GMRESSolver(tol = 1e-4, maxiter = 500)
 I_sol = solve!(solver, Z, V)
 
 # 6. Calculate Input Impedance
@@ -78,7 +78,7 @@ println("Input Impedance: $Zin Ohms")
 # Note: Thin wire approximation vs surface mesh might differ.
 
 # 7. Far Field Pattern
-theta = collect(range(0, pi, length=37))
+theta = collect(range(0, pi, length = 37))
 phi = [0.0]
 
 # Need to convert mesh to TriangleInfo for farField function
@@ -89,7 +89,7 @@ phi = [0.0]
 
 # Let's create trianglesInfo
 # Use the updated get_triangle_info from BasisFunctions which now handles signed IDs
-trianglesInfo = [get_triangle_info(mesh, basis, i) for i in 1:num_elements(mesh)]
+trianglesInfo = [get_triangle_info(mesh, basis, i) for i = 1:num_elements(mesh)]
 
 # Set frequency in parameters for k0
 set_frequency!(freq)
