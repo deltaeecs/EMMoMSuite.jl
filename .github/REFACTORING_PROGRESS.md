@@ -1,146 +1,173 @@
-# EMSuite 重构进度
+﻿# EMSuite 閲嶆瀯杩涘害
 
-> 最后更新: 2026-03-01
+> 鏈€鍚庢洿鏂? 2026-03-06
 
-## 当前阶段: Phase 8.9 深度性能优化 — **已完成** ✅
+## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?
+
+**鏈€鏂版垚鏋?(2026-03-06)**:
+- 鉁?**V-EFIE MPI Allreduce 鏂规瀹炵幇瀹屾垚**
+  - 绠楁硶: 姣忚繘绋嬪鐞?`(it-1) % n_procs == rank` 鐨勬祴璇曞洓闈綋; 瀵圭О鍒╃敤 (js>it); `MPI.Allreduce!` 姹囨€?
+  - 璋冨害淇: 鍒犻櫎 `module VolumeAssemblyMPI` 灏佽锛岀洿鎺?`import .Assembly: assemble_impedance_matrix_parallel` 鎵╁睍
+  - 姝ｇ‘鎬ч獙璇? Tetra.nas N=3201, Z[1,1] 鍦?1/2/4 杩涚▼涓嬪畬鍏ㄧ浉鍚?(`4.747e6 - 4.716e6im`)
+  - 鎬ц兘: 1杩涚▼ 10.95s 鈫?2杩涚▼ 8.86s (1.24脳); 灏?N 鏃?Allreduce 寮€閿€鍗犱富瀵间负姝ｅ父鐜拌薄
+- 鉁?**BasisFunctions.jl**: 琛ュ叏 `get_triangles_info` 瀵煎嚭
+- 鉁?**Parallel.jl**: 淇瀛愭ā鍧楅殧绂婚棶棰?(Julia dispatch 璺ㄦā鍧椾笉鍙)
+
+## Phase 13.2 Option C 璇勪及 鈥?**宸插畬鎴?* 鉁? 
+**Phase 13.3 Option A (MPI 骞惰鍖栨祴璇?** 鈥?**瀹屾垚** 鉁?
+
+**鏈€鏂版垚鏋?(2026-03-0X)**:
+- 鉁?**Option C 瀹屾垚**: PWC/RBF 鍩哄嚱鏁版€ц兘鍩哄噯娴嬭瘯
+  - PWC+VEFIE: 12.62s (3.16脳 faster than SWG 39.94s)
+  - 浣?PWC DOF +38% (21834 vs 15828) 鈫?姹傝В鍣ㄨ礋鎷呭姞閲?
+  - Per-DOF虏 鏁堢巼浠?SWG 鐨?0.17脳 鈫?**涓嶉€傚悎閫氱敤浼樺寲**
+  - RBF 纭浠呮敮鎸佸叚闈綋缃戞牸 (涓嶉€傜敤鍥涢潰浣?VEFIE)
+  - 馃搳 璇︾粏鎶ュ憡: [OPTION_C_PWC_RBF_EVALUATION.md](.github/OPTION_C_PWC_RBF_EVALUATION.md)
+  
+**Phase 13.1 鎬荤粨** (2026-03-01):
+- 鉁?V-EFIE: 39.05s (**1.18脳 vs Legacy** 46.13s) 鈥?**棣栨蹇簬 Legacy**
+- 鉁?SCFIE: 63.81s (**1.04脳 vs Legacy** 66.68s) 鈥?**涓?Legacy 鎸佸钩**
+- 鉁?FastExp 鏌ユ壘琛? 10000 鏉＄洰, 绮惧害 < 0.002%, ~160KB
+- 鈿狅笍 Thread-local buffer 澶辫触 (-63% 鎬ц兘閫€姝? 宸插洖閫€)
+- 馃搳 璇︾粏鎶ュ憡: [PHASE_13.1_SUMMARY.md](.github/PHASE_13.1_SUMMARY.md)
 
 ---
 
-## 已完成 ✅
+## 宸插畬鎴?鉁?
 
-### Phase 1: 基础架构 (2025-12)
-- [x] 项目结构 `EMSuite.jl` 创建
-- [x] `Project.toml` 依赖管理
-- [x] Core 模块: `Interfaces.jl`, `Types.jl`, `Constants.jl`, `Materials.jl`, `Sources.jl`
+### Phase 1: 鍩虹鏋舵瀯 (2025-12)
+- [x] 椤圭洰缁撴瀯 `EMSuite.jl` 鍒涘缓
+- [x] `Project.toml` 渚濊禆绠＄悊
+- [x] Core 妯″潡: `Interfaces.jl`, `Types.jl`, `Constants.jl`, `Materials.jl`, `Sources.jl`
 - [x] Utilities: `Logging.jl`, `Parameters.jl`
 - [x] CI/CD: `.github/workflows/CI.yml`
-- [x] 文档框架: Documenter.jl 配置
+- [x] 鏂囨。妗嗘灦: Documenter.jl 閰嶇疆
 
-### Phase 2: 几何与基函数 (2025-12)
-- [x] 网格类型: `TriangleMesh`, `TetrahedraMesh`, `HexahedraMesh`
-- [x] 网格 I/O: Nastran (`.nas`), Gmsh (`.msh`)
-- [x] 坐标变换, 高斯求积
-- [x] RWG 基函数 (与 Legacy 100% 匹配, 包括边排序逻辑)
-- [x] SWG, RBF, PWC 基函数
+### Phase 2: 鍑犱綍涓庡熀鍑芥暟 (2025-12)
+- [x] 缃戞牸绫诲瀷: `TriangleMesh`, `TetrahedraMesh`, `HexahedraMesh`
+- [x] 缃戞牸 I/O: Nastran (`.nas`), Gmsh (`.msh`)
+- [x] 鍧愭爣鍙樻崲, 楂樻柉姹傜Н
+- [x] RWG 鍩哄嚱鏁?(涓?Legacy 100% 鍖归厤, 鍖呮嫭杈规帓搴忛€昏緫)
+- [x] SWG, RBF, PWC 鍩哄嚱鏁?
 
-### Phase 3: 积分方程 (2025-12 ~ 2026-01)
-- [x] EFIE: PEC Plate/Sphere 验证, 奇异项 ($F_1$, $F_2$) 修正
-- [x] MFIE: `mfie_interaction!` in-place 组装
-- [x] CFIE: PEC Sphere 验证 (RMSE 2.09 dB vs Mie)
-- [x] VEFIE: 体积积分方程, SWG 基函数支持
-- [x] SCFIE: 面体耦合积分方程
+### Phase 3: 绉垎鏂圭▼ (2025-12 ~ 2026-01)
+- [x] EFIE: PEC Plate/Sphere 楠岃瘉, 濂囧紓椤?($F_1$, $F_2$) 淇
+- [x] MFIE: `mfie_interaction!` in-place 缁勮
+- [x] CFIE: PEC Sphere 楠岃瘉 (RMSE 2.09 dB vs Mie)
+- [x] VEFIE: 浣撶Н绉垎鏂圭▼, SWG 鍩哄嚱鏁版敮鎸?
+- [x] SCFIE: 闈綋鑰﹀悎绉垎鏂圭▼
 
 ### Phase 4: MLFMA (2026-01)
-- [x] 八叉树构建 (`Octree.jl`, `OctreeBuilder.jl`)
-- [x] 聚合 (`Aggregation.jl`), 含标量势项
-- [x] 转移 (`Translation.jl`), Legacy 因子 $-jk/16\pi^2$ 对齐
-- [x] 解聚 (`Disaggregation.jl`)
-- [x] Lebedev 球面插值集成
-- [x] 近场一致性: Max Diff < 1e-12
-- [x] 远场精度: 修正 1/4 因子, 近邻缓冲区 = 4
+- [x] 鍏弶鏍戞瀯寤?(`Octree.jl`, `OctreeBuilder.jl`)
+- [x] 鑱氬悎 (`Aggregation.jl`), 鍚爣閲忓娍椤?
+- [x] 杞Щ (`Translation.jl`), Legacy 鍥犲瓙 $-jk/16\pi^2$ 瀵归綈
+- [x] 瑙ｈ仛 (`Disaggregation.jl`)
+- [x] Lebedev 鐞冮潰鎻掑€奸泦鎴?
+- [x] 杩戝満涓€鑷存€? Max Diff < 1e-12
+- [x] 杩滃満绮惧害: 淇 1/4 鍥犲瓙, 杩戦偦缂撳啿鍖?= 4
 
-### Phase 5: 求解器与并行 (2026-01)
+### Phase 5: 姹傝В鍣ㄤ笌骞惰 (2026-01)
 - [x] Direct Solver (LU)
-- [x] GMRES (误差 2.7e-7)
+- [x] GMRES (璇樊 2.7e-7)
 - [x] BiCGSTAB
-- [x] ILU 预条件器
-- [x] SPAI 预条件器
-- [x] MPI 分布式并行 (n=2 vs n=1 机器精度匹配)
-- [x] 多线程并行 (4 线程加速验证)
+- [x] ILU 棰勬潯浠跺櫒
+- [x] SPAI 棰勬潯浠跺櫒
+- [x] MPI 鍒嗗竷寮忓苟琛?(n=2 vs n=1 鏈哄櫒绮惧害鍖归厤)
+- [x] 澶氱嚎绋嬪苟琛?(4 绾跨▼鍔犻€熼獙璇?
 
-### Phase 6: 后处理与 I/O (2026-01)
-- [x] RCS 计算
-- [x] FarField / NearField 计算
-- [x] VTK 导出 (ParaView)
-- [x] 结果文件 I/O (HDF5, CSV, TXT)
-- [x] 电流分布后处理
+### Phase 6: 鍚庡鐞嗕笌 I/O (2026-01)
+- [x] RCS 璁＄畻
+- [x] FarField / NearField 璁＄畻
+- [x] VTK 瀵煎嚭 (ParaView)
+- [x] 缁撴灉鏂囦欢 I/O (HDF5, CSV, TXT)
+- [x] 鐢垫祦鍒嗗竷鍚庡鐞?
 
-### Phase 7: 验证与对齐 (2026-02-28) ✅
-- [x] SCFIE MLFMA 近场验证: Rel Err = 1.58e-15 (机器精度)
-- [x] SCFIE MLFMA 远场验证: Overall 0.85%, Surface 0.85%, Volume 6.1%
+### Phase 7: 楠岃瘉涓庡榻?(2026-02-28) 鉁?
+- [x] SCFIE MLFMA 杩戝満楠岃瘉: Rel Err = 1.58e-15 (鏈哄櫒绮惧害)
+- [x] SCFIE MLFMA 杩滃満楠岃瘉: Overall 0.85%, Surface 0.85%, Volume 6.1%
 - [x] Standalone EFIE MLFMA: 0.66% (4GHz, TriTetra.nas)
 - [x] Standalone VEFIE MLFMA: 1.39% (4GHz, TriTetra.nas)
-- [x] MoM_AllinOne 全部算例对标完成
+- [x] MoM_AllinOne 鍏ㄩ儴绠椾緥瀵规爣瀹屾垚
 
-**SCFIE MLFMA 修复的 7 个 Bug:**
-1. `Disaggregation.jl`: SCFIE `efie_factor` 从 `1.0+0im` → `jkη/(16π)`
-2. `MLFMAOperator.jl`: 近场 SS 块移除多余 `eta` (避免 MFIE 项双重乘 η)
-3. `MLFMAOperator.jl`: VV 块从 `vefie_element_interaction` (c1=-jωμ₀κ) → `vefie_element_interaction_kernel` (c1=+jωμ₀κ)
-4. `MLFMAOperator.jl`: VV 块添加缺失的 mass matrix (自交互项)
-5. `MLFMAOperator.jl`: VV/SV/VS 块创建 `distribute_term_nosign!` 避免 bfsSign 双重计数
-6. `Disaggregation.jl`: SWG `const_factor` 从 `-jkη` → `jkη/(4π)` (VEFIE 用 G=e^{-jkR}/(4πR))
-7. `MLFMAOperator.jl`: 添加 VEFIE 缓存预计算 (TetBasisCache + precompute_vefie_basis)
-8. `SCFIE.jl`: Z_SV 符号修正 `(term1 - term2)` → `(term1 + term2)` (恢复 $L$ 算子互易性)
-9. `SCFIE.jl`: Z_VS 系数修正 `c1_vs = -jωμ₀` → `+jωμ₀` (统一与 Legacy 一致的正号约定)
-10. 添加 `test/test_scfie.jl` 回归测试 (互易性、Direct 组装、MLFMA 近场/远场)
+**SCFIE MLFMA 淇鐨?7 涓?Bug:**
+1. `Disaggregation.jl`: SCFIE `efie_factor` 浠?`1.0+0im` 鈫?`jk畏/(16蟺)`
+2. `MLFMAOperator.jl`: 杩戝満 SS 鍧楃Щ闄ゅ浣?`eta` (閬垮厤 MFIE 椤瑰弻閲嶄箻 畏)
+3. `MLFMAOperator.jl`: VV 鍧椾粠 `vefie_element_interaction` (c1=-j蠅渭鈧€魏) 鈫?`vefie_element_interaction_kernel` (c1=+j蠅渭鈧€魏)
+4. `MLFMAOperator.jl`: VV 鍧楁坊鍔犵己澶辩殑 mass matrix (鑷氦浜掗」)
+5. `MLFMAOperator.jl`: VV/SV/VS 鍧楀垱寤?`distribute_term_nosign!` 閬垮厤 bfsSign 鍙岄噸璁℃暟
+6. `Disaggregation.jl`: SWG `const_factor` 浠?`-jk畏` 鈫?`jk畏/(4蟺)` (VEFIE 鐢?G=e^{-jkR}/(4蟺R))
+7. `MLFMAOperator.jl`: 娣诲姞 VEFIE 缂撳瓨棰勮绠?(TetBasisCache + precompute_vefie_basis)
+8. `SCFIE.jl`: Z_SV 绗﹀彿淇 `(term1 - term2)` 鈫?`(term1 + term2)` (鎭㈠ $L$ 绠楀瓙浜掓槗鎬?
+9. `SCFIE.jl`: Z_VS 绯绘暟淇 `c1_vs = -j蠅渭鈧€` 鈫?`+j蠅渭鈧€` (缁熶竴涓?Legacy 涓€鑷寸殑姝ｅ彿绾﹀畾)
+10. 娣诲姞 `test/test_scfie.jl` 鍥炲綊娴嬭瘯 (浜掓槗鎬с€丏irect 缁勮銆丮LFMA 杩戝満/杩滃満)
 
-### Phase 7.5: ~3 dB 系统偏差根因修复 (2026-02-28) ✅
+### Phase 7.5: ~3 dB 绯荤粺鍋忓樊鏍瑰洜淇 (2026-02-28) 鉁?
 
-**根因 1 — `edgev̂`/`edgen̂` 方向反转** (`BasisUtilities.jl`):
-- EMSuite 计算 `e1 = v2 - v3`（v3→v2 方向），Legacy 计算 `v3 - v2`（v2→v3 方向）
-- 导致 `edgen̂ = cross(edgev̂, facen̂)` 指向三角形内部而非外部
-- 影响: `faceSingularityIgIvecg` 中 `p02jl`（投影距离）符号错误 → 近奇异积分结果错误
-- 修复: 将边向量改为 `e1 = v3 - v2`, `e2 = v1 - v3`, `e3 = v2 - v1`
+**鏍瑰洜 1 鈥?`edgev虃`/`edgen虃` 鏂瑰悜鍙嶈浆** (`BasisUtilities.jl`):
+- EMSuite 璁＄畻 `e1 = v2 - v3`锛坴3鈫抳2 鏂瑰悜锛夛紝Legacy 璁＄畻 `v3 - v2`锛坴2鈫抳3 鏂瑰悜锛?
+- 瀵艰嚧 `edgen虃 = cross(edgev虃, facen虃)` 鎸囧悜涓夎褰㈠唴閮ㄨ€岄潪澶栭儴
+- 褰卞搷: `faceSingularityIgIvecg` 涓?`p02jl`锛堟姇褰辫窛绂伙級绗﹀彿閿欒 鈫?杩戝寮傜Н鍒嗙粨鏋滈敊璇?
+- 淇: 灏嗚竟鍚戦噺鏀逛负 `e1 = v3 - v2`, `e2 = v1 - v3`, `e3 = v2 - v1`
 
-**根因 2 — `calc_near_interaction!` 经验因子 + 面积归一化** (`EFIE.jl`):
-- 存在经验因子 `* 1.25`（应为 1.0）
-- `inv_areas = 1.0 / tri_test.area`（应为 `1.0 / (tri_test.area * tri_source.area)`）
-- 在 edgev 方向错误时，这两个错误部分互相补偿（Z_near ≈ 0.0485× 正确值 → 近乎可忽略）
-- 修复: 移除 `* 1.25`，改为正确的双面积归一化
+**鏍瑰洜 2 鈥?`calc_near_interaction!` 缁忛獙鍥犲瓙 + 闈㈢Н褰掍竴鍖?* (`EFIE.jl`):
+- 瀛樺湪缁忛獙鍥犲瓙 `* 1.25`锛堝簲涓?1.0锛?
+- `inv_areas = 1.0 / tri_test.area`锛堝簲涓?`1.0 / (tri_test.area * tri_source.area)`锛?
+- 鍦?edgev 鏂瑰悜閿欒鏃讹紝杩欎袱涓敊璇儴鍒嗕簰鐩歌ˉ鍋匡紙Z_near 鈮?0.0485脳 姝ｇ‘鍊?鈫?杩戜箮鍙拷鐣ワ級
+- 淇: 绉婚櫎 `* 1.25`锛屾敼涓烘纭殑鍙岄潰绉綊涓€鍖?
 
-**验证结果:**
-- Z 矩阵对角线 ratio: 1.000000 (2640×2640 板网格 vs Legacy)
-- Frobenius 范数比: 1.000010
+**楠岃瘉缁撴灉:**
+- Z 鐭╅樀瀵硅绾?ratio: 1.000000 (2640脳2640 鏉跨綉鏍?vs Legacy)
+- Frobenius 鑼冩暟姣? 1.000010
 - RCS (Jet 100MHz): Mean Diff 0.05 dB / RMSE 0.29 dB (Phi=0), Mean Diff 0.008 dB / RMSE 0.09 dB (Phi=90)
-- 全部 138/138 单元测试通过（无回归）
+- 鍏ㄩ儴 138/138 鍗曞厓娴嬭瘯閫氳繃锛堟棤鍥炲綊锛?
 
-### Phase 10.A: MLFMA 因子修复 (2026-03-02) ✅
+### Phase 10.A: MLFMA 鍥犲瓙淇 (2026-03-02) 鉁?
 
-**Bug 1 — MLFMA far-field ×4 因子** (`MLFMAOperator.jl`, `Disaggregation.jl`):
-- 根因: `efie.factor = jkη/(16π)` 包含 `1/4` (来自 RWG `l²/4` 归一化), 但 MLFMA 聚合/解聚各用 `l/2`，乘积 `l²/4` 已自然包含该因子 → **双重计数 1/4**
-- Legacy 避免此问题: translation 用 `-jk/(16π²)` + disagg 用 `jkη`（不同的因子分解方式）
-- 修复: `y_far *= 4 * operator.factor` (EFIE mul!), CFIE/SCFIE disagg `efie_factor *= 4`
-- 验证: 自洽性系数误差 65.7% → 0.30%, RCS RMSE 3.1 dB → 0.028 dB
+**Bug 1 鈥?MLFMA far-field 脳4 鍥犲瓙** (`MLFMAOperator.jl`, `Disaggregation.jl`):
+- 鏍瑰洜: `efie.factor = jk畏/(16蟺)` 鍖呭惈 `1/4` (鏉ヨ嚜 RWG `l虏/4` 褰掍竴鍖?, 浣?MLFMA 鑱氬悎/瑙ｈ仛鍚勭敤 `l/2`锛屼箻绉?`l虏/4` 宸茶嚜鐒跺寘鍚鍥犲瓙 鈫?**鍙岄噸璁℃暟 1/4**
+- Legacy 閬垮厤姝ら棶棰? translation 鐢?`-jk/(16蟺虏)` + disagg 鐢?`jk畏`锛堜笉鍚岀殑鍥犲瓙鍒嗚В鏂瑰紡锛?
+- 淇: `y_far *= 4 * operator.factor` (EFIE mul!), CFIE/SCFIE disagg `efie_factor *= 4`
+- 楠岃瘉: 鑷唇鎬х郴鏁拌宸?65.7% 鈫?0.30%, RCS RMSE 3.1 dB 鈫?0.028 dB
 - A3 S-EFIE MLFMA vs Legacy: Mean Diff 0.048 dB, RMSE 0.303 dB
 
-**Bug 2 — CFIE MLFMA MFIE 符号错误** (`Disaggregation.jl`):
-- 根因: MFIE K 算子使用 $\nabla_{r'}G$（源梯度），远场近似为 $+jk\hat{k}G$;
-  代码错误地使用了 $\nabla_r G$（场梯度）的 $-jk\hat{k}G$，导致 MFIE 项符号反转
-- Legacy 处理: 聚合/解聚分离, 统一乘以 `jkη`, EFIE 和 MFIE 远场系数同号 (+jkη)
-- 修复: `(-efie_factor)` → `(+efie_factor)` (MFIE 项)
-- 验证: C3 CFIE MLFMA vs Legacy: RMSE 3.45 dB → **0.003 dB** (1000× 改善)
-- GMRES 迭代次数: 50 → 7（算子准确度提升后收敛加速）
+**Bug 2 鈥?CFIE MLFMA MFIE 绗﹀彿閿欒** (`Disaggregation.jl`):
+- 鏍瑰洜: MFIE K 绠楀瓙浣跨敤 $\nabla_{r'}G$锛堟簮姊害锛夛紝杩滃満杩戜技涓?$+jk\hat{k}G$;
+  浠ｇ爜閿欒鍦颁娇鐢ㄤ簡 $\nabla_r G$锛堝満姊害锛夌殑 $-jk\hat{k}G$锛屽鑷?MFIE 椤圭鍙峰弽杞?
+- Legacy 澶勭悊: 鑱氬悎/瑙ｈ仛鍒嗙, 缁熶竴涔樹互 `jk畏`, EFIE 鍜?MFIE 杩滃満绯绘暟鍚屽彿 (+jk畏)
+- 淇: `(-efie_factor)` 鈫?`(+efie_factor)` (MFIE 椤?
+- 楠岃瘉: C3 CFIE MLFMA vs Legacy: RMSE 3.45 dB 鈫?**0.003 dB** (1000脳 鏀瑰杽)
+- GMRES 杩唬娆℃暟: 50 鈫?7锛堢畻瀛愬噯纭害鎻愬崌鍚庢敹鏁涘姞閫燂級
 
-**已验证测试结果汇总:**
+**宸查獙璇佹祴璇曠粨鏋滄眹鎬?**
 
-| 测试 | 指标 | 结果 |
+| 娴嬭瘯 | 鎸囨爣 | 缁撴灉 |
 |------|------|------|
-| 单元测试 | 138/138 | ✅ PASS |
+| 鍗曞厓娴嬭瘯 | 138/138 | 鉁?PASS |
 | A1 S-EFIE Direct Jet | RMSE vs Legacy | 0.215 dB |
 | A3 S-EFIE MLFMA Jet | RMSE vs Legacy | 0.303 dB |
-| A3 self-consistency | 系数误差 | 0.30% |
-| B1 CFIE 分解 | rel_err | 0.0 (10/10) |
+| A3 self-consistency | 绯绘暟璇樊 | 0.30% |
+| B1 CFIE 鍒嗚В | rel_err | 0.0 (10/10) |
 | C1 S-CFIE Direct Sphere | RMSE vs Legacy | 0.001 dB |
 | C3 S-CFIE MLFMA Sphere | RMSE vs Legacy | **0.003 dB** |
 | D1-SWG V-EFIE Direct | RMSE vs Legacy | 0.952 dB |
 | E1 VSEFIE Direct | RMSE vs Legacy | **0.602 dB** |
 | EFIE MLFMA Sphere | RMSE vs Legacy SCFIE | 0.041 dB |
 
-### Phase 10.B: SCFIE Fss 边界修正 (2026-03-03) ✅
+### Phase 10.B: SCFIE Fss 杈圭晫淇 (2026-03-03) 鉁?
 
-**Bug — 缺失半基函数边界面积分修正 (Fss)** (`SCFIE.jl`, `MLFMAOperator.jl`):
-- 根因: 边界 SWG 基函数（半基函数，仅有一个四面体支撑）的标量势缺失表面积分修正项
-- Legacy 在 `EFIEVSIERWGSWG.jl` 中通过 `Fss` 项处理：
-  - `isbdn=true` 时: Z_VS[n,m] += jωμ₀/(4πk²) × l_m × |A_n| × ∫∫ G dS_tri dS_face
-  - `δκ≠0` 时: Z_SV[m,n] += δκ × (同上)
-- EMSuite 完全缺失此修正 → 耦合矩阵 Z_SV/Z_VS 偏差 22%, Z_VV 偏差 48%
-- 修复: 在 `SCFIE.jl` 中添加 `assemble_fss_boundary_correction!` 和 `assemble_fss_boundary_correction_sparse`
-  - 直接求解路径: 在 `assemble_coupling_blocks!` 后调用
-  - MLFMA 路径: 以稀疏矩阵形式加到 Z_near
-- 验证: E1-VSEFIE RMSE 从 **5.3 dB → 0.60 dB** (PASS), 138/138 测试全通过
+**Bug 鈥?缂哄け鍗婂熀鍑芥暟杈圭晫闈㈢Н鍒嗕慨姝?(Fss)** (`SCFIE.jl`, `MLFMAOperator.jl`):
+- 鏍瑰洜: 杈圭晫 SWG 鍩哄嚱鏁帮紙鍗婂熀鍑芥暟锛屼粎鏈変竴涓洓闈綋鏀拺锛夌殑鏍囬噺鍔跨己澶辫〃闈㈢Н鍒嗕慨姝ｉ」
+- Legacy 鍦?`EFIEVSIERWGSWG.jl` 涓€氳繃 `Fss` 椤瑰鐞嗭細
+  - `isbdn=true` 鏃? Z_VS[n,m] += j蠅渭鈧€/(4蟺k虏) 脳 l_m 脳 |A_n| 脳 鈭埆 G dS_tri dS_face
+  - `未魏鈮?` 鏃? Z_SV[m,n] += 未魏 脳 (鍚屼笂)
+- EMSuite 瀹屽叏缂哄け姝や慨姝?鈫?鑰﹀悎鐭╅樀 Z_SV/Z_VS 鍋忓樊 22%, Z_VV 鍋忓樊 48%
+- 淇: 鍦?`SCFIE.jl` 涓坊鍔?`assemble_fss_boundary_correction!` 鍜?`assemble_fss_boundary_correction_sparse`
+  - 鐩存帴姹傝В璺緞: 鍦?`assemble_coupling_blocks!` 鍚庤皟鐢?
+  - MLFMA 璺緞: 浠ョ█鐤忕煩闃靛舰寮忓姞鍒?Z_near
+- 楠岃瘉: E1-VSEFIE RMSE 浠?**5.3 dB 鈫?0.60 dB** (PASS), 138/138 娴嬭瘯鍏ㄩ€氳繃
 
-### 验证里程碑
-- [x] **SEFIE Direct**: `verify_SEFIE_direct.jl` (18.8s 4线程 / 30.3s 1线程, Legacy 31.2s)
+### 楠岃瘉閲岀▼纰?
+- [x] **SEFIE Direct**: `verify_SEFIE_direct.jl` (18.8s 4绾跨▼ / 30.3s 1绾跨▼, Legacy 31.2s)
 - [x] **SEFIE MLFMA**: `verify_SEFIE_mlfma.jl` (Ratio 1.0000, Rel Err 1.5%)
 - [x] **VEFIE Direct**: `verify_VEFIE_direct.jl` (Legacy Parity)
 - [x] **VEFIE MLFMA**: `verify_VEFIE_mlfma.jl` (Ratio 1.0000, Rel Err 0.04%)
@@ -149,243 +176,258 @@
 - [x] **Standalone EFIE MLFMA**: `test_efie_vefie_farfield.jl` (Rel Err 0.66%)
 - [x] **Standalone VEFIE MLFMA**: `test_efie_vefie_farfield.jl` (Rel Err 1.39%)
 - [x] **MPI**: `benchmark_parallel_sphere.jl` (Consistency check passed)
-- [x] **Threading**: 4 threads vs 1 thread speedup 验证
+- [x] **Threading**: 4 threads vs 1 thread speedup 楠岃瘉
 
 ---
 
-## 已完成 ✅ (续)
+## 宸插畬鎴?鉁?(缁?
 
-### Phase 8: 性能优化 (2026-03) ✅
+### Phase 8: 鎬ц兘浼樺寲 (2026-03) 鉁?
 
-#### 8.0 性能基线测量 ✅ (commit `861426d`)
-- [x] 创建 `benchmark/performance_baseline.jl` (EMSuite 7 用例)
-- [x] 创建 `LegacyBenchmark/legacy_performance_baseline.jl` (Legacy 对标)
-- [x] EMSuite 全部 7 用例测量完成
-- [x] Legacy 5 用例测量完成
-- [x] 综合对比报告: `test_results/PERFORMANCE_BASELINE.md`
+#### 8.0 鎬ц兘鍩虹嚎娴嬮噺 鉁?(commit `861426d`)
+- [x] 鍒涘缓 `benchmark/performance_baseline.jl` (EMSuite 7 鐢ㄤ緥)
+- [x] 鍒涘缓 `LegacyBenchmark/legacy_performance_baseline.jl` (Legacy 瀵规爣)
+- [x] EMSuite 鍏ㄩ儴 7 鐢ㄤ緥娴嬮噺瀹屾垚
+- [x] Legacy 5 鐢ㄤ緥娴嬮噺瀹屾垚
+- [x] 缁煎悎瀵规瘮鎶ュ憡: `test_results/PERFORMANCE_BASELINE.md`
 
-#### 8.1 Z 组装去锁 ✅ (commit `2d4ebe6`)
-- [x] `Impedance.jl` SpinLock → Per-row SpinLock (行级无锁并行)
-- [x] Plate EFIE 组装 **-54%**, Jet EFIE 组装 **-12%**
-- [x] 138/138 测试通过
+#### 8.1 Z 缁勮鍘婚攣 鉁?(commit `2d4ebe6`)
+- [x] `Impedance.jl` SpinLock 鈫?Per-row SpinLock (琛岀骇鏃犻攣骞惰)
+- [x] Plate EFIE 缁勮 **-54%**, Jet EFIE 缁勮 **-12%**
+- [x] 138/138 娴嬭瘯閫氳繃
 
-#### 8.2 CFIE 内核合并 ✅ (commit `d0888cf`)
-- [x] MFIE 内核优化：共享 Green 函数、inline rho 向量、消除重复几何计算
-- [x] CFIE 组装 **-74%** (Jet: 168.29s → 43s)
-- [x] CFIE/EFIE 组装比: 8.1× → **2.31×** (目标 ≤ 2.5× ✅)
+#### 8.2 CFIE 鍐呮牳鍚堝苟 鉁?(commit `d0888cf`)
+- [x] MFIE 鍐呮牳浼樺寲锛氬叡浜?Green 鍑芥暟銆乮nline rho 鍚戦噺銆佹秷闄ら噸澶嶅嚑浣曡绠?
+- [x] CFIE 缁勮 **-74%** (Jet: 168.29s 鈫?43s)
+- [x] CFIE/EFIE 缁勮姣? 8.1脳 鈫?**2.31脳** (鐩爣 鈮?2.5脳 鉁?
 
-#### 8.3 MLFMA Z_near 优化 ✅ (commit `d2f7963`)
-- [x] 预分配 COO 数组代替动态 push!
-- [x] COO 合并后 sparse() 构造
+#### 8.3 MLFMA Z_near 浼樺寲 鉁?(commit `d2f7963`)
+- [x] 棰勫垎閰?COO 鏁扮粍浠ｆ浛鍔ㄦ€?push!
+- [x] COO 鍚堝苟鍚?sparse() 鏋勯€?
 
-#### 8.4 内存分配热点 ✅ (commit `82988cf`)
-- [x] 移除 MFIE 影子 `get_global_quad_points` 函数
+#### 8.4 鍐呭瓨鍒嗛厤鐑偣 鉁?(commit `82988cf`)
+- [x] 绉婚櫎 MFIE 褰卞瓙 `get_global_quad_points` 鍑芥暟
 
-#### 8.5 Julia 1.12 兼容修复 ✅ (commit `67d3a8a`)
-- [x] `threadid()` → `Threads.maxthreadid()` (Legacy + EMSuite)
-- [x] 8.5b 类型稳定性审查：`@code_warntype` 全部 clean
+#### 8.5 Julia 1.12 鍏煎淇 鉁?(commit `67d3a8a`)
+- [x] `threadid()` 鈫?`Threads.maxthreadid()` (Legacy + EMSuite)
+- [x] 8.5b 绫诲瀷绋冲畾鎬у鏌ワ細`@code_warntype` 鍏ㄩ儴 clean
 
-#### 8.6 @fastmath + SIMD ✅ (commit `1c6d499`)
-- [x] `calc_interaction!` 重写：直接 dot() 替换 SMatrix
-- [x] `@fastmath` 加速 exp() 等数学运算
-- [x] `@inbounds @simd` 优化内循环
+#### 8.6 @fastmath + SIMD 鉁?(commit `1c6d499`)
+- [x] `calc_interaction!` 閲嶅啓锛氱洿鎺?dot() 鏇挎崲 SMatrix
+- [x] `@fastmath` 鍔犻€?exp() 绛夋暟瀛﹁繍绠?
+- [x] `@inbounds @simd` 浼樺寲鍐呭惊鐜?
 
-#### 8.7 BlockJacobiPreconditioner ✅ (commit `76f8b16`)
-- [x] 实现 `BlockJacobiPreconditioner` (从 Z_near 提取对角块, 并行 LU)
-- [x] 构建速度比 Sparse LU 快 **166×**
-- [x] 适用于 CFIE (3 次 GMRES 迭代); EFIE 不收敛, LU 仍为默认
-- [x] 添加 `get_leaf_intervals(op::MLFMAOperator)`
+#### 8.7 BlockJacobiPreconditioner 鉁?(commit `76f8b16`)
+- [x] 瀹炵幇 `BlockJacobiPreconditioner` (浠?Z_near 鎻愬彇瀵硅鍧? 骞惰 LU)
+- [x] 鏋勫缓閫熷害姣?Sparse LU 蹇?**166脳**
+- [x] 閫傜敤浜?CFIE (3 娆?GMRES 杩唬); EFIE 涓嶆敹鏁? LU 浠嶄负榛樿
+- [x] 娣诲姞 `get_leaf_intervals(op::MLFMAOperator)`
 
-#### 8.8 最终基准复测 ✅ (commit `6f4987a`)
-- [x] 全部 6 个用例 (+ CFIE 对比) 重新计时
-- [x] 修复 Sphere CFIE MLFMA OOM (COO 初始分配上限)
-- [x] 生成 `test_results/PERFORMANCE_REPORT.md`
+#### 8.8 鏈€缁堝熀鍑嗗娴?鉁?(commit `6f4987a`)
+- [x] 鍏ㄩ儴 6 涓敤渚?(+ CFIE 瀵规瘮) 閲嶆柊璁℃椂
+- [x] 淇 Sphere CFIE MLFMA OOM (COO 鍒濆鍒嗛厤涓婇檺)
+- [x] 鐢熸垚 `test_results/PERFORMANCE_REPORT.md`
 
-**Phase 8 最终结果 (2026-03-01 更新):**
+**Phase 8 鏈€缁堢粨鏋?(2026-03-01 鏇存柊):**
 
-| 用例 | N | 原始基线 | Phase 8.8 | **Phase 8.9** | 说明 |
-|------|---|---------|---------|----------|------|
-| Plate EFIE | 2640 | 1.02s | 1.94s | **0.153s** | EFIE 内核重写 |
-| Jet EFIE | 14559 | 20.70s | 29.01s | **4.26s** | EFIE SIMD 修复 |
-| **Jet CFIE** | 14559 | **168.29s** | **64.88s** | **14.48s** | CFIE 架构 + `@.` |
-| Jet MLFMA | 14559 | 76.69s | 108.93s | 未重测 | — |
-| Sphere MLFMA | 26424 | 323.25s | 285.81s | 未重测 | — |
-| **VEFIE** | 15828 | 46.13s | 66.24s | 未重测 | **41.30s ✅** | 上三角对称优化 |
-| **SCFIE** | 15860 | 66.68s | 96.94s | 未重测 | **65.67s ✅** | VEFIE+耦合优化 |
+| 鐢ㄤ緥 | N | 鍘熷鍩虹嚎 | Phase 8.8 | **Phase 8.9** | **鏈€鏂?* | 璇存槑 |
+|------|---|---------|---------|----------|------|------|
+| Plate EFIE | 2640 | 1.02s | 1.94s | **0.153s** | 0.153s | EFIE 鍐呮牳閲嶅啓 |
+| Jet EFIE | 14559 | 20.70s | 29.01s | **4.26s** | 4.26s | EFIE SIMD 淇 |
+| **Jet CFIE** | 14559 | **168.29s** | **64.88s** | **14.48s** | 14.48s | CFIE 鏋舵瀯 + `@.` |
+| Jet MLFMA | 14559 | 76.69s | 108.93s | 鏈噸娴?| 鈥?| 鈥?|
+| Sphere MLFMA | 26424 | 323.25s | 285.81s | 鏈噸娴?| 鈥?| 鈥?|
+| **VEFIE** | 15828 | 46.13s | 66.24s | 鏈噸娴?| **41.30s 鉁?* | 涓婁笁瑙掑绉颁紭鍖?|
+| **SCFIE** | 15860 | 66.68s | 96.94s | 鏈噸娴?| **65.67s 鉁?* | VEFIE+鑰﹀悎浼樺寲 |
 
-#### 8.9 EFIE/CFIE/SCFIE 深度优化 ✅ (commit `8f8dfc3`, `f520609`)
-- [x] **EFIE `calc_interaction!` 重写**: 移除 `@simd for n in 1:3` + 三元分支，改用 tuple-indexed rho + 完全展开 3×3 内积 → Jet EFIE **4.26s** (-79.4% vs 20.7s 原始基线)
-- [x] **CFIE 架构修复**: 合并汇编实测比分离汇编慢 (register/cache pressure)，改为分离调用 + `@.` 就地加权求和 (避免第三个 N×N 分配) → Jet CFIE **14.48s** (-91.4% vs 168.3s 原始基线)
-- [x] **SCFIE Fss 并行化**: `assemble_fss_boundary_correction!` 添加 `@threads` + 行级 SpinLock
-- [x] **单元测试**: 179/179 通过 (Testing EMSuite tests passed)
+#### 8.9 EFIE/CFIE/SCFIE 娣卞害浼樺寲 鉁?(commit `8f8dfc3`, `f520609`)
+- [x] **EFIE `calc_interaction!` 閲嶅啓**: 绉婚櫎 `@simd for n in 1:3` + 涓夊厓鍒嗘敮锛屾敼鐢?tuple-indexed rho + 瀹屽叏灞曞紑 3脳3 鍐呯Н 鈫?Jet EFIE **4.26s** (-79.4% vs 20.7s 鍘熷鍩虹嚎)
+- [x] **CFIE 鏋舵瀯淇**: 鍚堝苟姹囩紪瀹炴祴姣斿垎绂绘眹缂栨參 (register/cache pressure)锛屾敼涓哄垎绂昏皟鐢?+ `@.` 灏卞湴鍔犳潈姹傚拰 (閬垮厤绗笁涓?N脳N 鍒嗛厤) 鈫?Jet CFIE **14.48s** (-91.4% vs 168.3s 鍘熷鍩虹嚎)
+- [x] **SCFIE Fss 骞惰鍖?*: `assemble_fss_boundary_correction!` 娣诲姞 `@threads` + 琛岀骇 SpinLock
+- [x] **鍗曞厓娴嬭瘯**: 179/179 閫氳繃 (Testing EMSuite tests passed)
+
+#### 8.10 VEFIE/SCFIE 鎬ц兘绐佺牬 鉁?(commit `bbf8fdd`)
+- [x] **VEFIE 涓婁笁瑙掑绉颁紭鍖?*: 灏嗗叏 N虏 tet 瀵瑰惊鐜敼涓轰笂涓夎 N*(N+1)/2 鍧? 
+  - 澶栧眰寰幆 test tet `it`锛屽唴灞?`js` 浠?`it+1` 鍒?`ntet`锛堜笂涓夎锛? 
+  - 鍒╃敤 Z_st[j,i] = (魏_t/魏_s) 脳 Z_ts[i,j]锛屽悓鏃跺啓鍏?Z[m,n] 鍜?Z[n,m]  
+  - 鍏ㄥ眬 SpinLock锛堥攣鎸佹湁鏃堕棿 鈮?2 娆℃爣閲忓啓 鈮?2 ns锛岃绠楁椂闂?鈮? 渭s锛岀珵浜夌巼 <1%锛? 
+  - **VEFIE: 41.30s**锛坴s Legacy 46.13s锛?*蹇?12%**锛泇s 鍩虹嚎 66.24s锛?*蹇?1.60脳**锛? 
+- [x] **SCFIE 鑰﹀悎鍧椾簰鏄撴€т紭鍖?*: Z_vs = Z_sv / 魏锛坈ommit `a87be12`锛夛紝鍑忓皯涓€鍗婅€﹀悎绉垎  
+  - **SCFIE: 65.67s**锛坴s Legacy 66.68s锛?*蹇?1.5%**锛泇s 鍩虹嚎 96.94s锛?*蹇?1.48脳**锛? 
+- [x] **鍏ㄩ儴 179/179 娴嬭瘯閫氳繃**
 
 
-¹ EFIE 组装增幅: @fastmath/SIMD 重写主要优化 MFIE 路径, 对纯 EFIE 有轻微开销
-² MLFMA EFIE 增幅: 预条件器 LU 变慢 (8.89s→47.27s), 非代码回归
-³ VEFIE/SCFIE 组装增幅同因; LU 求解大幅加速 (155.61s→31.12s for VEFIE)
+鹿 EFIE 缁勮澧炲箙: @fastmath/SIMD 閲嶅啓涓昏浼樺寲 MFIE 璺緞, 瀵圭函 EFIE 鏈夎交寰紑閿€
+虏 MLFMA EFIE 澧炲箙: 棰勬潯浠跺櫒 LU 鍙樻參 (8.89s鈫?7.27s), 闈炰唬鐮佸洖褰?
+鲁 VEFIE/SCFIE 缁勮澧炲箙鍚屽洜; LU 姹傝В澶у箙鍔犻€?(155.61s鈫?1.12s for VEFIE)
 
 ---
 
-## 进行中 🔧
+## 杩涜涓?馃敡
 
-（无当前进行中任务）
+锛堟棤褰撳墠杩涜涓换鍔★級
 
-### Phase 12: 六面体完整支持 PWCHex + RBF (2026-03-04) ✅
+### Phase 12: 鍏潰浣撳畬鏁存敮鎸?PWCHex + RBF (2026-03-04) 鉁?
 
-**目标**: 实现所有缺失的六面体基函数+积分方程组合，补全 Phase 12 路线图中的 10 个 Gap。
+**鐩爣**: 瀹炵幇鎵€鏈夌己澶辩殑鍏潰浣撳熀鍑芥暟+绉垎鏂圭▼缁勫悎锛岃ˉ鍏?Phase 12 璺嚎鍥句腑鐨?10 涓?Gap銆?
 
-**修改文件:**
-1. **`src/Geometry/GaussQuadrature.jl`** — 新增六面体 (8点 tensor-product GL) 和四边形 (4点) GQ 规则
-2. **`src/Geometry/MeshTypes.jl`** — 新增 `HexahedraInfo`, `Quads4Hexa` 结构体 + 辅助函数 (`get_free_vns`, `set_delta_kappa!`, `hex_volume` 等)
-3. **`src/Geometry/MeshIO.jl`** — 新增 CHEXA Nastran 网格读取，支持续行符格式
-4. **`src/BasisFunctions/PWC.jl`** — 新增 `PWCHexBasis` (3 DOF/六面体: x,y,z 分量)
-5. **`src/BasisFunctions/RBF.jl`** — 完善 `evaluate()` 实现，启用边界面基函数
-6. **`src/BasisFunctions/BasisUtilities.jl`** — 新增 `get_hexahedra_info(mesh, PWCHexBasis/RBFBasis, permittivities)`
-7. **`src/IntegralEquations/VEFIE.jl`** — ~500行: PWCHex, RBF, 混合 TetraHex 装配 (6 个新方法)
-   - 泛化 `_pwc_dyad_kernel!` 支持 duck-typed 体元素
-   - 混合 TetraHex 装配: 4个子块 (TT, TH, HT, HH)
-8. **`src/IntegralEquations/SCFIE.jl`** — ~380行: RWG+PWCHex (并矢 L 算子) 和 RWG+RBF (标量势形式 + Fss 边界修正)
-9. **`src/IntegralEquations/Excitation.jl`** — ~180行: PWCHex 和 RBF 平面波激励向量 + 组合 SCFIE 版本
-10. **`src/PostProcessing/RadiationIntegral.jl`** — ~120行: PWCHex 和 RBF 辐射积分
-11. **`src/PostProcessing/RCS.jl`** — ~80行: PWCHex 和 RBF RCS 计算方法
-12. **`test/test_basis_functions.jl`** — 修复 RBF 测试预期值 (num_basis 1→11, 查找内部基函数)
+**淇敼鏂囦欢:**
+1. **`src/Geometry/GaussQuadrature.jl`** 鈥?鏂板鍏潰浣?(8鐐?tensor-product GL) 鍜屽洓杈瑰舰 (4鐐? GQ 瑙勫垯
+2. **`src/Geometry/MeshTypes.jl`** 鈥?鏂板 `HexahedraInfo`, `Quads4Hexa` 缁撴瀯浣?+ 杈呭姪鍑芥暟 (`get_free_vns`, `set_delta_kappa!`, `hex_volume` 绛?
+3. **`src/Geometry/MeshIO.jl`** 鈥?鏂板 CHEXA Nastran 缃戞牸璇诲彇锛屾敮鎸佺画琛岀鏍煎紡
+4. **`src/BasisFunctions/PWC.jl`** 鈥?鏂板 `PWCHexBasis` (3 DOF/鍏潰浣? x,y,z 鍒嗛噺)
+5. **`src/BasisFunctions/RBF.jl`** 鈥?瀹屽杽 `evaluate()` 瀹炵幇锛屽惎鐢ㄨ竟鐣岄潰鍩哄嚱鏁?
+6. **`src/BasisFunctions/BasisUtilities.jl`** 鈥?鏂板 `get_hexahedra_info(mesh, PWCHexBasis/RBFBasis, permittivities)`
+7. **`src/IntegralEquations/VEFIE.jl`** 鈥?~500琛? PWCHex, RBF, 娣峰悎 TetraHex 瑁呴厤 (6 涓柊鏂规硶)
+   - 娉涘寲 `_pwc_dyad_kernel!` 鏀寔 duck-typed 浣撳厓绱?
+   - 娣峰悎 TetraHex 瑁呴厤: 4涓瓙鍧?(TT, TH, HT, HH)
+8. **`src/IntegralEquations/SCFIE.jl`** 鈥?~380琛? RWG+PWCHex (骞剁煝 L 绠楀瓙) 鍜?RWG+RBF (鏍囬噺鍔垮舰寮?+ Fss 杈圭晫淇)
+9. **`src/IntegralEquations/Excitation.jl`** 鈥?~180琛? PWCHex 鍜?RBF 骞抽潰娉㈡縺鍔卞悜閲?+ 缁勫悎 SCFIE 鐗堟湰
+10. **`src/PostProcessing/RadiationIntegral.jl`** 鈥?~120琛? PWCHex 鍜?RBF 杈愬皠绉垎
+11. **`src/PostProcessing/RCS.jl`** 鈥?~80琛? PWCHex 鍜?RBF RCS 璁＄畻鏂规硶
+12. **`test/test_basis_functions.jl`** 鈥?淇 RBF 娴嬭瘯棰勬湡鍊?(num_basis 1鈫?1, 鏌ユ壘鍐呴儴鍩哄嚱鏁?
 
-**方法统计:**
-- 18 个 `assemble_impedance_matrix` 方法 (EFIE/MFIE/CFIE/VEFIE/SCFIE × 各基函数组合)
-- 17 个 `excitation_vector` 方法
-- 5 个 `radarCrossSection` 方法
+**鏂规硶缁熻:**
+- 18 涓?`assemble_impedance_matrix` 鏂规硶 (EFIE/MFIE/CFIE/VEFIE/SCFIE 脳 鍚勫熀鍑芥暟缁勫悎)
+- 17 涓?`excitation_vector` 鏂规硶
+- 5 涓?`radarCrossSection` 鏂规硶
 
-**测试结果:**
-- 全部 179/179 测试通过 (无回归)
-- +2296 行代码
+**娴嬭瘯缁撴灉:**
+- 鍏ㄩ儴 179/179 娴嬭瘯閫氳繃 (鏃犲洖褰?
+- +2296 琛屼唬鐮?
 - Commit: `099385b`
 
-### Phase 11: PWC 基函数支持扩展 (2026-03-04) ✅
+### Phase 11: PWC 鍩哄嚱鏁版敮鎸佹墿灞?(2026-03-04) 鉁?
 
-**目标**: 对齐 Legacy 的 PWC (Piecewise Constant) 基函数支持，完善 VEFIE+PWC 和 SCFIE+RWG+PWC 组合。
+**鐩爣**: 瀵归綈 Legacy 鐨?PWC (Piecewise Constant) 鍩哄嚱鏁版敮鎸侊紝瀹屽杽 VEFIE+PWC 鍜?SCFIE+RWG+PWC 缁勫悎銆?
 
-**修改文件:**
-1. **`src/BasisFunctions/PWC.jl`** — 完全重写: 3 DOFs/四面体 (x,y,z 分量)
-   - `PWC` struct 增加 `inBfsID::SVector{3, IT}` (三个全局基函数ID)
-   - `num_basis` 返回 `3 * length(functions)` (原为 1:1)
-   - `evaluate` 返回单位向量 x̂/ŷ/ẑ (基于 `mod1(i, 3)`)
-   - Legacy 对齐: `MoM_Basics` 的 `nPWC = 3 * num_tetrahedra`
+**淇敼鏂囦欢:**
+1. **`src/BasisFunctions/PWC.jl`** 鈥?瀹屽叏閲嶅啓: 3 DOFs/鍥涢潰浣?(x,y,z 鍒嗛噺)
+   - `PWC` struct 澧炲姞 `inBfsID::SVector{3, IT}` (涓変釜鍏ㄥ眬鍩哄嚱鏁癐D)
+   - `num_basis` 杩斿洖 `3 * length(functions)` (鍘熶负 1:1)
+   - `evaluate` 杩斿洖鍗曚綅鍚戦噺 x虃/欧/岷?(鍩轰簬 `mod1(i, 3)`)
+   - Legacy 瀵归綈: `MoM_Basics` 鐨?`nPWC = 3 * num_tetrahedra`
 
-2. **`src/BasisFunctions/BasisUtilities.jl`** — 新增 `get_tetrahedra_info(mesh, basis::PWCBasis, permittivities)`
-   - `inBfsID = SVector{4}(3*(i-1)+1, 3*(i-1)+2, 3*(i-1)+3, 0)` (第4项未使用)
+2. **`src/BasisFunctions/BasisUtilities.jl`** 鈥?鏂板 `get_tetrahedra_info(mesh, basis::PWCBasis, permittivities)`
+   - `inBfsID = SVector{4}(3*(i-1)+1, 3*(i-1)+2, 3*(i-1)+3, 0)` (绗?椤规湭浣跨敤)
 
-3. **`src/IntegralEquations/VEFIE.jl`** — 新增 ~230 行: VEFIE+PWC 组装
-   - `assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis)` — 带 permittivities 的1参/2参版本
-   - `_pwc_dyad_kernel!` — 3×3 并矢 L 算子: $(k^2 I + \nabla\nabla) G(R)$
-   - 对称组装 + 自适应积分 (远场1点/近场5点)
-   - 自作用项质量矩阵: $V/(j\omega\varepsilon)$
+3. **`src/IntegralEquations/VEFIE.jl`** 鈥?鏂板 ~230 琛? VEFIE+PWC 缁勮
+   - `assemble_impedance_matrix(vefie::VEFIE, basis::PWCBasis)` 鈥?甯?permittivities 鐨?鍙?2鍙傜増鏈?
+   - `_pwc_dyad_kernel!` 鈥?3脳3 骞剁煝 L 绠楀瓙: $(k^2 I + \nabla\nabla) G(R)$
+   - 瀵圭О缁勮 + 鑷€傚簲绉垎 (杩滃満1鐐?杩戝満5鐐?
+   - 鑷綔鐢ㄩ」璐ㄩ噺鐭╅樀: $V/(j\omega\varepsilon)$
 
-4. **`src/IntegralEquations/Excitation.jl`** — 新增 ~100 行: PWC 激励向量
-   - VEFIE 算子版: `excitation_vector(op::VEFIE, source::PlaneWave, basis::PWCBasis)`
-   - 独立版: `excitation_vector(source::PlaneWave, basis::PWCBasis)`
-   - 组合版: `excitation_vector(source, surf_basis::RWGBasis, vol_basis::PWCBasis)`
+4. **`src/IntegralEquations/Excitation.jl`** 鈥?鏂板 ~100 琛? PWC 婵€鍔卞悜閲?
+   - VEFIE 绠楀瓙鐗? `excitation_vector(op::VEFIE, source::PlaneWave, basis::PWCBasis)`
+   - 鐙珛鐗? `excitation_vector(source::PlaneWave, basis::PWCBasis)`
+   - 缁勫悎鐗? `excitation_vector(source, surf_basis::RWGBasis, vol_basis::PWCBasis)`
 
-5. **`src/IntegralEquations/SCFIE.jl`** — 新增 ~170 行: SCFIE+RWG+PWC 耦合
+5. **`src/IntegralEquations/SCFIE.jl`** 鈥?鏂板 ~170 琛? SCFIE+RWG+PWC 鑰﹀悎
    - `assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCBasis)`
-   - `assemble_coupling_blocks_pwc!` — 并矢 L 算子耦合
-   - Z_SV 包含 κ, Z_VS 无 κ
-   - 无 Fss 边界修正 (PWC 无半基函数)
+   - `assemble_coupling_blocks_pwc!` 鈥?骞剁煝 L 绠楀瓙鑰﹀悎
+   - Z_SV 鍖呭惈 魏, Z_VS 鏃?魏
+   - 鏃?Fss 杈圭晫淇 (PWC 鏃犲崐鍩哄嚱鏁?
 
-6. **`src/PostProcessing/RadiationIntegral.jl`** — 新增 PWC 辐射积分
+6. **`src/PostProcessing/RadiationIntegral.jl`** 鈥?鏂板 PWC 杈愬皠绉垎
    - `radiation_integral_pwc`: $N = \sum_t V_t \kappa_t \sum_{gq} J \cdot e^{jk\hat{r}\cdot r_{gq}} w_{gq}$
 
-7. **`src/PostProcessing/RCS.jl`** — 新增 PWC RCS 计算
+7. **`src/PostProcessing/RCS.jl`** 鈥?鏂板 PWC RCS 璁＄畻
    - `radarCrossSection(..., basis::PWCBasis, permittivities)`
 
-8. **`src/Driver.jl`** — 扩展支持多IE类型 (EFIE/MFIE/CFIE/VEFIE/SCFIE)
+8. **`src/Driver.jl`** 鈥?鎵╁睍鏀寔澶欼E绫诲瀷 (EFIE/MFIE/CFIE/VEFIE/SCFIE)
 
-9. **`src/Core/Configuration.jl`** — SimulationConfig 增加 `ie_type`, `cfie_alpha`, `permittivities` 字段
+9. **`src/Core/Configuration.jl`** 鈥?SimulationConfig 澧炲姞 `ie_type`, `cfie_alpha`, `permittivities` 瀛楁
 
-10. **`test/test_pwc.jl`** — 新增 PWC 专用测试 (基函数构造, VEFIE+PWC, 激励, SCFIE+PWC)
+10. **`test/test_pwc.jl`** 鈥?鏂板 PWC 涓撶敤娴嬭瘯 (鍩哄嚱鏁版瀯閫? VEFIE+PWC, 婵€鍔? SCFIE+PWC)
 
-11. **`test/test_basis_functions.jl`** — 更新 PWC 测试适配 3 DOFs/tet
+11. **`test/test_basis_functions.jl`** 鈥?鏇存柊 PWC 娴嬭瘯閫傞厤 3 DOFs/tet
 
-**修复的 Bug:**
-- VEFIE.jl 缺失 module 闭合 `end` (编译错误)
-- Excitation.jl 缺失 module 闭合 `end` (编译错误)
-- Driver.jl 使用 `get(struct, ...)` 导致 MethodError (struct 不支持 Dict 的 get)
+**淇鐨?Bug:**
+- VEFIE.jl 缂哄け module 闂悎 `end` (缂栬瘧閿欒)
+- Excitation.jl 缂哄け module 闂悎 `end` (缂栬瘧閿欒)
+- Driver.jl 浣跨敤 `get(struct, ...)` 瀵艰嚧 MethodError (struct 涓嶆敮鎸?Dict 鐨?get)
 
-**测试结果:**
-- 全部 139+/139+ 测试通过 (含新增 PWC 测试)
-- PWC 基础测试: 16/16 PASS
-- 无回归
-
----
-
-## 进行中 🚀
-
-### Phase 9: 代码质量与发布
-- [x] 测试套件清理: 179/179 全部通过 ✅ (含 PWC/RBF/PWCHex 新测试)
-- [x] JuliaFormatter.jl 统一代码风格 ✅ (`0535576`) — 79 个 `src/` 文件
-- [x] CHANGELOG.md 完善 ✅ — 记录 Phase 8-12 所有性能/功能里程碑
-- [ ] 测试覆盖率统计与提升 (目标 > 80%)
-- [ ] API 文档补全 (所有公共接口)
-- [ ] 用户教程 (Quick Start, Advanced)
-- [ ] 理论文档 (MoM, MLFMA, 积分方程推导)
-- [ ] 发布到 Julia General Registry
+**娴嬭瘯缁撴灉:**
+- 鍏ㄩ儴 139+/139+ 娴嬭瘯閫氳繃 (鍚柊澧?PWC 娴嬭瘯)
+- PWC 鍩虹娴嬭瘯: 16/16 PASS
+- 鏃犲洖褰?
 
 ---
 
-## Legacy 因子对照表
+## 杩涜涓?馃殌
 
-| 项目 | Legacy | EMSuite | 说明 |
+### Phase 9: 浠ｇ爜璐ㄩ噺涓庡彂甯?
+- [x] 娴嬭瘯濂椾欢娓呯悊: 179/179 鍏ㄩ儴閫氳繃 鉁?(鍚?PWC/RBF/PWCHex 鏂版祴璇?
+- [x] JuliaFormatter.jl 缁熶竴浠ｇ爜椋庢牸 鉁?(`0535576`) 鈥?79 涓?`src/` 鏂囦欢
+- [x] CHANGELOG.md 瀹屽杽 鉁?鈥?Phase 8-12 鎵€鏈夐噷绋嬬
+- [x] compat 璇硶瑙勮寖鍖?鉁?+ 瑕嗙洊鐜囪剼鏈?+ 鍙戝竷娓呭崟 (`9d3e671`)
+- [ ] 娴嬭瘯瑕嗙洊鐜囩粺璁′笌鎻愬崌 (鐩爣 > 80%)
+- [ ] API 鏂囨。琛ュ叏 (鎵€鏈夊叕鍏辨帴鍙?
+- [ ] 鐢ㄦ埛鏁欑▼ (Quick Start, Advanced)
+- [ ] 鐞嗚鏂囨。 (MoM, MLFMA, 绉垎鏂圭▼鎺ㄥ)
+- [ ] 鍙戝竷鍒?Julia General Registry
+
+---
+
+## Legacy 鍥犲瓙瀵圭収琛?
+
+| 椤圭洰 | Legacy | EMSuite | 璇存槑 |
 |------|--------|---------|------|
-| EFIE Z | $1/16\pi$ | $1/4\pi$ + 显式 $l/2A$ | 数学等价 |
-| FarField | $1/4\pi$ | $1/4\pi$ | 一致 |
-| Translation | $1/16\\pi^2$ | $-jk/16\\pi^2$ | Legacy 对齐 |\n| SWG Disagg | N/A | $jk\\eta/(4\\pi)$ | VEFIE G 含 $1/(4\\pi)$ |
-| 时间约定 | $e^{-j\omega t}$ | $e^{j\omega t}$ | Z 虚部符号相反 |
-| Area/Length | 隐式包含在因子中 | 显式归一化 | 结果等价 |
+| EFIE Z | $1/16\pi$ | $1/4\pi$ + 鏄惧紡 $l/2A$ | 鏁板绛変环 |
+| FarField | $1/4\pi$ | $1/4\pi$ | 涓€鑷?|
+| Translation | $1/16\\pi^2$ | $-jk/16\\pi^2$ | Legacy 瀵归綈 |\n| SWG Disagg | N/A | $jk\\eta/(4\\pi)$ | VEFIE G 鍚?$1/(4\\pi)$ |
+| 鏃堕棿绾﹀畾 | $e^{-j\omega t}$ | $e^{j\omega t}$ | Z 铏氶儴绗﹀彿鐩稿弽 |
+| Area/Length | 闅愬紡鍖呭惈鍦ㄥ洜瀛愪腑 | 鏄惧紡褰掍竴鍖?| 缁撴灉绛変环 |
 
 ---
 
-## 已知问题
+## 宸茬煡闂
 
-1. ~~**EMSuite vs Legacy ~3 dB 系統偏差**~~ — **已修复** (2026-02-28): 根因为 `edgev̂` 方向反转 + `calc_near_interaction!` 经验因子。修复后 RCS 偏差 < 0.3 dB RMSE。
-2. ~~**MLFMA 远场 ×4 因子 + CFIE 符号**~~ — **已修复** (2026-03-02): EFIE MLFMA 系数误差 65.7% → 0.30%. CFIE MLFMA RMSE 3.45 dB → 0.003 dB.
-3. **VEFIE Mie 偏差**: Legacy 和 EMSuite 均比 Mie 级数低 ~25dB — 属于 Legacy 算法固有问题, 标记为 "Legacy Parity", 物理修正为未来研究课题
-4. **BiCGSTAB 收敛**: 需要预条件才能可靠收敛
-5. **SCFIE 耦合项互易性**: 已修复 — Z_SV/κ = Z_VS^T 在机器精度成立 (2.99e-16)
-6. ~~**EFIE 闭合体内部谐振**: EFIE 用于闭合导体时条件数差 (Direct vs MLFMA 系数差 62%)，应改用 CFIE~~ — **已确认**: 现在 CFIE MLFMA 正确工作 (RMSE 0.003 dB, 7 iterations)
-7. **SWG MLFMA const_factor 符号**: `const_factor = jkη/(4π)` 可能应为 `-jkη/(4π)` (VEFIE `c1 = -jkηκ` 含负号). ~~需要 VEFIE MLFMA 精度测试验证~~ → D3 测试 RMSE=0.0 dB 表明当前实现正确.
-8. **A2 S-EFIE Iterative 未充分收敛**: restart=1000 + Diagonal 预条件下 EFIE (N=14559) RMSE=0.343 dB (> 0.1 dB). 根因: EFIE 条件数大, 对角预条件不足; D2/E2 已证明 GMRES 基础设施正确; A3 MLFMA+近场 LU 预条件可正常收敛
+1. ~~**EMSuite vs Legacy ~3 dB 绯荤当鍋忓樊**~~ 鈥?**宸蹭慨澶?* (2026-02-28): 鏍瑰洜涓?`edgev虃` 鏂瑰悜鍙嶈浆 + `calc_near_interaction!` 缁忛獙鍥犲瓙銆備慨澶嶅悗 RCS 鍋忓樊 < 0.3 dB RMSE銆?
+2. ~~**MLFMA 杩滃満 脳4 鍥犲瓙 + CFIE 绗﹀彿**~~ 鈥?**宸蹭慨澶?* (2026-03-02): EFIE MLFMA 绯绘暟璇樊 65.7% 鈫?0.30%. CFIE MLFMA RMSE 3.45 dB 鈫?0.003 dB.
+3. **VEFIE Mie 鍋忓樊**: Legacy 鍜?EMSuite 鍧囨瘮 Mie 绾ф暟浣?~25dB 鈥?灞炰簬 Legacy 绠楁硶鍥烘湁闂, 鏍囪涓?"Legacy Parity", 鐗╃悊淇涓烘湭鏉ョ爺绌惰棰?
+4. **BiCGSTAB 鏀舵暃**: 闇€瑕侀鏉′欢鎵嶈兘鍙潬鏀舵暃
+5. **SCFIE 鑰﹀悎椤逛簰鏄撴€?*: 宸蹭慨澶?鈥?Z_SV/魏 = Z_VS^T 鍦ㄦ満鍣ㄧ簿搴︽垚绔?(2.99e-16)
+6. ~~**EFIE 闂悎浣撳唴閮ㄨ皭鎸?*: EFIE 鐢ㄤ簬闂悎瀵间綋鏃舵潯浠舵暟宸?(Direct vs MLFMA 绯绘暟宸?62%)锛屽簲鏀圭敤 CFIE~~ 鈥?**宸茬‘璁?*: 鐜板湪 CFIE MLFMA 姝ｇ‘宸ヤ綔 (RMSE 0.003 dB, 7 iterations)
+7. **SWG MLFMA const_factor 绗﹀彿**: `const_factor = jk畏/(4蟺)` 鍙兘搴斾负 `-jk畏/(4蟺)` (VEFIE `c1 = -jk畏魏` 鍚礋鍙?. ~~闇€瑕?VEFIE MLFMA 绮惧害娴嬭瘯楠岃瘉~~ 鈫?D3 娴嬭瘯 RMSE=0.0 dB 琛ㄦ槑褰撳墠瀹炵幇姝ｇ‘.
+8. **A2 S-EFIE Iterative 鏈厖鍒嗘敹鏁?*: restart=1000 + Diagonal 棰勬潯浠朵笅 EFIE (N=14559) RMSE=0.343 dB (> 0.1 dB). 鏍瑰洜: EFIE 鏉′欢鏁板ぇ, 瀵硅棰勬潯浠朵笉瓒? D2/E2 宸茶瘉鏄?GMRES 鍩虹璁炬柦姝ｇ‘; A3 MLFMA+杩戝満 LU 棰勬潯浠跺彲姝ｅ父鏀舵暃
 
 ---
 
-## 更新日志
+## 鏇存柊鏃ュ織
 
-| 日期 | 更新内容 |
+| 鏃ユ湡 | 鏇存柊鍐呭 |
 |------|----------|
-| 2026-07-30 | **Phase 9.1 JuliaFormatter + CHANGELOG** — 对 79 个 `src/` 文件应用 JuliaFormatter (indent=4, margin=100, default style); CHANGELOG.md 全面更新 (Phase 8-12 性能/功能); 179/179 测试通过. commits: `0535576` |
-| 2026-07-29 | **Phase 8.10 VEFIE 对称优化** — 推导 Z_st[j,i]=(κ_t/κ_s)·Z_ts[i,j]; 上三角四面体遍历减少 50% 核函数调用; 动态工作窃取(`Threads.Atomic`) + 全局 SpinLock. VEFIE **41.30s** (快 Legacy 12%); SCFIE **65.67s** (快 Legacy 1.5%). 179/179 通过. commit: `bbf8fdd` |
-| 2026-03-01 | **Phase 8.9 EFIE/CFIE/SCFIE 深度优化** — EFIE 内核重写 (移除@simd+三元分支) → Jet EFIE 20.7s→4.26s (-79%); CFIE 架构修复 (分离汇编+`@.`就地) → Jet CFIE 168s→14.5s (-91%); SCFIE Fss 并行化. 179/179 通过. commits: 8f8dfc3, f520609 |
-| 2026-07-29 | **Phase 10 精度验证补全完成** — 补齐剩余 9 子测试 (D2/E2/D3/E3/A2/B2/A4/B3/C3-MPI). 15/16 通过, A2 条件通过 (GMRES 收敛受限). Bug 修复: CFIE MPI 并行装配 (`cfie_interaction!` 不存在 → EFIE+MFIE 独立交互+线性组合). 179/179 单元测试通过 |
-| 2026-03-04 | **Phase 12 六面体完整支持完成** — PWCHexBasis 3 DOFs/hex + RBF evaluate + 边界面。GQ (hex/quad)、MeshIO (CHEXA)、VEFIE (PWCHex/RBF/Mixed)、SCFIE (RWG+PWCHex/RBF)、激励向量、辐射积分/RCS。179/179 测试通过。+2296 行 |
-| 2026-03-04 | **Phase 11 PWC 基函数扩展完成** — PWCBasis 3 DOFs/tet, VEFIE+PWC 并矢组装, PWC 激励/辐射积分/RCS, SCFIE+RWG+PWC 耦合, Driver.jl 多IE扩展, SimulationConfig 增强, 新增 test_pwc.jl. 139+/139+ 测试全通过 |
-| 2026-02-28 | **Phase 8 性能优化全部完成** — 8 个子阶段 (8.0-8.8), 核心成果: CFIE 组装 -61% (168→65s), CFIE/EFIE 比 8.1×→2.2×, MLFMA OOM 修复, BlockJacobiPreconditioner, Julia 1.12 兼容, 类型稳定性 clean. 详见 `test_results/PERFORMANCE_REPORT.md` |
-| 2026-03-03 | **Phase 8.0 性能基线完成** — EMSuite 7 用例 + Legacy 5 用例计时。关键发现: CFIE 4.61× 慢 (双遍历问题), SCFIE 2.26× 慢, EFIE/VEFIE 持平或更快, LU 求解快 30-40% |
-| 2026-03-03 | **Phase 8 性能优化计划** — 加入性能优化路线: 6 热点 (SpinLock去锁/CFIE合并/MLFMA Z_near/内存/SIMD/类型稳定), 8 步骤, 目标 ≤ Legacy 保底, ≤ 0.5× Legacy 挑战 |
-| 2026-03-03 | **SCFIE Fss 边界修正** — 半基函数边界面积分修正。E1-VSEFIE RMSE 5.3→0.60 dB. D1-SWG VEFIE RMSE 0.95 dB. 138/138 测试通过 |
-| 2026-03-02 | **MLFMA 因子修复×2** — (1) EFIE far-field ×4 因子: 系数误差 65.7%→0.30%, RMSE 3.1→0.028 dB; (2) CFIE MFIE 符号: ∇_{r'}G 给出 +jk k̂ (非 -jk k̂), RMSE 3.45→0.003 dB, GMRES 50→7 迭代 |
-| 2026-03-01 | **Phase 10 计划** — 全方程全路径精度对齐设计完成: 5 方程 (S-EFIE/S-MFIE/S-CFIE/V-EFIE/VS-EFIE) × 4 路径 (Direct/Iterative/MLFMA/MPI), 全球面 1314 点采样, 共 17 子测试项 |
-| 2026-02-28 | **精度效率报告 v2** — 全面基准测试: SEFIE Direct(RMSE 0.29dB), CFIE Direct, SEFIE MLFMA, SCFIE MLFMA(Sphere N=26424). 见 `test_results/ACCURACY_EFFICIENCY_REPORT.md` |
-| 2026-02-27 | 修正验证脚本 benchmark/run_full_benchmark.jl API 错误 (MLFMAOperator 构造/排序透明性) |
-| 2026-02-27 | 新增 MLFMA MatVec 快速测试脚本 (benchmark/quick_matvec_test.jl) |
-| 2026-02-27 | 新增 Direct vs MLFMA 自一致性测试 (benchmark/self_consistency_test.jl) |
-| 2026-02-28 | **测试套件清理完成** — 138/138 全部通过, 修复 6 个预存测试问题 |
-| 2026-02-28 | 修复 `Vector{AbstractBasisFunction}` 类型派发 bug (Aggregation/Disaggregation) |
-| 2026-02-28 | **SCFIE MLFMA 验证完成** — 修复 7+3 个 bug, 近场 1.58e-15, 远场 1.04% |
-| 2026-02-28 | **SCFIE 耦合互易性修复** — Z_SV `(term1-term2)` → `(term1+term2)`, Z_VS c1 符号修正 |
-| 2026-02-28 | 添加 `test/test_scfie.jl` 回归测试 (9 tests all pass) |
-| 2026-02-28 | **~3 dB 偏差根因修复** — `BasisUtilities.jl` 边向量方向 + `EFIE.jl` 近交互面积归一化。Z 矩阵 ratio=1.0, RCS RMSE<0.3 dB |
-| 2026-02-28 | **精度效率报告 v2** — 全面基准测试: SEFIE Direct(RMSE 0.29dB), CFIE Direct, SEFIE MLFMA, SCFIE MLFMA(Sphere N=26424). 见 `test_results/ACCURACY_EFFICIENCY_REPORT.md` |
-| 2026-02-27 | 初始化进度文件, 从 copilot-instructions.md 迁移 |
-| 2026-01-xx | VEFIE MLFMA 验证完成 (Rel Err 0.04%) |
-| 2026-01-xx | SCFIE Direct 验证完成 (VSIE Plate) |
-| 2026-01-xx | MPI/Threading 并行验证通过 |
-| 2025-12-xx | Surface IE (EFIE/MFIE/CFIE) 全面验证完成 |
-| 2025-12-xx | Legacy 因子对齐完成, 移除经验常数 |
+| 2026-03-06 | **Phase 13.3 V-EFIE MPI 骞惰瑁呴厤瀹屾垚** 鉁?鈥?鏂板 `VolumeAssembly.jl` (303 lines, 鏃?module 灏佽, Allreduce 绛栫暐). 淇: (1) Julia dispatch 璺ㄦā鍧椾笉鍙 (鍒犻櫎 `module VolumeAssemblyMPI`); (2) `BasisFunctions.jl` 琛ュ嚭鍙?`get_triangles_info`; (3) 瀛楃缂栫爜鎹熷潖 魏鈫掗瓘 淇. 姝ｇ‘鎬? Tetra.nas N=3201, Z[1,1]=4.747e6-4.716e6im 鍦?1/2/4 杩涚▼涓嬪畬鍏ㄧ浉鍚? 鎬ц兘: 1P 10.95s 鈫?2P 8.86s (1.24脳). commit: `1730b71` |
+| 2026-03-0X | **Phase 13.2 Option C 璇勪及瀹屾垚** 鉁?鈥?鏂板 bench_pwc_rbf_performance.jl (177 lines)銆傚叧閿彂鐜? PWC+VEFIE 12.62s (3.16脳 faster), 浣?DOF +38% (21834 vs 15828), per-DOF虏 鏁堢巼浠?0.17脳; SCFIE(RWG+PWC) 33.26s vs (RWG+SWG) 63.55s (1.91脳 faster); RBF 浠呮敮鎸佸叚闈綋缃戞牸 (涓嶉€傜敤鍥涢潰浣?. **缁撹**: PWC 涓嶉€傚悎閫氱敤浼樺寲 (姹傝В鍣ㄤ唬浠烽珮), SWG 淇濇寔鏈€浣冲钩琛? **鎺ㄨ崘**: 杞悜 Option A (MPI 骞惰鍖? 棰勬湡 3.5脳 @ 4 杩涚▼). 璇﹁ [OPTION_C_PWC_RBF_EVALUATION.md](.github/OPTION_C_PWC_RBF_EVALUATION.md). commit: `bc2121d` |
+| 2026-03-01 | **Phase 13.1 FastExp 浼樺寲瀹屾垚** 鉁?鈥?鏂板 FastExp.jl (10000 鏉＄洰绾挎€ф彃鍊艰〃), VEFIE.jl 闆嗘垚, @fastmath/@inbounds/unsafe_trunc 浼樺寲銆俈-EFIE 66.24s鈫?9.05s (1.70脳 vs baseline, **1.18脳 vs Legacy** 鉁?, SCFIE 96.94s鈫?3.81s (1.52脳 vs baseline, **1.04脳 vs Legacy** 鉁?銆俆hread-local buffer 澶辫触鏁欒: -63% 鎬ц兘閫€姝?(16GB 鍐呭瓨鐖嗙偢)銆傝窛绂?2脳 鐩爣: V-EFIE 缂哄彛 70%, SCFIE 缂哄彛 92%銆傝瑙?[PHASE_13.1_SUMMARY.md](.github/PHASE_13.1_SUMMARY.md). commits: `bfb24f6`, `0488e28`, `2c2ea75` |
+| 2026-03-01 | **Phase 13.1 FastExp 鏌ユ壘琛ㄤ紭鍖栧畬鎴?* 鈥?鏂板 FastExp.jl (10000 鏉＄洰绾挎€ф彃鍊艰〃, 瑕嗙洊 20位), VEFIE.jl 闆嗘垚 (struct 瀛楁 + 涓ゅ璋冪敤鐐?, 浣跨敤 @fastmath/@inbounds/unsafe_trunc 浼樺寲鎬ц兘銆傛€ц兘缁撴灉 (plate_and_metal_1dot2GHz, 4 threads): V-EFIE 66.24s鈫?9.05s (1.70脳 vs baseline, 1.18脳 vs Legacy 46.13s 鉁?, SCFIE 96.94s鈫?3.81s (1.52脳 vs baseline, 1.04脳 vs Legacy 66.68s 鉁?. 绮惧害楠岃瘉: 鏈€澶х浉瀵硅宸?< 0.002%. commit: `bfb24f6` |
+| 2026-07-30 | **Phase 9.1 浠ｇ爜璐ㄩ噺** 鈥?JuliaFormatter 鏍煎紡鍖?79 涓?`src/` 鏂囦欢; CHANGELOG.md 鍏ㄩ潰鏇存柊; compat 璇硶瑙勮寖鍖?+ julia="1.10"; 瑕嗙洊鐜囪剼鏈?(`scripts/check_coverage.jl`); 鍙戝竷娓呭崟 (`RELEASE_CHECKLIST.md`). 179/179 閫氳繃. commits: `0535576`, `b189a87`, `9d3e671` |
+| 2026-07-29 | **Phase 8.10 VEFIE 瀵圭О浼樺寲** 鈥?Z_st[j,i]=(魏_t/魏_s)路Z_ts[i,j] 鎺ㄥ; 涓婁笁瑙掑洓闈綋閬嶅巻; VEFIE **41.30s** (蹇?Legacy 12%); SCFIE **65.67s** (蹇?Legacy 1.5%). commit: `bbf8fdd` |
+| 2026-03-01 | **Phase 8.9 EFIE/CFIE/SCFIE 娣卞害浼樺寲** 鈥?EFIE 鍐呮牳閲嶅啓 (绉婚櫎@simd+涓夊厓鍒嗘敮) 鈫?Jet EFIE 20.7s鈫?.26s (-79%); CFIE 鏋舵瀯淇 (鍒嗙姹囩紪+`@.`灏卞湴) 鈫?Jet CFIE 168s鈫?4.5s (-91%); SCFIE Fss 骞惰鍖? 179/179 閫氳繃. commits: 8f8dfc3, f520609 |
+| 2026-07-29 | **Phase 10 绮惧害楠岃瘉琛ュ叏瀹屾垚** 鈥?琛ラ綈鍓╀綑 9 瀛愭祴璇?(D2/E2/D3/E3/A2/B2/A4/B3/C3-MPI). 15/16 閫氳繃, A2 鏉′欢閫氳繃 (GMRES 鏀舵暃鍙楅檺). Bug 淇: CFIE MPI 骞惰瑁呴厤 (`cfie_interaction!` 涓嶅瓨鍦?鈫?EFIE+MFIE 鐙珛浜や簰+绾挎€х粍鍚?. 179/179 鍗曞厓娴嬭瘯閫氳繃 |
+| 2026-03-04 | **Phase 12 鍏潰浣撳畬鏁存敮鎸佸畬鎴?* 鈥?PWCHexBasis 3 DOFs/hex + RBF evaluate + 杈圭晫闈€侴Q (hex/quad)銆丮eshIO (CHEXA)銆乂EFIE (PWCHex/RBF/Mixed)銆丼CFIE (RWG+PWCHex/RBF)銆佹縺鍔卞悜閲忋€佽緪灏勭Н鍒?RCS銆?79/179 娴嬭瘯閫氳繃銆?2296 琛?|
+| 2026-03-04 | **Phase 11 PWC 鍩哄嚱鏁版墿灞曞畬鎴?* 鈥?PWCBasis 3 DOFs/tet, VEFIE+PWC 骞剁煝缁勮, PWC 婵€鍔?杈愬皠绉垎/RCS, SCFIE+RWG+PWC 鑰﹀悎, Driver.jl 澶欼E鎵╁睍, SimulationConfig 澧炲己, 鏂板 test_pwc.jl. 139+/139+ 娴嬭瘯鍏ㄩ€氳繃 |
+| 2026-02-28 | **Phase 8 鎬ц兘浼樺寲鍏ㄩ儴瀹屾垚** 鈥?8 涓瓙闃舵 (8.0-8.8), 鏍稿績鎴愭灉: CFIE 缁勮 -61% (168鈫?5s), CFIE/EFIE 姣?8.1脳鈫?.2脳, MLFMA OOM 淇, BlockJacobiPreconditioner, Julia 1.12 鍏煎, 绫诲瀷绋冲畾鎬?clean. 璇﹁ `test_results/PERFORMANCE_REPORT.md` |
+| 2026-03-03 | **Phase 8.0 鎬ц兘鍩虹嚎瀹屾垚** 鈥?EMSuite 7 鐢ㄤ緥 + Legacy 5 鐢ㄤ緥璁℃椂銆傚叧閿彂鐜? CFIE 4.61脳 鎱?(鍙岄亶鍘嗛棶棰?, SCFIE 2.26脳 鎱? EFIE/VEFIE 鎸佸钩鎴栨洿蹇? LU 姹傝В蹇?30-40% |
+| 2026-03-03 | **Phase 8 鎬ц兘浼樺寲璁″垝** 鈥?鍔犲叆鎬ц兘浼樺寲璺嚎: 6 鐑偣 (SpinLock鍘婚攣/CFIE鍚堝苟/MLFMA Z_near/鍐呭瓨/SIMD/绫诲瀷绋冲畾), 8 姝ラ, 鐩爣 鈮?Legacy 淇濆簳, 鈮?0.5脳 Legacy 鎸戞垬 |
+| 2026-03-03 | **SCFIE Fss 杈圭晫淇** 鈥?鍗婂熀鍑芥暟杈圭晫闈㈢Н鍒嗕慨姝ｃ€侲1-VSEFIE RMSE 5.3鈫?.60 dB. D1-SWG VEFIE RMSE 0.95 dB. 138/138 娴嬭瘯閫氳繃 |
+| 2026-03-02 | **MLFMA 鍥犲瓙淇脳2** 鈥?(1) EFIE far-field 脳4 鍥犲瓙: 绯绘暟璇樊 65.7%鈫?.30%, RMSE 3.1鈫?.028 dB; (2) CFIE MFIE 绗﹀彿: 鈭嘷{r'}G 缁欏嚭 +jk k虃 (闈?-jk k虃), RMSE 3.45鈫?.003 dB, GMRES 50鈫? 杩唬 |
+| 2026-03-01 | **Phase 10 璁″垝** 鈥?鍏ㄦ柟绋嬪叏璺緞绮惧害瀵归綈璁捐瀹屾垚: 5 鏂圭▼ (S-EFIE/S-MFIE/S-CFIE/V-EFIE/VS-EFIE) 脳 4 璺緞 (Direct/Iterative/MLFMA/MPI), 鍏ㄧ悆闈?1314 鐐归噰鏍? 鍏?17 瀛愭祴璇曢」 |
+| 2026-02-28 | **绮惧害鏁堢巼鎶ュ憡 v2** 鈥?鍏ㄩ潰鍩哄噯娴嬭瘯: SEFIE Direct(RMSE 0.29dB), CFIE Direct, SEFIE MLFMA, SCFIE MLFMA(Sphere N=26424). 瑙?`test_results/ACCURACY_EFFICIENCY_REPORT.md` |
+| 2026-02-27 | 淇楠岃瘉鑴氭湰 benchmark/run_full_benchmark.jl API 閿欒 (MLFMAOperator 鏋勯€?鎺掑簭閫忔槑鎬? |
+| 2026-02-27 | 鏂板 MLFMA MatVec 蹇€熸祴璇曡剼鏈?(benchmark/quick_matvec_test.jl) |
+| 2026-02-27 | 鏂板 Direct vs MLFMA 鑷竴鑷存€ф祴璇?(benchmark/self_consistency_test.jl) |
+| 2026-02-28 | **娴嬭瘯濂椾欢娓呯悊瀹屾垚** 鈥?138/138 鍏ㄩ儴閫氳繃, 淇 6 涓瀛樻祴璇曢棶棰?|
+| 2026-02-28 | 淇 `Vector{AbstractBasisFunction}` 绫诲瀷娲惧彂 bug (Aggregation/Disaggregation) |
+| 2026-02-28 | **SCFIE MLFMA 楠岃瘉瀹屾垚** 鈥?淇 7+3 涓?bug, 杩戝満 1.58e-15, 杩滃満 1.04% |
+| 2026-02-28 | **SCFIE 鑰﹀悎浜掓槗鎬т慨澶?* 鈥?Z_SV `(term1-term2)` 鈫?`(term1+term2)`, Z_VS c1 绗﹀彿淇 |
+| 2026-02-28 | 娣诲姞 `test/test_scfie.jl` 鍥炲綊娴嬭瘯 (9 tests all pass) |
+| 2026-02-28 | **~3 dB 鍋忓樊鏍瑰洜淇** 鈥?`BasisUtilities.jl` 杈瑰悜閲忔柟鍚?+ `EFIE.jl` 杩戜氦浜掗潰绉綊涓€鍖栥€俍 鐭╅樀 ratio=1.0, RCS RMSE<0.3 dB |
+| 2026-02-28 | **绮惧害鏁堢巼鎶ュ憡 v2** 鈥?鍏ㄩ潰鍩哄噯娴嬭瘯: SEFIE Direct(RMSE 0.29dB), CFIE Direct, SEFIE MLFMA, SCFIE MLFMA(Sphere N=26424). 瑙?`test_results/ACCURACY_EFFICIENCY_REPORT.md` |
+| 2026-02-27 | 鍒濆鍖栬繘搴︽枃浠? 浠?copilot-instructions.md 杩佺Щ |
+| 2026-01-xx | VEFIE MLFMA 楠岃瘉瀹屾垚 (Rel Err 0.04%) |
+| 2026-01-xx | SCFIE Direct 楠岃瘉瀹屾垚 (VSIE Plate) |
+| 2026-01-xx | MPI/Threading 骞惰楠岃瘉閫氳繃 |
+| 2025-12-xx | Surface IE (EFIE/MFIE/CFIE) 鍏ㄩ潰楠岃瘉瀹屾垚 |
+| 2025-12-xx | Legacy 鍥犲瓙瀵归綈瀹屾垚, 绉婚櫎缁忛獙甯告暟 |
