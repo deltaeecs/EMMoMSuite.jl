@@ -3,6 +3,7 @@ module MLFMAOperatorModule
 using LinearAlgebra
 using StaticArrays
 using SparseArrays
+using MPI
 using ....CoreModule
 using ....Geometry
 using ....BasisFunctions
@@ -30,6 +31,7 @@ using ....IntegralEquations.SCFIEModule:
     SCFIE, scfie_coupling_interaction, assemble_fss_boundary_correction_sparse
 
 export MLFMAOperator, mul!, get_leaf_intervals
+export MLFMAOperatorMPI
 
 """
     MLFMAOperator
@@ -209,7 +211,8 @@ function assemble_near_field(
     offsets::Vector{Int},
     octree,
     sorted_ids,
-    inv_sorted_ids,
+    inv_sorted_ids;
+    cube_filter::Function = i -> true,
 )
     N = offsets[end]
     leaf_level = octree.levels[octree.nLevels]
@@ -364,6 +367,11 @@ function assemble_near_field(
 
     Threads.@threads for i_cube = 1:n_cubes
         tid = Threads.threadid()
+
+        # MPI rank filter: skip cubes not assigned to this rank
+        if !cube_filter(i_cube)
+            continue
+        end
 
         # Progress update (every 200 cubes to reduce overhead)
         c = Threads.atomic_add!(counter, 1)
@@ -679,4 +687,199 @@ function distribute_term_nosign!(
     end
 end
 
+# ==============================================================================
+# Phase 14.6: Distributed MLFMA (MPI)
+# ==============================================================================
+
+"""
+    MLFMAOperatorMPI{FT,CT}
+
+MPI-distributed version of `MLFMAOperator`.
+
+**Near-field** (`Z_near`) is partitioned across ranks: each rank `r` assembles
+and stores only the contributions from leaf cubes where
+`(i_cube - 1) % n_procs == r`.
+
+**Far-field** is computed SPMD-style: every rank runs the same
+aggregate → translate → disaggregate pipeline (already O(N log N) + threaded),
+so no extra communication is needed for the far-field.
+
+**`mul!(y, A, x)`**:
+1. Each rank computes `y_partial = Z_near_local * x`.
+2. `MPI.Allreduce!(y_partial, +, comm)` → full near-field product on all ranks.
+3. All ranks compute far-field SPMD → `y += y_far`.
+"""
+struct MLFMAOperatorMPI{FT,CT} <: AbstractIntegralOperator
+    octree::OctreeInfo
+    bases::Vector{AbstractBasisFunction}
+    basis_offsets::Vector{Int}
+    Z_near_local::SparseMatrixCSC{CT,Int}   # This rank's portion of Z_near
+    operator::AbstractIntegralOperator
+    sorted_ids::Vector{Int}
+    inv_sorted_ids::Vector{Int}
+    comm::MPI.Comm
 end
+
+Base.eltype(op::MLFMAOperatorMPI{FT,CT}) where {FT,CT} = CT
+function Base.size(op::MLFMAOperatorMPI)
+    N = op.basis_offsets[end]
+    return (N, N)
+end
+Base.size(op::MLFMAOperatorMPI, i::Int) = size(op)[i]
+
+function Base.:*(A::MLFMAOperatorMPI, x::AbstractVector)
+    y = similar(x)
+    mul!(y, A, x)
+    return y
+end
+
+"""
+    MLFMAOperatorMPI(operator, bases, leafCubeEdgel; comm=MPI.COMM_WORLD)
+
+Construct a distributed MLFMA operator.  Each MPI rank independently:
+1. Builds the octree (identical on all ranks — deterministic).
+2. Assembles only its assigned leaf cubes' near-field entries.
+3. Stores the resulting local sparse matrix `Z_near_local`.
+
+# Arguments
+- `operator` : EFIE / MFIE / CFIE / VEFIE / SCFIE
+- `bases`    : `AbstractBasisFunction` or `Vector{<:AbstractBasisFunction}`
+- `leafCubeEdgel` : target leaf-cube edge length (same as serial `MLFMAOperator`)
+- `comm`     : MPI communicator (default `MPI.COMM_WORLD`)
+"""
+function MLFMAOperatorMPI(
+    operator::AbstractIntegralOperator,
+    basis::AbstractBasisFunction,
+    leafCubeEdgel::Float64;
+    comm::MPI.Comm = MPI.COMM_WORLD,
+)
+    return MLFMAOperatorMPI(operator, [basis], leafCubeEdgel; comm = comm)
+end
+
+function MLFMAOperatorMPI(
+    operator::AbstractIntegralOperator,
+    bases::Vector{<:AbstractBasisFunction},
+    leafCubeEdgel::Float64;
+    comm::MPI.Comm = MPI.COMM_WORLD,
+)
+    rank     = MPI.Comm_rank(comm)
+    n_procs  = MPI.Comm_size(comm)
+
+    # ── 1. Build Octree (same on every rank) ──────────────────────────────────
+    bf_centers_list = [reduce(hcat, [bf.center for bf in b.functions]) for b in bases]
+    bf_centers      = reduce(hcat, bf_centers_list)
+
+    lambda = 299792458.0 / operator.freq
+    octree, sorted_ids = build_octree(bf_centers, leafCubeEdgel; λ = lambda)
+
+    N = size(bf_centers, 2)
+    inv_sorted_ids = zeros(Int, N)
+    for i = 1:N
+        inv_sorted_ids[sorted_ids[i]] = i
+    end
+
+    basis_offsets   = cumsum([num_basis(b) for b in bases])
+    abstract_bases  = Vector{AbstractBasisFunction}(bases)
+
+    # ── 2. Assemble Near-Field (distributed) ──────────────────────────────────
+    rank_filter = i_cube -> (i_cube - 1) % n_procs == rank
+
+    rank == 0 && println("MLFMAOperatorMPI: rank $rank / $n_procs — assembling local Z_near...")
+    Z_near_local = assemble_near_field(
+        operator,
+        abstract_bases,
+        basis_offsets,
+        octree,
+        sorted_ids,
+        inv_sorted_ids;
+        cube_filter = rank_filter,
+    )
+
+    # ── 3. FSS boundary correction (SCFIE only) — all ranks add their portion ─
+    if operator isa SCFIE && length(bases) >= 2
+        surf_basis = nothing
+        vol_basis  = nothing
+        for b in bases
+            if b isa RWGBasis
+                surf_basis = b
+            elseif b isa SWGBasis
+                vol_basis = b
+            end
+        end
+        if surf_basis !== nothing && vol_basis !== nothing
+            # FSS correction is typically small (interface DOFs only).
+            # Only rank 0 adds it to its local Z_near; after Allreduce the
+            # contribution is correctly included in the global product.
+            if rank == 0
+                Z_fss = assemble_fss_boundary_correction_sparse(operator, surf_basis, vol_basis)
+                Z_near_local = Z_near_local + Z_fss
+            end
+        end
+    end
+
+    FT = eltype(bases[1].mesh.node)
+    CT = eltype(Z_near_local)
+
+    return MLFMAOperatorMPI{FT,CT}(
+        octree,
+        abstract_bases,
+        basis_offsets,
+        Z_near_local,
+        operator,
+        sorted_ids,
+        inv_sorted_ids,
+        comm,
+    )
+end
+
+"""
+    mul!(y, A::MLFMAOperatorMPI, x)
+
+Compute `y = A * x` using distributed MLFMA:
+1. Each rank computes `y_near = Z_near_local * x` (partial near-field).
+2. `MPI.Allreduce!(y_near, +, comm)` sums contributions from all ranks.
+3. All ranks compute far-field identically (SPMD) and add to `y`.
+"""
+function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperatorMPI, x::AbstractVector)
+    CT = eltype(A)
+    N  = length(y)
+
+    # ── Step 1: Distributed Near-Field ────────────────────────────────────────
+    y_near = zeros(CT, N)
+    mul!(y_near, A.Z_near_local, x)
+    MPI.Allreduce!(y_near, +, A.comm)
+
+    # ── Step 2: Far-Field (SPMD — mirrors serial MLFMAOperator.mul! exactly) ──
+
+    # 2.1 Aggregation (Upward Pass)
+    aggregate!(A.octree, A.bases, A.basis_offsets, A.operator, x, A.sorted_ids)
+
+    # 2.2 Translation (Horizontal Pass)
+    for levelID = 2:A.octree.nLevels
+        level = A.octree.levels[levelID]
+        translate!(level)
+    end
+
+    # 2.3 Disaggregation (Downward Pass)
+    for levelID = 2:(A.octree.nLevels - 1)
+        parentLevel = A.octree.levels[levelID]
+        childLevel  = A.octree.levels[levelID + 1]
+        disaggregate_downward!(parentLevel, childLevel)
+    end
+
+    # 2.4 Final Collection (Leaf Level)
+    y_far     = zeros(CT, N)
+    leafLevel = A.octree.levels[A.octree.nLevels]
+    disaggregate_leaf!(leafLevel, A.bases, A.basis_offsets, A.operator, y_far, A.sorted_ids)
+
+    if hasfield(typeof(A.operator), :factor)
+        y_far .*= (4 * A.operator.factor)
+    end
+
+    # ── Combine ───────────────────────────────────────────────────────────────
+    y .= y_near .+ y_far
+
+    return y
+end
+
+end # module MLFMAOperatorModule
