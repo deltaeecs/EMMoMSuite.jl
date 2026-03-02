@@ -24,4 +24,5 @@ using Test
     include("test_workflow.jl")
     include("test_scfie.jl")
     include("test_pwc.jl")
+    include("test_hex_rbf.jl")
 end
