@@ -69,6 +69,7 @@ export AbstractSolver, solve!
 export AbstractSource, incident_field, excitation_vector, PlaneWave, DeltaGapSource
 export EMSuiteConfig, load_config
 export SimulationConfig, GeometryConfig, BasisConfig, ExcitationConfig, SolverConfig, OutputConfig
+export SimulationResult
 
 # Re-export Utilities symbols
 using .Utilities
