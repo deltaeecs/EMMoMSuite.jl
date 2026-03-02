@@ -3,7 +3,7 @@ using EMSuite
 using EMSuite.Geometry
 using EMSuite.BasisFunctions
 using EMSuite.IntegralEquations
-using EMSuite.IntegralEquations.SCFIEModule: scfie_coupling_interaction
+using EMSuite.IntegralEquations.SCFIEModule: scfie_coupling_interaction, scfie_sv_only_interaction
 using EMSuite.FastAlgorithms.MLFMA
 using LinearAlgebra
 using SparseArrays
@@ -52,6 +52,35 @@ using SparseArrays
             @test recip_err < 1e-14
         end
         
+        @testset "Z_VS kappa_inv derivation" begin
+            # I-7 resolution: scfie_sv_only_interaction returns Z_sv with κ embedded
+            # (c1_sv = im*ω*μ₀*κ). To obtain Z_VS, divide by κ:
+            #   Z_vs[n,m] = Z_sv[m,n] / κ   (reciprocity identity)
+            # This MUST equal the Z_vs block from scfie_coupling_interaction.
+            scfie = SCFIE(freq, perms; alpha=0.5)
+            tris   = get_triangles_info(surf_mesh, basis_surf)
+            tetras = get_tetrahedra_info(vol_mesh, basis_vol, perms)
+
+            tri = tris[1]
+            tet = tetras[1]
+
+            # Full interaction (reference)
+            Z_sv_full, Z_vs_full = scfie_coupling_interaction(scfie, tri, tet)
+
+            # Optimized path: only Z_sv, then derive Z_vs via kappa_inv
+            Z_sv_opt = scfie_sv_only_interaction(scfie, tri, tet)
+            κ      = tet.κ
+            κ_inv  = iszero(κ) ? zero(eltype(Z_sv_opt)) : one(eltype(Z_sv_opt)) / κ
+            # Z_vs[n,m] = Z_sv[m,n] / κ  →  Z_vs_derived[n,m] = Z_sv_opt[m,n] * κ_inv
+            Z_vs_derived = transpose(Z_sv_opt) .* κ_inv  # 4×3
+
+            # Z_sv must match exactly
+            @test norm(Z_sv_opt - Z_sv_full) / norm(Z_sv_full) < 1e-14
+
+            # Z_vs derived must match full Z_vs
+            @test norm(Z_vs_derived - Z_vs_full) / norm(Z_vs_full) < 1e-14
+        end
+
         @testset "SCFIE Direct assembly" begin
             scfie = SCFIE(freq, perms; alpha=0.5)
             Z = assemble_impedance_matrix(scfie, basis_surf, basis_vol)
