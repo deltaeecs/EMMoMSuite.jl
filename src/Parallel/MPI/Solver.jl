@@ -1,85 +1,59 @@
 # Solver.jl
-# Phase 14.3: 分布式 GMRES via SPMD + MPIMatrix 列分区 mul!
+# Phase 15.4 Method C: 分布式 Krylov GMRES（消除 I-3）
 #
-# 策略 (SPMD — Single Program Multiple Data):
-#   - 所有 MPI 进程同步执行相同的 GMRES 迭代树
-#   - Krylov 向量 (x, b, Arnoldi 基向量) 在每个进程上完全复制 (长度 N)
-#   - mul!(y, A::MPIMatrix, x) 内部用 Allreduce 使所有进程得到相同的 y
-#   - dot / norm 操作对本地 Vector 直接计算 (各进程结果相同，无需 MPI 通信)
-#   - 内存节省来自矩阵 A：每个进程只存 N×(N/P)，而不是 N×N
-#
-# 无需修改 IterativeSolvers.jl 内部; 只需正确的 LinearAlgebra dispatch 即可。
-
-import IterativeSolvers
+# 策略 (Distributed Krylov):
+#   - Krylov 基向量按行分区：每进程仅存 N/P 行（见 DistributedGMRES.jl）
+#   - mul!(y, A::MPIMatrix, x) 使用现有列分区实现（内含 Allreduce）
+#   - dot/norm 通过 MPI.Allreduce(scalar) 计算（每步 j 次）
+#   - 内存：O(N/P × restart × CT) per process（vs 旧方案 O(N × restart × CT × P)）
+#   - 公共 API (mpi_gmres! / mpi_gmres) 签名不变
 
 """
     mpi_gmres!(x, A::MPIMatrix, b; restart, maxiter, reltol, abstol, verbose, log)
 
-SPMD 分布式 GMRES 求解 `A*x = b`，`A` 为列分区 `MPIMatrix`。
+分布式 Krylov GMRES 求解 `A*x = b`，`A` 为列分区 `MPIMatrix`。
 
-**工作原理**:
-- 所有 MPI 进程同步运行相同的 GMRES 迭代树
-- `mul!(y, A, x)` 对列分区矩阵做局部乘积后 `MPI.Allreduce!`，所有进程获得相同 `y`
-- Krylov 向量在所有进程上完全复制；输入 `x`, `b` 请为普通 `Vector`
-- 收敛后所有进程持有相同的解向量 `x`
+**工作原理** (Phase 15.4 Method C):
+- Krylov 基向量 **行分区存储**：每进程持有 `N/P` 行，消除 I-3 全量复制内存
+- `mul!(y, A, x)` 对列分区矩阵做局部乘积后 `MPI.Allreduce!`（与旧版相同）
+- Modified Gram-Schmidt 内积通过 `MPI.Allreduce(scalar)` 完成
+- 收敛后所有进程持有相同的完整解向量 `x`
 
 **参数**:
-- `x`: 初始猜测 (将被原地更新); 普通 `Vector{CT}`
+- `x`: 初始猜测 (原地更新); 普通 `Vector{CT}`，长度 N
 - `A`: 列分区 `MPIMatrix`
-- `b`: 右端向量; 普通 `Vector{CT}`
-- `restart`: Krylov 子空间大小 (默认 30)
-- `maxiter`: 最大迭代次数 (默认 size(A,2))
+- `b`: 右端向量; 普通 `Vector{CT}`，长度 N
+- `restart`: Krylov 子空间大小 (默认 min(30, N))
+- `maxiter`: 最大迭代次数 (默认 N)
 - `reltol`: 相对收敛容差 (默认 1e-6)
 - `abstol`: 绝对收敛容差 (默认 0)
-- `verbose`: 是否在 rank 0 打印迭代信息 (默认 false)
-- `log`: 是否返回收敛历史 (默认 false)
+- `verbose`: rank 0 打印迭代信息 (默认 false)
+- `log`: 返回 `(x, history)` 而非仅 `x` (默认 false)
 
 **返回**: `log=false` 时返回 `x`; `log=true` 时返回 `(x, history)`
 """
 function mpi_gmres!(
-    x::AbstractVector,
-    A::MPIMatrix,
-    b::AbstractVector;
-    restart::Int   = min(30, size(A, 2)),
-    maxiter::Int   = size(A, 2),
-    reltol::Real   = 1e-6,
-    abstol::Real   = 0,
-    verbose::Bool  = false,
-    log::Bool      = false,
+    x       :: AbstractVector,
+    A       :: MPIMatrix,
+    b       :: AbstractVector;
+    restart :: Int  = min(30, size(A, 2)),
+    maxiter :: Int  = size(A, 2),
+    reltol  :: Real = 1e-6,
+    abstol  :: Real = 0,
+    verbose :: Bool = false,
+    log     :: Bool = false,
     kwargs...,
 )
-    comm = A.comm
-    rank = MPI.Comm_rank(comm)
-    np   = MPI.Comm_size(comm)
-
-    if rank == 0 && verbose
-        N = size(A, 1)
-        println("MPI GMRES: N=$N, restart=$restart, maxiter=$maxiter, reltol=$reltol, procs=$np, threads=$(Threads.nthreads())")
-        flush(stdout)
-    end
-
-    # 所有进程同步执行 GMRES;  mul!(Ax, A, x) 内部走 Allreduce 分支
-    result = IterativeSolvers.gmres!(
+    return distributed_gmres!(
         x, A, b;
-        restart        = restart,
-        maxiter        = maxiter,
-        reltol         = reltol,
-        abstol         = abstol,
-        log            = log,
-        verbose        = false,   # 关闭 IterativeSolvers 内置日志（所有 rank 都会打印）
+        restart    = restart,
+        maxiter    = maxiter,
+        reltol     = reltol,
+        abstol     = abstol,
+        verbose    = verbose,
+        log        = log,
         kwargs...,
     )
-
-    # 手动打印收敛结果（仅 rank 0）
-    if rank == 0 && verbose
-        if log
-            history = result[2]
-            println("GMRES converged: $(history.isconverged), iters=$(history.mvps), final_resnorm=$(last(history[:resnorm]))")
-        end
-        flush(stdout)
-    end
-
-    return result
 end
 
 """
