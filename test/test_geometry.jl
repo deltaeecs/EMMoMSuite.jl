@@ -109,4 +109,55 @@ CTRIA3, 1, 100, 1, 2, 3
             rm(path, force = true)
         end
     end
+
+    @testset "GaussQuadrature - Hexahedron and Quadrangle" begin
+        using EMSuite.Geometry: GaussQuadratureInfo, gaussQuadratureHexa1D
+
+        # Test Hexahedron GQ (8 = 2³ points)
+        gq_hexa = GaussQuadratureInfo(:Hexahedron, 8)
+        @test length(gq_hexa.weight) == 8
+        @test isapprox(sum(gq_hexa.weight), 1.0; rtol=1e-10)
+        @test size(gq_hexa.coordinate, 1) == 8  # 8 shape functions
+        @test size(gq_hexa.coordinate, 2) == 8  # 8 points
+
+        # Test Hexahedron GQ (1 = 1³ point)
+        gq_hexa1 = GaussQuadratureInfo(:Hexahedron, 1)
+        @test length(gq_hexa1.weight) == 1
+        @test isapprox(sum(gq_hexa1.weight), 1.0; rtol=1e-10)
+
+        # Test Quadrangle GQ (4 = 2² points)
+        gq_quad = GaussQuadratureInfo(:Quadrangle, 4)
+        @test length(gq_quad.weight) == 4
+        @test isapprox(sum(gq_quad.weight), 1.0; rtol=1e-10)
+        @test size(gq_quad.coordinate, 1) == 4  # 4 shape functions
+
+        # Test Quadrangle GQ (1 point)
+        gq_quad1 = GaussQuadratureInfo(:Quadrangle, 1)
+        @test length(gq_quad1.weight) == 1
+        @test isapprox(sum(gq_quad1.weight), 1.0; rtol=1e-10)
+
+        # Test gaussQuadratureHexa1D
+        x, w = gaussQuadratureHexa1D(2)
+        @test length(x) == 2
+        @test length(w) == 2
+        @test all(0.0 .<= x .<= 1.0)
+        @test isapprox(sum(w), 1.0; rtol=1e-10)
+
+        # Test error path
+        @test_throws ErrorException GaussQuadratureInfo(:InvalidGeometry, 3)
+    end
+
+    @testset "GaussQuadrature - MeshTypes" begin
+        using EMSuite.Geometry: TriangleMesh, TetrahedraMesh
+        # TetrahedraMesh construction
+        nodes_tet = [0.0 1.0 0.0 0.0;
+                     0.0 0.0 1.0 0.0;
+                     0.0 0.0 0.0 1.0]
+        elements_tet = reshape([1; 2; 3; 4], 4, 1)
+        tags_tet = [1]
+        mesh_tet = TetrahedraMesh(1, nodes_tet, elements_tet, tags_tet)
+        @test num_elements(mesh_tet) == 1
+        @test num_vertices(mesh_tet) == 4
+        @test dimension(mesh_tet) == 3
+    end
 end
