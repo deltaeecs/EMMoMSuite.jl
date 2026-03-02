@@ -1,4 +1,33 @@
-﻿# EMSuite 閲嶆瀯杩涘害
+﻿# EMSuite Phase 9 覆盖率提升进度 (追加节)
+
+> 最后更新: 2026-03-XX
+
+## Phase 9 测试覆盖率提升 → 进行中
+
+### Round 4 工作成果
+
+新增/扩展测试 (commit ca3fca5, 2161daa):
+- test_hex_rbf.jl (NEW, 67 tests): HexahedraMesh+PWCHexBasis+RBFBasis
+- test_geometry.jl: 33->60 tests (NAS CHEXA/CTETRA/MSH tetra)
+- test_mpi_array_utils.jl: 24->47 tests
+- test_io.jl: VTK tetra + HDF5 save_result
+- 总计: 449/449 pass
+
+源码 Bug 修复 (commit 99260a0, 2161daa):
+- VEFIE/SCFIE/Excitation/RadiationIntegral: gq_hex->gq_quad coordinates
+- MeshIO.jl: _parse_chexa CHEXA 续行修复 (节点7,8丢失)
+- GmshIO.jl: 添加 type 4 (tetra) + type 5 (hexa) 支持
+- indices.jl: indice2rank NTuple{1} in 语义修复
+
+Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
+- GmshIO.jl: 文档+版本检查@warn+混合网格逻辑
+- VEFIE.jl _rbf_far_kernel!: 预计算 freeVns 减少冗余分配
+
+覆盖率历史: Round1=57.22% Round2=64.37% Round3=65.69% Round4=测量中
+
+---
+
+# EMSuite 閲嶆瀯杩涘害
 
 > 鏈€鍚庢洿鏂? 2026-03-06
 
