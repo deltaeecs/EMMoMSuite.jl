@@ -1,79 +1,82 @@
 # Quick Start
 
-This guide will walk you through a simple simulation: calculating the Radar Cross Section (RCS) of a Perfect Electric Conductor (PEC) plate.
+本指南演示如何用 EMSuite 计算 PEC 金属板的双站 RCS，
+完整流程从加载网格到输出 RCS（单位：dBsm）。
 
-## 1. Prepare the Mesh
+## 1. 准备网格文件
 
-First, you need a mesh file. EMSuite supports Nastran (`.nas`) and Gmsh (`.msh`) formats.
-For this example, assume we have a file named `plate.nas`.
+EMSuite 支持 Nastran（`.nas`）和 Gmsh（`.msh`）格式。
+本示例使用 `plate.nas`——一块位于 XY 平面的矩形金属板。
 
-## 2. Write the Simulation Script
+## 2. 仿真脚本
 
-Create a file named `run_plate.jl`:
+新建文件 `run_plate.jl`：
 
 ```julia
 using EMSuite
-using StaticArrays
 
-# 1. Initialize Simulation Parameters
-freq = 300e6 # 300 MHz
-set_frequency!(freq)
+# ─── 1. 频率与全局参数 ────────────────────────────────────────────────────
+freq = 300e6        # 300 MHz
+set_frequency!(freq)   # 更新全局 k0、η0（供 RCS/激励向量内部使用）
 
-# 2. Load Geometry
-# Ensure 'plate.nas' exists in your working directory
-mesh = read_nas_mesh("plate.nas")
-println("Mesh loaded: $(num_elements(mesh)) triangles")
+# ─── 2. 加载网格 ──────────────────────────────────────────────────────────
+mesh  = read_nas_mesh("plate.nas")
+println("网格: $(num_elements(mesh)) 个三角形，$(num_vertices(mesh)) 个节点")
 
-# 3. Setup Basis Functions
-# Use RWG basis functions for surface currents
+# ─── 3. 基函数 ────────────────────────────────────────────────────────────
 basis = RWGBasis(mesh)
-println("Basis functions: $(num_basis(basis)) unknowns")
+println("未知量数: $(num_basis(basis))")
 
-# 4. Define Integral Equation Operator
-# Electric Field Integral Equation (EFIE)
-operator = EFIE(freq)
+# ─── 4. 积分方程算子 + 阻抗矩阵 ──────────────────────────────────────────
+efie = EFIE(freq)
+Z    = assemble_impedance_matrix(efie, basis)
 
-# 5. Assemble Impedance Matrix
-println("Assembling matrix...")
-Z = assemble_impedance_matrix(operator, basis)
+# ─── 5. 激励源（+z 方向入射，x 极化）──────────────────────────────────────
+inc_wave = PlaneWave(freq, π/2, π, [1.0, 0.0, 0.0])
+V        = excitation_vector(inc_wave, basis)
 
-# 6. Define Excitation
-# Plane wave incident from theta=0, phi=0 (z-direction)
-# Polarization along x-axis
-inc_wave = PlaneWave(theta=0.0, phi=0.0, pol=SVector(1.0, 0.0, 0.0))
-V = excitation_vector(inc_wave, basis)
+# ─── 6. 求解 ─────────────────────────────────────────────────────────────
+I_coeff = solve!(LUSolver(), Z, V)
 
-# 7. Solve Linear System
-println("Solving system...")
-solver = GMRESSolver(tol=1e-4, maxiter=100)
-I_coeff = solve!(solver, Z, V)
+# ─── 7. RCS 计算 ─────────────────────────────────────────────────────────
+θ_obs  = collect(range(0.0, π, length = 181))   # 0° ~ 180°
+ϕ_obs  = [0.0]                                  # phi = 0 平面
 
-# 8. Post-Processing (RCS)
-println("Calculating RCS...")
-theta_obs = collect(0:0.01:pi) # Observation angles (0 to 180 degrees)
-phi_obs = [0.0]                # Phi = 0 plane
+_, rcs_total, rcs_db = radarCrossSection(θ_obs, ϕ_obs, I_coeff, basis)
+println("单站 RCS (θ=90°): ", rcs_db[91, 1], " dBsm")
 
-rcs_data, rcs_total, rcs_db = radarCrossSection(theta_obs, phi_obs, I_coeff, mesh, RWG)
-
-# 9. Save Results
+# ─── 8. 保存结果 ─────────────────────────────────────────────────────────
+save_RCS_txt("plate_rcs.txt", θ_obs, ϕ_obs, rcs_db)
 save_results_hdf5("plate_results.h5", I_coeff, rcs_db)
-println("Done!")
+println("完成！结果已保存至 plate_rcs.txt 和 plate_results.h5")
 ```
 
-## 3. Run the Simulation
-
-Execute the script from the terminal:
+## 3. 运行
 
 ```bash
 julia --project=. run_plate.jl
 ```
 
-## 4. Visualize Results
+## 4. 使用 MLFMA 加速（大规模问题）
 
-You can load the saved `plate_results.h5` file for plotting, or use the built-in VTK export to visualize currents:
+对于 N > 10,000 个未知量，推荐使用 MLFMA 替代直接装配：
 
 ```julia
-# Add this to your script to export currents for ParaView
+# 替换步骤 4–6
+op       = EFIE(freq)
+mlfma_op = MLFMAOperator(op, basis)
+
+V        = excitation_vector(inc_wave, basis)
+precon   = BlockJacobiPreconditioner(mlfma_op, basis)
+I_coeff  = solve!(GMRESSolver(tol = 1e-4, maxiter = 500, restart = 50),
+                  mlfma_op, V, Pl = precon)
+```
+
+## 5. 可视化电流分布（ParaView）
+
+```julia
 save_vtk("plate_currents", mesh, abs.(I_coeff))
 ```
+
+生成 `plate_currents.vtu`，可在 ParaView 中打开查看表面电流密度。
 
