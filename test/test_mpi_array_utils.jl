@@ -9,6 +9,7 @@
 using Test
 using EMSuite
 using EMSuite.Parallel: MPIArrays
+using LinearAlgebra
 
 @testset "MPIArray Utils" begin
 
@@ -104,19 +105,17 @@ using EMSuite.Parallel: MPIArrays
     # indices.jl: sizeChunksCuts2indices
     # ──────────────────────────────────────────────────────────────────────────
     @testset "sizeChunksCuts2indices" begin
-        # 1D: 10 elements split into 2 chunks
-        cuts = MPIArrays.sizeChunks2cuts(10, [2])
-        idxs = MPIArrays.sizeChunksCuts2indices((10,), (2,), cuts)
+        # 1D via sizeChunks2idxs (internally uses sizeChunksCuts2indices)
+        idxs = MPIArrays.sizeChunks2idxs((10,), (2,))
         @test size(idxs) == (2,)
         @test idxs[1] == (1:5,)
         @test idxs[2] == (6:10,)
 
-        # 2D: (6, 4) split into (2, 2) chunks
-        cuts2 = MPIArrays.sizeChunks2cuts((6, 4), (2, 2))
-        idxs2 = MPIArrays.sizeChunksCuts2indices((6, 4), (2, 2), cuts2)
+        # 2D via sizeChunks2idxs
+        idxs2 = MPIArrays.sizeChunks2idxs((6, 4), (2, 2))
         @test size(idxs2) == (2, 2)
 
-        # Vector cuts (1D special case)
+        # Vector cuts (1D special case) - slicedim2bounds returns Vector{Int64}
         cuts_vec = MPIArrays.slicedim2bounds(6, 3)
         idxs3 = MPIArrays.sizeChunksCuts2indices((6,), (3,), cuts_vec)
         @test length(idxs3) == 3
@@ -148,16 +147,18 @@ using EMSuite.Parallel: MPIArrays
     # indices.jl: indice2rank
     # ──────────────────────────────────────────────────────────────────────────
     @testset "indice2rank" begin
-        # Integer rank2indices (Dict{Integer, NTuple{1}})
-        r2i = Dict{Integer,NTuple{1,UnitRange{Int}}}(
+        # Integer rank2indices
+        # indice2rank(::Integer, ::Dict{Integer, NTuple{1}}) - 注意 Dict 类型参数不协变
+        # 需用 NTuple{1} (无类型参数的上界类型) 才能匹配签名
+        r2i = Dict{Integer,NTuple{1}}(
             0 => (1:5,),
             1 => (6:10,),
         )
         @test MPIArrays.indice2rank(3, r2i) == 0
         @test MPIArrays.indice2rank(7, r2i) == 1
 
-        # NTuple rank2indices (Dict{Int, Tuple{...}})
-        r2i2 = Dict{Int,Tuple{UnitRange{Int},UnitRange{Int}}}(
+        # NTuple rank2indices (Dict{Int, NTuple{N, T2}})
+        r2i2 = Dict{Int,NTuple{2,UnitRange{Int}}}(
             0 => (1:4, 1:3),
             1 => (5:8, 1:3),
         )
@@ -165,11 +166,12 @@ using EMSuite.Parallel: MPIArrays
         @test MPIArrays.indice2rank((6, 2), r2i2) == 1
 
         # indice2ranks: multiple ranks for range queries
-        r2i3 = Dict{Int,Tuple{UnitRange{Int}}}(
+        # 签名: indice2ranks(::NTuple{N, Union{UnitRange, Vector}}, rank2indices)
+        r2i3 = Dict{Int,NTuple{1,UnitRange{Int}}}(
             0 => (1:5,),
             1 => (6:10,),
         )
-        ranks = MPIArrays.indice2ranks(((1:10,),), r2i3)
+        ranks = MPIArrays.indice2ranks((1:10,), r2i3)
         @test 0 in ranks
         @test 1 in ranks
     end
@@ -178,12 +180,16 @@ using EMSuite.Parallel: MPIArrays
     # indices.jl: Base.searchsortedfirst for Vector{UnitRange}
     # ──────────────────────────────────────────────────────────────────────────
     @testset "searchsortedfirst - Vector{UnitRange}" begin
+        # Base.searchsortedfirst(a::Vector{UnitRange}, x)
+        # 返回 x 在整个区间中的「累积偏移」= sum(length, 前缀区间)
+        # 对 a=[1:3, 4:7, 8:10], searchsortedfirst(a, x, by=first):
+        #   x=2: first的 gid=2 (4:7 的 first=4 > 2), sum(a[1:1]) = length(1:3) = 3
+        #   x=5: first的 gid=3 (8:10 的 first=8 > 5), sum(a[1:2]) = 3+4 = 7
+        #   x=9: first的 gid=4 (超出末尾), sum(a[1:3]) = 3+4+3 = 10
         a = [1:3, 4:7, 8:10]
-        # Search for element within first range
-        @test Base.searchsortedfirst(a, 2) == 0   # 0 elements fully before range containing 2
-        # Search for element within third range
-        idx = Base.searchsortedfirst(a, 9)
-        @test idx >= 0  # Should find some position
+        @test Base.searchsortedfirst(a, 2) == 3   # sum(length(1:3)) = 3
+        @test Base.searchsortedfirst(a, 5) == 7   # 3+4 = 7
+        @test Base.searchsortedfirst(a, 9) == 10  # 3+4+3 = 10
     end
 
     # ──────────────────────────────────────────────────────────────────────────

@@ -133,9 +133,9 @@ Get the rank of `indice` form `rank2indices`
 """
 function indice2rank(indice::T, rank2indices::Dict{Integer,NTuple{1}}) where {T<:Integer}
 
-    rks = findall(x -> indice in x, rank2indices)
-
-    re = intersect(rks...)
+    # findall on a Dict returns keys whose values satisfy predicate.
+    # NTuple{1, UnitRange}: check if indice falls within the UnitRange.
+    re = findall(x -> any(r -> indice in r, x), rank2indices)
 
     isempty(re) && throw("No suitable rank found, please recheck!")
     length(re) > 1 && throw("Multi ranks found, please recheck!")

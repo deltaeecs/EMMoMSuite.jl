@@ -314,11 +314,12 @@ function _parse_chexa(line::String, f::IO, grid_id_map::Dict{Int,Int})
         end
         pid = parse(Int, all_parts[3])
         gnodes = Int[]
-        for k = 4:min(length(all_parts), 11)
+        for k = 4:length(all_parts)
             s = all_parts[k]
             isempty(s) && continue
             startswith(s, "+") && continue
             push!(gnodes, parse(Int, s))
+            length(gnodes) == 8 && break  # stop once we have all 8 nodes
         end
         if length(gnodes) >= 8
             mapped = [get(grid_id_map, g, 0) for g in gnodes[1:8]]
