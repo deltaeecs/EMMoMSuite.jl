@@ -521,7 +521,7 @@ function radiation_integral_pwc_hex(
 
     mesh = basis.mesh
     nodes = mesh.node
-    hexas_elem = mesh.hexas  # 8×nhex
+    hexas_elem = mesh.hexes  # 8×nhex
     nhex = length(basis.functions)
 
     for h = 1:nhex
@@ -594,10 +594,14 @@ function radiation_integral_rbf(
 
     # Hex GQ
     gq_hex = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    gq_quad = GaussQuadratureInfo(:Quadrangle, 4, FT)
     Nq = length(gq_hex.weight)
 
+    # Build 3D -> 2D GQ index map for free-end lookup (n1d=2 for 8-pt hex)
+    gq3d_map = construct_gq3d_index_map(2)
+
     mesh = basis.mesh
-    nhex = size(mesh.hexas, 2)
+    nhex = size(mesh.hexes, 2)
 
     # Get hexahedra info
     dummy_perm = permittivities
@@ -610,8 +614,8 @@ function radiation_integral_rbf(
         # Precompute hex GQ points
         rq_hex = hex.vertices * gq_hex.coordinate
 
-        # Precompute free-end points for all 6 faces
-        freeVns_all = [get_free_vns(hex, fi, gq_hex.coordinate) for fi = 1:6]
+        # Precompute free-end points for all 6 faces (using face GQ: 3×4 each)
+        freeVns_all = [get_free_vns(hex, fi, gq_quad.coordinate) for fi = 1:6]
 
         Jtexp = zero(MVector{3,CT})
 
@@ -623,7 +627,8 @@ function radiation_integral_rbf(
             for mi = 1:6
                 n = hex.inBfsID[mi]
                 arean = hex.facesArea[mi]
-                freeV = @view freeVns_all[mi][:, gi]
+                id_face = gq3d_to_face2d_idx(gq3d_map[gi], mi, 2)
+                freeV = @view freeVns_all[mi][:, id_face]
 
                 # ρ = r - r_free
                 ρ_x = rgi[1] - freeV[1]

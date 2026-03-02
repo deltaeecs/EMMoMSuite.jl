@@ -1135,6 +1135,9 @@ function assemble_coupling_blocks_rbf!(
     gq_quad = GaussQuadratureInfo(:Quadrangle, 4, FT)
     Nq_quad = length(gq_quad.weight)
 
+    # Build 3D -> 2D GQ index map for free-end lookup (n1d=2 for 8-pt hex)
+    gq3d_map = construct_gq3d_index_map(2)
+
     # Surface triangle GQ
     gq_s = scfie.gq_surf
     Nq_s = length(gq_s.weight)
@@ -1175,8 +1178,8 @@ function assemble_coupling_blocks_rbf!(
                 end
             end
 
-            # Precompute free-end points for all 6 RBF functions
-            freeVns_all = [get_free_vns(hex, fi, gq_hex.coordinate) for fi = 1:6]
+            # Precompute free-end points for all 6 RBF functions (using face GQ: 3×4 each)
+            freeVns_all = [get_free_vns(hex, fi, gq_quad.coordinate) for fi = 1:6]
 
             # Loop over RBF source basis functions (6 per hex)
             for ni = 1:6
@@ -1201,7 +1204,8 @@ function assemble_coupling_blocks_rbf!(
                         rgj = @view r_q_hex[:, gj]
                         # ρn: source RBF vector at gj
                         # free end for this GQ point (interpolated on opposite face)
-                        freeVn = @view freeVns[:, gj]
+                        id_face = gq3d_to_face2d_idx(gq3d_map[gj], ni, 2)
+                        freeVn = @view freeVns[:, id_face]
                         ρnj_x = rgj[1] - freeVn[1]
                         ρnj_y = rgj[2] - freeVn[2]
                         ρnj_z = rgj[3] - freeVn[3]

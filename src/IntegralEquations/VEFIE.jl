@@ -1183,6 +1183,7 @@ function assemble_impedance_matrix(
                         Nq_hex_far,
                         gq_quad,
                         Nq_quad,
+                        gq3d_map,
                         k²,
                         jk,
                         mJη₀div4πK,
@@ -1208,6 +1209,7 @@ function assemble_impedance_matrix(
                         Nq_hex,
                         gq_quad,
                         Nq_quad,
+                        gq3d_map,
                         k²,
                         jk,
                         mJη₀div4πK,
@@ -1274,6 +1276,7 @@ function _rbf_far_kernel!(
     Nq_hex::Int,
     gq_quad,
     Nq_quad::Int,
+    gq3d_map::Vector,
     k²::FT,
     jk::CT,
     mJη₀div4πK::CT,
@@ -1348,7 +1351,7 @@ function _rbf_far_kernel!(
         δκn = facess[ni].δκ
         isbdn = facess[ni].isbd
         # Precompute free-end coords for source basis ni
-        freeVns_ni = get_free_vns(hex_s, ni, gq_hex.coordinate)
+        freeVns_ni = get_free_vns(hex_s, ni, gq_quad.coordinate)
 
         for mi = 1:6
             aream = hex_t.facesArea[mi]
@@ -1356,19 +1359,19 @@ function _rbf_far_kernel!(
             isbdm = facest[mi].isbd
             aman = aream * arean
             C₃ = mJη₀div4πK * aman
-            freeVms_mi = get_free_vns(hex_t, mi, gq_hex.coordinate)
+            freeVms_mi = get_free_vns(hex_t, mi, gq_quad.coordinate)
 
             # F₂ (ρₘ·ρₙ × G)
             F₂ = zero(CT)
             for gj = 1:Nq_hex
                 rgj = @view rq_s[:, gj]
-                idn = gq3d_to_face2d_idx(gj, ni, 2)
+                idn = gq3d_to_face2d_idx(gq3d_map[gj], ni, 2)
                 ρnx = rgj[1] - freeVns_ni[1, idn]
                 ρny = rgj[2] - freeVns_ni[2, idn]
                 ρnz = rgj[3] - freeVns_ni[3, idn]
                 for gi = 1:Nq_hex
                     rgi = @view rq_t[:, gi]
-                    idm = gq3d_to_face2d_idx(gi, mi, 2)
+                    idm = gq3d_to_face2d_idx(gq3d_map[gi], mi, 2)
                     ρmx = rgi[1] - freeVms_mi[1, idm]
                     ρmy = rgi[2] - freeVms_mi[2, idm]
                     ρmz = rgi[3] - freeVms_mi[3, idm]
@@ -1437,6 +1440,7 @@ function _rbf_near_kernel!(
     Nq_hex::Int,
     gq_quad,
     Nq_quad::Int,
+    gq3d_map::Vector,
     k²::FT,
     jk::CT,
     mJη₀div4πK::CT,
@@ -1455,6 +1459,7 @@ function _rbf_near_kernel!(
         Nq_hex,
         gq_quad,
         Nq_quad,
+        gq3d_map,
         k²,
         jk,
         mJη₀div4πK,
@@ -1520,10 +1525,10 @@ function _rbf_self_kernel!(
     end
     F₅t = F₄s  # Same for self-term
 
-    # Precompute free-end coords for all faces
+    # Precompute free-end coords for all faces (using face GQ coordinate, 4×Nq_quad)
     freeVns = Vector{Matrix{FT}}(undef, 6)
     for fi = 1:6
-        freeVns[fi] = get_free_vns(hex_t, fi, gq_hex.coordinate)
+        freeVns[fi] = get_free_vns(hex_t, fi, gq_quad.coordinate)
     end
 
     # Loop over basis function pairs (use upper triangle symmetry mi >= ni)
@@ -1545,8 +1550,8 @@ function _rbf_self_kernel!(
             F₂ = zero(CT)
             for gi = 1:Nq_hex
                 rgi = @view rq_t[:, gi]
-                idm = gq3d_to_face2d_idx(gi, mi, 2)
-                idn_self = gq3d_to_face2d_idx(gi, ni, 2)
+                idm = gq3d_to_face2d_idx(gq3d_map[gi], mi, 2)
+                idn_self = gq3d_to_face2d_idx(gq3d_map[gi], ni, 2)
                 ρmx = rgi[1] - freeVns[mi][1, idm]
                 ρmy = rgi[2] - freeVns[mi][2, idm]
                 ρmz = rgi[3] - freeVns[mi][3, idm]
@@ -1558,7 +1563,7 @@ function _rbf_self_kernel!(
 
                 for gj = 1:Nq_hex
                     rgj = @view rq_t[:, gj]
-                    idn = gq3d_to_face2d_idx(gj, ni, 2)
+                    idn = gq3d_to_face2d_idx(gq3d_map[gj], ni, 2)
                     ρnx = rgj[1] - freeVns[ni][1, idn]
                     ρny = rgj[2] - freeVns[ni][2, idn]
                     ρnz = rgj[3] - freeVns[ni][3, idn]
