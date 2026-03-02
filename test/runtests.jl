@@ -16,6 +16,7 @@ using Test
     include("test_parallel_mfie_cfie.jl")
     include("test_distributed_gmres.jl")
     include("test_volume_assembly_mpi.jl")
+    include("test_mpi_array_utils.jl")
     include("test_lebedev.jl")
     include("test_postprocessing.jl")
     include("test_io.jl")
