@@ -1,4 +1,4 @@
-# VolumeAssembly.jl
+﻿# VolumeAssembly.jl
 # MPI 骞惰浣撶Н鍒嗘柟绋嬬粍瑁咃細鍦?Parallel 鍛藉悕绌洪棿鎵╁睍
 # `Assembly.assemble_impedance_matrix_parallel`銆?
 #
@@ -31,6 +31,7 @@ using ..IntegralEquations.CFIEModule: CFIE
 
 using SparseArrays
 using LinearAlgebra
+using StaticArrays: SVector
 
 # =============================================================================
 # Common MPI column-partition setup helpers
@@ -487,12 +488,12 @@ function assemble_impedance_matrix_parallel(
     k          = vefie.k
     k虏         = k^2
     jk         = im * k
-    omega      = 2蟺 * vefie.freq
-    mu0        = FT(4蟺 * 1e-7)
+    omega      = 2π * vefie.freq
+    mu0        = FT(4π * 1e-7)
     eps0       = FT(8.854187817e-12)
     eta0       = sqrt(mu0 / eps0)
     Jη₀divK   = im * eta0 / k
-    div4蟺      = FT(1) / (4 * FT(蟺))
+    div4π      = FT(1) / (4 * FT(π))
 
     # Quadrature from VEFIE struct
     gq     = vefie.gq_info
@@ -556,9 +557,9 @@ function assemble_impedance_matrix_parallel(
                 rq_near[js], rq_near[js],
                 gq, gq,
                 Nq, Nq,
-                k, k虏, jk, Jη₀divK, div4蟺,
+                k, k虏, jk, Jη₀divK, div4π,
             )
-            selfImp = CT(1) / (im * omega) / tet_s.蔚 * tet_s.volume
+            selfImp = CT(1) / (im * omega) / tet_s.ε * tet_s.volume
             @inbounds for ni = 1:3
                 n = tet_s.inBfsID[ni]
                 (n == 0 || !(col_lo <= n <= col_hi)) && continue
@@ -587,7 +588,7 @@ function assemble_impedance_matrix_parallel(
                         rq_far_pts[ti], rq_far_pts[js],
                         gq_far, gq_far,
                         Nq_far, Nq_far,
-                        k, k虏, jk, Jη₀divK, div4蟺,
+                        k, k虏, jk, Jη₀divK, div4π,
                     )
                 else
                     _pwc_dyad_kernel!(
@@ -596,7 +597,7 @@ function assemble_impedance_matrix_parallel(
                         rq_near[ti], rq_near[js],
                         gq, gq,
                         Nq, Nq,
-                        k, k虏, jk, Jη₀divK, div4蟺,
+                        k, k虏, jk, Jη₀divK, div4π,
                     )
                 end
 
@@ -670,12 +671,12 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
     k         = vefie.k
     k虏        = k^2
     jk        = im * k
-    omega     = 2蟺 * vefie.freq
-    mu0       = FT(4蟺 * 1e-7)
+    omega     = 2π * vefie.freq
+    mu0       = FT(4π * 1e-7)
     eps0      = FT(8.854187817e-12)
     eta0      = sqrt(mu0 / eps0)
     Jη₀divK  = im * eta0 / k
-    div4蟺     = FT(1) / (4 * FT(蟺))
+    div4π     = FT(1) / (4 * FT(π))
 
     # Local GQ for hexahedra
     gq_hex     = GaussQuadratureInfo(:Hexahedron, 8, FT)
@@ -739,9 +740,9 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
                 rq_near[js], rq_near[js],
                 gq_hex, gq_hex,
                 Nq_hex, Nq_hex,
-                k, k虏, jk, Jη₀divK, div4蟺,
+                k, k虏, jk, Jη₀divK, div4π,
             )
-            selfImp = CT(1) / (im * omega) / hex_s.蔚 * hex_s.volume
+            selfImp = CT(1) / (im * omega) / hex_s.ε * hex_s.volume
             @inbounds for ni = 1:3
                 n = hex_s.inBfsID[ni]
                 (n == 0 || !(col_lo <= n <= col_hi)) && continue
@@ -770,7 +771,7 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
                         rq_far_pts[ti], rq_far_pts[js],
                         gq_hex_far, gq_hex_far,
                         Nq_hex_far, Nq_hex_far,
-                        k, k虏, jk, Jη₀divK, div4蟺,
+                        k, k虏, jk, Jη₀divK, div4π,
                     )
                 else
                     _pwc_dyad_kernel!(
@@ -779,7 +780,7 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
                         rq_near[ti], rq_near[js],
                         gq_hex, gq_hex,
                         Nq_hex, Nq_hex,
-                        k, k虏, jk, Jη₀divK, div4蟺,
+                        k, k虏, jk, Jη₀divK, div4π,
                     )
                 end
 
@@ -851,10 +852,10 @@ function assemble_impedance_matrix_parallel(
     k         = scfie.k
     k虏        = k^2
     jk        = im * k
-    omega     = FT(2蟺) * scfie.freq
+    omega     = FT(2π) * scfie.freq
     eta0      = scfie.eta
     Jη₀divK  = im * eta0 / k
-    div4蟺     = FT(1) / (4 * FT(蟺))
+    div4π     = FT(1) / (4 * FT(π))
 
     # Quadrature
     gq_s       = scfie.gq_surf                            # Triangle 7-pt
@@ -968,7 +969,7 @@ function assemble_impedance_matrix_parallel(
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
                         R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
-                        GR   = exp(-jk * R) * div4蟺 * divR * gq_v.weight[gj]
+                        GR   = exp(-jk * R) * div4π * divR * gq_v.weight[gj]
 
                         RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
                         RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z
@@ -1054,7 +1055,7 @@ function assemble_impedance_matrix_parallel(
                     is_far ? gq_far_tet : gq_v,
                     is_far ? Nq_far : Nq_v,
                     is_far ? Nq_far : Nq_v,
-                    k, k虏, jk, Jη₀divK, div4蟺,
+                    k, k虏, jk, Jη₀divK, div4π,
                 )
 
                 @inbounds for ni = 1:3
@@ -1067,7 +1068,7 @@ function assemble_impedance_matrix_parallel(
                         if ti == js
                             val = Z_ts_buf[mi, ni] * κₛ
                             if mi == ni
-                                selfImp = CT(1) / (im * omega) / tet_s.蔚 * tet_s.volume
+                                selfImp = CT(1) / (im * omega) / tet_s.ε * tet_s.volume
                                 val += selfImp
                             end
                             Z[row, col] += val   # no lock: col exclusive
@@ -1099,7 +1100,7 @@ function assemble_impedance_matrix_parallel(
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
                         R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
-                        GR   = exp(-jk * R) * div4蟺 * divR * gq_v.weight[gj]
+                        GR   = exp(-jk * R) * div4π * divR * gq_v.weight[gj]
 
                         RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
                         RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z
@@ -1185,10 +1186,10 @@ function assemble_impedance_matrix_parallel(
     k         = scfie.k
     k虏        = k^2
     jk        = im * k
-    omega     = FT(2蟺) * scfie.freq
+    omega     = FT(2π) * scfie.freq
     eta0      = scfie.eta
     Jη₀divK  = im * eta0 / k
-    div4蟺     = FT(1) / (4 * FT(蟺))
+    div4π     = FT(1) / (4 * FT(π))
 
     # Quadrature
     gq_s        = scfie.gq_surf                              # Triangle 7-pt
@@ -1302,7 +1303,7 @@ function assemble_impedance_matrix_parallel(
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
                         R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
-                        GR   = exp(-jk * R) * div4蟺 * divR * gq_hex_near.weight[gj]
+                        GR   = exp(-jk * R) * div4π * divR * gq_hex_near.weight[gj]
 
                         RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
                         RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z
@@ -1388,7 +1389,7 @@ function assemble_impedance_matrix_parallel(
                     is_far ? gq_hex_far : gq_hex_near,
                     is_far ? Nq_hex_far : Nq_hex,
                     is_far ? Nq_hex_far : Nq_hex,
-                    k, k虏, jk, Jη₀divK, div4蟺,
+                    k, k虏, jk, Jη₀divK, div4π,
                 )
 
                 @inbounds for ni = 1:3
@@ -1401,7 +1402,7 @@ function assemble_impedance_matrix_parallel(
                         if ti == js
                             val = Z_ts_buf[mi, ni] * κₛ
                             if mi == ni
-                                selfImp = CT(1) / (im * omega) / hex_s.蔚 * hex_s.volume
+                                selfImp = CT(1) / (im * omega) / hex_s.ε * hex_s.volume
                                 val += selfImp
                             end
                             Z[row, col] += val   # no lock: col exclusive
@@ -1433,7 +1434,7 @@ function assemble_impedance_matrix_parallel(
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
                         R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
-                        GR   = exp(-jk * R) * div4蟺 * divR * gq_hex_near.weight[gj]
+                        GR   = exp(-jk * R) * div4π * divR * gq_hex_near.weight[gj]
 
                         RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
                         RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z

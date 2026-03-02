@@ -136,5 +136,23 @@ using SparseArrays
             rel_err2 = norm(y_d2 - y_m2) / norm(y_d2)
             @test rel_err2 < 0.02  # 2% tolerance for far-field
         end
+
+        @testset "SWG RCS (radiation_integral_swg)" begin
+            scfie = SCFIE(freq, perms; alpha=0.5)
+            Z = assemble_impedance_matrix(scfie, basis_surf, basis_vol)
+            source = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])
+            V = excitation_vector(source, basis_surf, basis_vol)
+            I_coeffs = Z \ V
+            I_vol = I_coeffs[n_surf+1:end]
+
+            θs = Float64[0.0, π/2]
+            ϕs = Float64[0.0]
+            RCSdata, RCS_total, RCS_dB = radarCrossSection(θs, ϕs, I_vol, basis_vol, perms)
+
+            @test size(RCS_total) == (2, 1)
+            @test all(isfinite, RCS_total)
+            @test all(RCS_total .>= 0)
+            @test size(RCS_dB) == (2, 1)
+        end
     end
 end
