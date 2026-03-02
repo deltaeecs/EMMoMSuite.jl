@@ -3,20 +3,18 @@
 test_fastexp.jl
 
 Test FastExp lookup table correctness and performance.
+可被 runtests.jl include，也可独立运行。
 """
 
-using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."))
-
-using EMSuite
-using EMSuite.IntegralEquations: FastExpModule
+if !isdefined(Main, :EMSuite)
+    using Pkg
+    Pkg.activate(joinpath(@__DIR__, ".."))
+    using EMSuite
+end
+using EMSuite.IntegralEquations.VEFIEModule: FastExpModule
 using Printf
 using Statistics
 using Test
-
-println("="^70)
-println("  FastExp Lookup Table Validation")
-println("="^70)
 
 # Test parameters
 freq = 1e8  # 100 MHz
@@ -24,8 +22,7 @@ k = 2π * freq / 299792458.0
 λ = 2π / k
 
 @testset "FastExp Correctness" begin
-    println("\n[1/3] Accuracy Test")
-    
+
     # Create lookup table
     table = FastExpModule.FastExpTable(k)
     
@@ -41,28 +38,20 @@ k = 2π * freq / 299792458.0
         max_rel_error = max(max_rel_error, rel_error)
         
         @test rel_error < 1e-3  # < 0.1% error
-        
-        @printf("  R = %.3f λ: rel_error = %.2e\n", R/λ, rel_error)
     end
-    
-    println("\n  ✓ Maximum relative error: $(round(max_rel_error*100, digits=4))%")
 end
 
 @testset "FastExp Singular Case" begin
-    println("\n[2/3] Singular Case Test")
-    
+
     table = FastExpModule.FastExpTable(k)
     
     # Test R → 0 (should return zero)
     G_small = FastExpModule.fast_green_func(table, 1e-12)
     @test abs(G_small) < 1e-10
-    
-    println("  ✓ G(R≈0) = $(abs(G_small)) (correctly handled)")
 end
 
 @testset "FastExp Performance" begin
-    println("\n[3/3] Performance Benchmark")
-    
+
     table = FastExpModule.FastExpTable(k)
     
     # Generate random R values in typical range [0.1λ, 10λ]
@@ -91,11 +80,6 @@ end
     
     # Accuracy check
     max_error = maximum(abs.(G_fast .- G_direct) ./ abs.(G_direct))
-    @printf("  Max rel error: %.2e\n", max_error)
     
-    println("\n  ✓ FastExp is $(round(speedup, digits=1))× faster with $(round(max_error*100, digits=3))% max error")
+    @test max_error < 1e-3
 end
-
-println("\n" * "="^70)
-println("  All Tests Passed!")
-println("="^70)
