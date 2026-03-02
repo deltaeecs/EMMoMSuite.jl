@@ -11,7 +11,9 @@ include("MPI/Assembly.jl")
 using .Assembly
 # VolumeAssembly extends Assembly.assemble_impedance_matrix_parallel in-place
 include("MPI/VolumeAssembly.jl")
-# Phase 14.3: 分布式 GMRES (SPMD)
+# Phase 15.4 Method C: 分布式 Krylov GMRES（消除 I-3）
+include("MPI/DistributedGMRES.jl")
+# Public solver API (mpi_gmres! / mpi_gmres) — 委托给 distributed_gmres!
 include("MPI/Solver.jl")
 
 export init_parallel!, mpi_rank, nprocs, barrier, @root
