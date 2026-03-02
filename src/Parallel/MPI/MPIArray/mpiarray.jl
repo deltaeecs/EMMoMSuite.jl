@@ -55,6 +55,35 @@ Base.length(A::MPIArray) = prod(A.size)
 Base.eltype(::MPIArray{T,I,N}) where {T,I,N} = T
 Base.getindex(A::MPIArray, I...) = getindex(A.dataOffset, I...)
 Base.setindex!(A::MPIArray, X, I...) = setindex!(A.dataOffset, X, I...)
+
+# ── I-5 装配热路径优化：绕过 OffsetArray，直接访问底层 data ────────────────────
+#
+# `Z[row, col] += val` 在 O(N²) 装配内循环中调用，每次都走：
+#   MPIArray.setindex! → OffsetArray.setindex!（偏移减法 + 边界检查）
+# 对于列分区 MPIMatrix（indices[1] = 1:N_rows，indices[2] = local_cols），
+# 偏移量是固定的：row 无偏移（1:N），col 偏移 = first(local_cols) - 1。
+# 以下特化方法仅做 1 次减法 + 直接数组写入，消除 OffsetArray dispatch 链。
+#
+# @propagate_inbounds：当调用方在 @inbounds 块中时，内部 @boundscheck 被省略，
+#   进一步消除 bounds check 开销（VolumeAssembly.jl 的 @inbounds for 循环会传播）。
+Base.@propagate_inbounds function Base.getindex(
+    A::MPIMatrix, row::Int, col::Int
+)
+    r = row - first(A.indices[1]) + 1
+    c = col - first(A.indices[2]) + 1
+    @boundscheck checkbounds(A.data, r, c)
+    @inbounds A.data[r, c]
+end
+
+Base.@propagate_inbounds function Base.setindex!(
+    A::MPIMatrix, X, row::Int, col::Int
+)
+    r = row - first(A.indices[1]) + 1
+    c = col - first(A.indices[2]) + 1
+    @boundscheck checkbounds(A.data, r, c)
+    @inbounds A.data[r, c] = X
+    return X
+end
 function Base.fill!(A::MPIArray, args...)
     fill!(A.data, args...)
     A
