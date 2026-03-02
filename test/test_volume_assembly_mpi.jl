@@ -126,4 +126,77 @@ end
     end
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# VEFIE + PWCHexBasis 并行装配（内联构造六面体网格，无需 .nas 文件）
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "VolumeAssembly: VEFIE + PWCHexBasis (P=1)" begin
+    # 构造 2 个相邻六面体 cube: x∈[0,1] 和 x∈[1,2]，y/z∈[0,1]
+    _nodes_hex = Float64[
+        0.0  1.0  1.0  0.0  0.0  1.0  1.0  0.0   2.0  2.0  2.0  2.0;
+        0.0  0.0  1.0  1.0  0.0  0.0  1.0  1.0   0.0  1.0  1.0  0.0;
+        0.0  0.0  0.0  0.0  1.0  1.0  1.0  1.0   0.0  0.0  1.0  1.0
+    ]
+    _els_hex = Int[1 2; 2 9; 3 10; 4 3; 5 6; 6 11; 7 12; 8 7]
+    _hex_mesh = HexahedraMesh(2, _nodes_hex, _els_hex, [1, 1])
+
+    _perms_hex = fill(complex(2.0, -0.001), 2)   # 2 hexahedra
+    _vefie_hex = VEFIE(2e9, _perms_hex)
+    _basis_pwchex = PWCHexBasis(_hex_mesh)
+    _n_pwchex = num_basis(_basis_pwchex)
+
+    Z_mpi_hex = assemble_impedance_matrix_parallel(_vefie_hex, _basis_pwchex)
+
+    @test size(Z_mpi_hex) == (_n_pwchex, _n_pwchex)
+
+    Z_full_hex = gather(Z_mpi_hex; root=0)
+    if Z_full_hex !== nothing
+        @test isfinite(real(Z_full_hex[1, 1]))
+        @test isfinite(imag(Z_full_hex[1, 1]))
+        @test norm(Z_full_hex) > 0
+    end
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCFIE + RWGBasis + PWCHexBasis 并行装配（内联最小网格）
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "VolumeAssembly: SCFIE + RWGBasis + PWCHexBasis (P=1)" begin
+    # 表面网格：2个三角形，1条公共内边 → 1个 RWG DOF
+    #   节点（小尺寸 mm 量级，避免 numerical overflow）
+    _nodes_tri = Float64[
+        0.0   1.0   0.0   1.0;
+        0.0   0.0   1.0   1.0;
+        0.0   0.0   0.0   0.0
+    ] * 1e-3   # 1mm
+    _els_tri = [1 2; 2 4; 3 3]   # T1=1-2-3, T2=2-4-3; 共享边 2-3
+    _tri_mesh = TriangleMesh(2, _nodes_tri, _els_tri, [1, 1])
+    _basis_rwg = RWGBasis(_tri_mesh)
+
+    # 六面体网格：单个 1mm³ 六面体
+    _scale = 1e-3
+    _nodes_hex2 = Float64[
+        0.0  1.0  1.0  0.0  0.0  1.0  1.0  0.0;
+        0.0  0.0  1.0  1.0  0.0  0.0  1.0  1.0;
+        0.0  0.0  0.0  0.0  1.0  1.0  1.0  1.0
+    ] * _scale
+    _els_hex2 = reshape(collect(1:8), 8, 1)
+    _hex_mesh2 = HexahedraMesh(1, _nodes_hex2, _els_hex2, [1])
+
+    _perms_hex2   = fill(complex(2.0, -0.001), 1)   # 1 hexahedra
+    _scfie_hex    = SCFIE(2e9, _perms_hex2; alpha=0.5)
+    _basis_pwchex2 = PWCHexBasis(_hex_mesh2)
+    _n_pwchex2    = num_basis(_basis_pwchex2)   # 3
+    _n_rwg        = num_basis(_basis_rwg)         # 1
+    _n_tot_h      = _n_rwg + _n_pwchex2
+
+    Z_mpi_sh = assemble_impedance_matrix_parallel(_scfie_hex, _basis_rwg, _basis_pwchex2)
+
+    @test size(Z_mpi_sh) == (_n_tot_h, _n_tot_h)
+
+    Z_full_sh = gather(Z_mpi_sh; root=0)
+    if Z_full_sh !== nothing
+        @test isfinite(real(Z_full_sh[1, 1]))
+        @test norm(Z_full_sh) > 0
+    end
+end
+
 end  # if isempty(mesh_file)
