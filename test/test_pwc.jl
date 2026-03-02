@@ -181,6 +181,21 @@ using LinearAlgebra
             V = excitation_vector(source, basis_surf, basis_vol)
             @test length(V) == n_total
             @test norm(V) > 0
+
+            @testset "PWC RCS (radiation_integral_pwc)" begin
+                vefie_pwc = VEFIE(freq, perms)
+                Z_v = assemble_impedance_matrix(vefie_pwc, basis_vol)
+                V_v = excitation_vector(vefie_pwc, PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0]), basis_vol)
+                I_v = Z_v \ V_v
+
+                θs = Float64[0.0, π/2]
+                ϕs = Float64[0.0]
+                RCSdata, RCS_total, RCS_dB = radarCrossSection(θs, ϕs, I_v, basis_vol, perms)
+
+                @test size(RCS_total) == (2, 1)
+                @test all(isfinite, RCS_total)
+                @test all(RCS_total .>= 0)
+            end
         end
     end
 end

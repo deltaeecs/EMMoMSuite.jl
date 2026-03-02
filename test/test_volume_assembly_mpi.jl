@@ -88,4 +88,42 @@ end
     end
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# VEFIE + PWCBasis 并行装配
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "VolumeAssembly: VEFIE + PWCBasis (P=1)" begin
+    basis_pwc = PWCBasis(vol_mesh)
+    n_pwc = num_basis(basis_pwc)   # 3 × n_tets
+
+    Z_mpi = assemble_impedance_matrix_parallel(vefie, basis_pwc)
+
+    @test size(Z_mpi) == (n_pwc, n_pwc)
+
+    Z_full = gather(Z_mpi; root=0)
+    if Z_full !== nothing
+        @test isfinite(real(Z_full[1, 1]))
+        @test real(Z_full[1, 1]) > 0
+        @test norm(Z_full) > 0
+    end
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCFIE + RWGBasis + PWCBasis 并行装配
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "VolumeAssembly: SCFIE + RWGBasis + PWCBasis (P=1)" begin
+    basis_pwc  = PWCBasis(vol_mesh)
+    n_pwc      = num_basis(basis_pwc)
+    n_tot_pwc  = n_surf + n_pwc
+
+    Z_mpi = assemble_impedance_matrix_parallel(scfie, basis_surf, basis_pwc)
+
+    @test size(Z_mpi) == (n_tot_pwc, n_tot_pwc)
+
+    Z_full = gather(Z_mpi; root=0)
+    if Z_full !== nothing
+        @test isfinite(real(Z_full[1, 1]))
+        @test norm(Z_full) > 0
+    end
+end
+
 end  # if isempty(mesh_file)
