@@ -12,7 +12,7 @@ using ..Octree
 using ....IntegralEquations.Impedance: get_triangle_info, get_triangles_info
 using ....IntegralEquations.VEFIEModule: get_tetrahedra_info
 
-export aggregate!
+export aggregate!, aggregate_leaf!, aggregate_upward!
 
 function get_k(op::AbstractIntegralOperator)
     if hasfield(typeof(op), :k)
@@ -79,7 +79,8 @@ function aggregate_leaf!(
     offsets::Vector{Int},
     operator::AbstractIntegralOperator,
     x::AbstractVector,
-    sorted_ids::Vector{Int},
+    sorted_ids::Vector{Int};
+    cube_filter = nothing,
 )
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -127,6 +128,7 @@ function aggregate_leaf!(
 
     # Loop over cubes
     Threads.@threads for iCube = 1:nCubes
+        cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = level.cubes[iCube]
         if isempty(cube.bfInterval)
             continue

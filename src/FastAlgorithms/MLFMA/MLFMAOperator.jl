@@ -11,6 +11,7 @@ using ....IntegralEquations
 using ..Octree
 using ..OctreeBuilder
 using ..Aggregation
+using ..Aggregation: aggregate_leaf!, aggregate_upward!
 using ..Translation
 using ..Disaggregation
 using ..Level
@@ -836,41 +837,62 @@ end
     mul!(y, A::MLFMAOperatorMPI, x)
 
 Compute `y = A * x` using distributed MLFMA:
-1. Each rank computes `y_near = Z_near_local * x` (partial near-field).
-2. `MPI.Allreduce!(y_near, +, comm)` sums contributions from all ranks.
-3. All ranks compute far-field identically (SPMD) and add to `y`.
+1. Near-field: partial SpMV per rank → `Allreduce!` to sum contributions.
+2. Far-field (Phase 15.3 — leaf-partitioned):
+   a. Each rank aggregates only its assigned leaf cubes → `Allreduce!` leaf `aggS`.
+   b. All ranks run the (fast) upward pass identically (SPMD).
+   c. All ranks run Translation + Disaggregation downward (SPMD).
+   d. Each rank collects only its leaf cubes → `Allreduce!` `y_far`.
+
+Leaf cube assignment: rank r owns cubes with `(i_cube - 1) % n_procs == r`.
 """
 function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperatorMPI, x::AbstractVector)
-    CT = eltype(A)
-    N  = length(y)
+    CT      = eltype(A)
+    N       = length(y)
+    rank    = MPI.Comm_rank(A.comm)
+    n_procs = MPI.Comm_size(A.comm)
 
     # ── Step 1: Distributed Near-Field ────────────────────────────────────────
     y_near = zeros(CT, N)
     mul!(y_near, A.Z_near_local, x)
     MPI.Allreduce!(y_near, +, A.comm)
 
-    # ── Step 2: Far-Field (SPMD — mirrors serial MLFMAOperator.mul! exactly) ──
+    # ── Step 2: Far-Field (Phase 15.3 — partitioned leaf aggregation/disagg) ──
+    cube_filter = n_procs > 1 ? (i -> (i - 1) % n_procs == rank) : nothing
 
-    # 2.1 Aggregation (Upward Pass)
-    aggregate!(A.octree, A.bases, A.basis_offsets, A.operator, x, A.sorted_ids)
+    # 2.1 Partial leaf aggregation: each rank fills only its assigned cubes
+    leaf_level = A.octree.levels[A.octree.nLevels]
+    aggregate_leaf!(leaf_level, A.bases, A.basis_offsets, A.operator, x, A.sorted_ids;
+                    cube_filter = cube_filter)
+    # Sum partial leaf aggS from all ranks → complete leaf aggS on every rank
+    MPI.Allreduce!(leaf_level.aggS, +, A.comm)
 
-    # 2.2 Translation (Horizontal Pass)
+    # 2.2 Upward pass — SPMD (all ranks now have identical complete leaf aggS)
+    for levelID = (A.octree.nLevels - 1):-1:2
+        parentLevel = A.octree.levels[levelID]
+        childLevel  = A.octree.levels[levelID + 1]
+        aggregate_upward!(parentLevel, childLevel)
+    end
+
+    # 2.3 Translation — SPMD (deterministic; all ranks compute same disaggG)
     for levelID = 2:A.octree.nLevels
         level = A.octree.levels[levelID]
         translate!(level)
     end
 
-    # 2.3 Disaggregation (Downward Pass)
+    # 2.4 Disaggregation downward — SPMD
     for levelID = 2:(A.octree.nLevels - 1)
         parentLevel = A.octree.levels[levelID]
         childLevel  = A.octree.levels[levelID + 1]
         disaggregate_downward!(parentLevel, childLevel)
     end
 
-    # 2.4 Final Collection (Leaf Level)
-    y_far     = zeros(CT, N)
-    leafLevel = A.octree.levels[A.octree.nLevels]
-    disaggregate_leaf!(leafLevel, A.bases, A.basis_offsets, A.operator, y_far, A.sorted_ids)
+    # 2.5 Partial leaf disaggregation: each rank collects only its assigned cubes
+    y_far = zeros(CT, N)
+    disaggregate_leaf!(leaf_level, A.bases, A.basis_offsets, A.operator, y_far, A.sorted_ids;
+                       cube_filter = cube_filter)
+    # Sum partial y_far from all ranks → complete y_far on every rank
+    MPI.Allreduce!(y_far, +, A.comm)
 
     if hasfield(typeof(A.operator), :factor)
         y_far .*= (4 * A.operator.factor)

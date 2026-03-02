@@ -98,7 +98,6 @@ function assemble_impedance_matrix_parallel(operator, basis::RWGBasis{IT,FT}) wh
                                 bf = basis.functions[row_idx]
                                 sign_test = (bf.support[1] == t_test) ? bf.signs[1] : bf.signs[2]
 
-                                # Add to Z
                                 # Z is MPIArray. Z[row, col] works if col is local.
                                 Z[row_idx, col_idx] += Z_local[i, j] * sign_test * sign_src
                             end

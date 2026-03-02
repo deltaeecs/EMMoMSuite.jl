@@ -96,6 +96,20 @@ function getcomm(A::SubMPIArray)
     A.parent.comm
 end
 
+"""
+    local_col_index(A::MPIMatrix, global_col::Integer)
+
+Map a global matrix column index to local storage column index for a column-partitioned `MPIMatrix`.
+Throws `BoundsError` when `global_col` is not owned by the current rank.
+"""
+@inline function local_col_index(A::MPIMatrix, global_col::Integer)
+    local_cols = A.indices[2]
+    if global_col < first(local_cols) || global_col > last(local_cols)
+        throw(BoundsError(A, (Colon(), global_col)))
+    end
+    return Int(global_col - first(local_cols) + 1)
+end
+
 function Base.copyto!(A::TA, B::TB) where {TA<:SubOrMPIArray,TB<:SubOrMPIArray}
     copyto!(getdata(A), getdata(B))
     A

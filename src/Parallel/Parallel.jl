@@ -15,7 +15,7 @@ include("MPI/VolumeAssembly.jl")
 include("MPI/Solver.jl")
 
 export init_parallel!, mpi_rank, nprocs, barrier, @root
-export MPIArray, mpiarray, sync!, gather
+export MPIArray, mpiarray, sync!, gather, local_col_index
 export assemble_impedance_matrix_parallel
 export mpi_gmres!, mpi_gmres
 
