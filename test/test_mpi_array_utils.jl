@@ -209,4 +209,118 @@ using LinearAlgebra
         @test all(==(5.0), ac2.data)
     end
 
-end
+    # ──────────────────────────────────────────────────────────────────────────
+    # indices.jl: intersectInIdc, grank2ghostindices, grank2gdataSize,
+    #             grank2indices, remoterank2indices
+    # 说明: 这些函数有 localrank = MPI.Comm_rank(MPI.COMM_WORLD) 的默认参数，
+    #        但只要显式传入 localrank 就不触发 MPI 调用。
+    # ──────────────────────────────────────────────────────────────────────────
+    @testset "intersectInIdc" begin
+        # UnitRange 版本: intersidc .- (first(idc) - 1)
+        result_ur = MPIArrays.intersectInIdc(1:10, [3, 5, 7])
+        @test result_ur == [3, 5, 7]   # first(1:10)=1 → .- 0
+
+        result_ur2 = MPIArrays.intersectInIdc(5:15, [6, 8, 10])
+        @test result_ur2 == [2, 4, 6]  # .- (5-1) = .- 4
+
+        # Vector 版本: map(searchsortedfirst, ...)
+        idc_vec = [1, 3, 5, 7, 9]
+        result_vec = MPIArrays.intersectInIdc(idc_vec, [3, 7])
+        @test result_vec == [2, 4]   # 3 是第2个, 7是第4个
+    end
+
+    @testset "grank2ghostindices - UnitRange ghosts" begin
+        # 覆盖 overload 1: ghostindices::Tuple{Vararg{T1,N}} where T1=UnitRange
+        r2i = Dict{Int,Tuple{Vararg{UnitRange{Int},1}}}(
+            0 => (1:5,),
+            1 => (6:10,),
+        )
+        ghostranks  = [0, 1]
+        ghostindices = (1:8,)   # 与 rank 0 (1:5) 和 rank 1 (6:8) 有重叠
+
+        result = MPIArrays.grank2ghostindices(ghostranks, ghostindices, r2i; localrank=-1)
+        @test haskey(result, 0)
+        @test haskey(result, 1)
+        # rank 0 intersection: intersect(1:5, 1:8) = 1:5, offset by first(1:8)-1=0 → 1:5
+        @test result[0] == (intersect(1:5, 1:8) .- (1-1),)
+        # rank 1 intersection: intersect(6:10, 1:8) = 6:8, offset → 6:8
+        @test result[1] == (intersect(6:10, 1:8) .- (1-1),)
+    end
+
+    @testset "grank2ghostindices - Vector{Int} ghosts" begin
+        # 覆盖 overload 2: ghostindices::Tuple{Vararg{T1,N}} where T1<:Vector{Int}
+        ghostranks = [0, 1]
+        r2i_vec = Dict{Int,Tuple{Vararg{Vector{Int},1}}}(
+            0 => ([1, 2, 3, 4, 5],),
+            1 => ([6, 7, 8, 9, 10],),
+        )
+        ghostindices_vec = ([1, 2, 6, 7],)  # T1 = Vector{Int}
+
+        result2 = MPIArrays.grank2ghostindices(ghostranks, ghostindices_vec, r2i_vec; localrank=-1)
+        @test haskey(result2, 0)
+        @test haskey(result2, 1)
+        # rank 0 intersect [1,2,3,4,5] ∩ [1,2,6,7] = [1,2]
+        # searchsortedfirst([1,2,6,7], 1) = 1 -> 1 .+ 0:1 = 1:2
+        @test length(result2[0][1]) == 2
+    end
+
+    @testset "grank2ghostindices - NTuple{Union{UnitRange,Vector}} ghosts" begin
+        # 覆盖 overload 4
+        ghostranks = [0, 1]
+        r2i_ur = Dict{Int,Tuple{Vararg{UnitRange{Int},1}}}(
+            0 => (1:5,),
+            1 => (6:10,),
+        )
+        ghostindices_mixed = (1:8,)  # NTuple{1, UnitRange{Int}}
+
+        result4 = MPIArrays.grank2ghostindices(ghostranks, ghostindices_mixed, r2i_ur; localrank=-1)
+        @test haskey(result4, 0)
+        @test haskey(result4, 1)
+    end
+
+    @testset "grank2gdataSize" begin
+        ghostranks = [0, 1]
+        r2i_ur = Dict{Int,NTuple{1,UnitRange{Int}}}(
+            0 => (1:5,),
+            1 => (6:10,),
+        )
+        ghostindices_gs = (2:9,)  # NTuple{1, UnitRange{Int}} fits Union{UnitRange,Vector}
+
+        result_gs = MPIArrays.grank2gdataSize(ghostranks, ghostindices_gs, r2i_ur; localrank=-1)
+        @test haskey(result_gs, 0)
+        @test haskey(result_gs, 1)
+        # rank 0: intersect(1:5, 2:9) = 2:5 → length 4
+        @test result_gs[0] == 4
+        # rank 1: intersect(6:10, 2:9) = 6:9 → length 4
+        @test result_gs[1] == 4
+    end
+
+    @testset "grank2indices" begin
+        ghostranks = [0, 1]
+        r2i_ur = Dict{Int,NTuple{1,UnitRange{Int}}}(
+            0 => (1:5,),
+            1 => (6:10,),
+        )
+        ghostindices_gi = (1:10,)   # full range
+
+        result_gi = MPIArrays.grank2indices(ghostranks, ghostindices_gi, r2i_ur; localrank=-1)
+        @test haskey(result_gi, 0)
+        @test result_gi[0] == (intersect(1:5, 1:10),)
+        @test result_gi[1] == (intersect(6:10, 1:10),)
+    end
+
+    @testset "remoterank2indices" begin
+        ghostranks = [0, 1]
+        # overload 1: generic
+        r2gi = Dict{Int,NTuple{1,UnitRange{Int}}}(
+            0 => (1:5,),
+            1 => (6:10,),
+        )
+        remote_indices = (2:8,)
+
+        result_ri = MPIArrays.remoterank2indices(ghostranks, remote_indices, r2gi; localrank=-1)
+        @test haskey(result_ri, 0)
+        @test haskey(result_ri, 1)
+    end
+
+end  # @testset "MPIArray Utils"

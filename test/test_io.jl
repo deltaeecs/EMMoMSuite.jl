@@ -2,7 +2,9 @@ using Test
 using EMSuite
 using EMSuite.IO
 using EMSuite.Geometry
+using EMSuite.Utilities: save_sparse_matrix, load_sparse_matrix
 using HDF5
+using SparseArrays
 using StaticArrays
 
 @testset "IO" begin
@@ -113,4 +115,49 @@ using StaticArrays
     for f in outfiles_tet3
         rm(f)
     end
+
+    # Test HDF5Utils: save_sparse_matrix / load_sparse_matrix
+    filename_sparse = "test_sparse.h5"
+    # Real sparse matrix — must pass HDF5.Group, not File; create a container group
+    A_real = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.5, 3.0, 4.0], 4, 4)
+    h5open(filename_sparse, "w") do file
+        grp = create_group(file, "matrices")
+        save_sparse_matrix(grp, "A_real", A_real)
+    end
+    @test isfile(filename_sparse)
+    A_loaded = h5open(filename_sparse, "r") do file
+        load_sparse_matrix(file["matrices"], "A_real")
+    end
+    @test A_loaded ≈ A_real
+    @test size(A_loaded) == size(A_real)
+    @test nnz(A_loaded) == nnz(A_real)
+    rm(filename_sparse)
+
+    # Complex sparse matrix
+    filename_sparse2 = "test_sparse_complex.h5"
+    B_complex = sparse([1, 2], [1, 2], [1.0 + 2.0im, 3.0 - 1.0im], 3, 3)
+    h5open(filename_sparse2, "w") do file
+        grp = create_group(file, "mats")
+        save_sparse_matrix(grp, "B_complex", B_complex)
+    end
+    @test isfile(filename_sparse2)
+    B_loaded = h5open(filename_sparse2, "r") do file
+        load_sparse_matrix(file["mats"], "B_complex")
+    end
+    @test B_loaded ≈ B_complex
+    rm(filename_sparse2)
+
+    # load_sparse_matrix: type mismatch error (no "type" attribute)
+    filename_bad = "test_sparse_bad.h5"
+    h5open(filename_bad, "w") do file
+        grp = create_group(file, "bad")
+        g = create_group(grp, "NotAMatrix")
+        g["values"] = [1, 2, 3]
+        # No "type" attribute set → should throw ErrorException
+    end
+    @test_throws ErrorException h5open(filename_bad, "r") do file
+        load_sparse_matrix(file["bad"], "NotAMatrix")
+    end
+    rm(filename_bad)
+
 end
