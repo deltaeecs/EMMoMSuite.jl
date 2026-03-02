@@ -32,7 +32,17 @@ using StaticArrays
 
     rm(filename_h5)
 
-    # Test save_vtk
+    # Test save_results_hdf5 kwargs version
+    filename_h5b = "test_results_kw.h5"
+    save_results_hdf5(filename_h5b; x=42, y=[7.0, 8.0])
+    @test isfile(filename_h5b)
+    h5open(filename_h5b, "r") do file
+        @test read(file["x"]) == 42
+        @test read(file["y"]) ≈ [7.0, 8.0]
+    end
+    rm(filename_h5b)
+
+    # Test save_vtk (TriangleMesh)
     v1 = SVector(0.0, 0.0, 0.0)
     v2 = SVector(1.0, 0.0, 0.0)
     v3 = SVector(0.0, 1.0, 0.0)
@@ -51,11 +61,56 @@ using StaticArrays
         rm(f)
     end
 
-    # Test with data
-    data_vec = [1.0]
-    outfiles2 = save_vtk(filename_vtk, mesh, data_vec; data_name = "TestVal")
+    # Test with data (point data, same length as vertices)
+    data_vec = [1.0, 2.0, 3.0]  # 3 point values
+    outfiles2 = save_vtk(filename_vtk, mesh, data_vec; data_name = "PointVal")
     @test !isempty(outfiles2)
     for f in outfiles2
+        rm(f)
+    end
+
+    # Test with cell data (same length as elements)
+    data_cell = [99.0]  # 1 cell value
+    outfiles3 = save_vtk(filename_vtk, mesh, data_cell; data_name = "CellVal")
+    @test !isempty(outfiles3)
+    for f in outfiles3
+        rm(f)
+    end
+
+    # Test mismatched data (should warn and skip)
+    data_bad = [1.0, 2.0]  # neither 3 vertices nor 1 cell
+    outfiles4 = save_vtk(filename_vtk, mesh, data_bad; data_name = "BadData")
+    @test !isempty(outfiles4)  # Still saves, just without data
+    for f in outfiles4
+        rm(f)
+    end
+
+    # Test save_vtk (TetrahedraMesh)
+    nodes_tet = [
+        0.0  1.0  0.0  0.0;
+        0.0  0.0  1.0  0.0;
+        0.0  0.0  0.0  1.0
+    ]
+    tetras = reshape([1, 2, 3, 4], 4, 1)
+    mesh_tet = TetrahedraMesh(1, nodes_tet, tetras)
+
+    outfiles_tet = save_vtk(filename_vtk, mesh_tet)
+    @test !isempty(outfiles_tet)
+    for f in outfiles_tet
+        rm(f)
+    end
+
+    # TetrahedraMesh with cell data
+    outfiles_tet2 = save_vtk(filename_vtk, mesh_tet, [42.0]; data_name = "TetCell")
+    @test !isempty(outfiles_tet2)
+    for f in outfiles_tet2
+        rm(f)
+    end
+
+    # TetrahedraMesh with mismatched data (should warn)
+    outfiles_tet3 = save_vtk(filename_vtk, mesh_tet, [1.0, 2.0]; data_name = "TetBad")
+    @test !isempty(outfiles_tet3)
+    for f in outfiles_tet3
         rm(f)
     end
 end
