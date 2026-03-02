@@ -476,7 +476,7 @@ function excitation_vector(source::PlaneWave, basis::PWCHexBasis{IT,FT}) where {
 
     mesh = basis.mesh
     verts = vertices(mesh)
-    elems = mesh.hexas  # 8×nhex
+    elems = mesh.hexes  # 8×nhex
     nhex = length(basis.functions)
 
     for h = 1:nhex
@@ -545,12 +545,16 @@ function excitation_vector(source::PlaneWave, basis::RBFBasis{IT,FT}) where {IT,
     N = num_basis(basis)
     V = zeros(CT, N)
 
-    # Use hex GQ
+    # Use hex GQ for volume integration
     quad = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    quad_face = GaussQuadratureInfo(:Quadrangle, 4, FT)
     num_q = length(quad.weight)
 
+    # Build 3D -> 2D GQ index map for free-end lookup (n1d=2 for 8-pt hex)
+    gq3d_map = construct_gq3d_index_map(2)
+
     mesh = basis.mesh
-    elems = mesh.hexas  # 8×nhex
+    elems = mesh.hexes  # 8×nhex
     nhex = size(elems, 2)
 
     # Get hexahedra info (needed for face areas and free-end computation)
@@ -567,12 +571,15 @@ function excitation_vector(source::PlaneWave, basis::RBFBasis{IT,FT}) where {IT,
             n = hex.inBfsID[mi]
 
             arean = hex.facesArea[mi]
-            freeVns = get_free_vns(hex, mi, quad.coordinate)
+            # Free-end coords on opposite face (3×Nq_quad, using face GQ)
+            freeVns = get_free_vns(hex, mi, quad_face.coordinate)
 
             val = zero(CT)
             @inbounds for q = 1:num_q
                 rq = @view rq_hex[:, q]
-                freeV = @view freeVns[:, q]
+                # Map 3D hex GQ index to 2D face index for free-end lookup
+                id_face = gq3d_to_face2d_idx(gq3d_map[q], mi, 2)
+                freeV = @view freeVns[:, id_face]
 
                 # ρ_m = r - r_free
                 ρ_x = rq[1] - freeV[1]
