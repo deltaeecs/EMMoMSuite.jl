@@ -12,20 +12,25 @@ using ..IntegralEquations.VEFIEModule:
     get_tetrahedra_info,
     precompute_vefie_basis,
     vefie_element_interaction_kernel,
-    vefie_mass_matrix_cached
+    vefie_mass_matrix_cached,
+    _pwc_dyad_kernel!
 
 using ..IntegralEquations.SCFIEModule:
     SCFIE,
     scfie_sv_only_interaction,
     assemble_fss_boundary_correction_sparse
 
-using ..BasisFunctions: get_triangles_info, SWGBasis, RWGBasis
+using ..BasisFunctions: get_triangles_info, SWGBasis, RWGBasis,
+    PWCBasis, PWCHexBasis, get_hexahedra_info
+
+using ..Geometry: GaussQuadratureInfo
 
 using ..IntegralEquations.EFIEModule: efie_interaction!
 using ..IntegralEquations.MFIEModule: mfie_interaction!
 using ..IntegralEquations.CFIEModule: CFIE
 
 using SparseArrays
+using LinearAlgebra
 
 # =============================================================================
 # VEFIE + SWGBasis (MPI)
@@ -376,6 +381,359 @@ function assemble_impedance_matrix_parallel(
     sync!(Z)
 
     rank == 0 && println("SCFIE MPI Assembly Completed.")
+    rank == 0 && flush(stdout)
+
+    return Z
+end
+
+# =============================================================================
+# VEFIE + PWCBasis (MPI)
+# =============================================================================
+"""
+    assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCBasis, permittivities)
+
+MPI 并行组装 VEFIE 阻抗矩阵（PWC 四面体，列分区）。
+
+每个四面体贡献 3 个 DOF（x/y/z 分量）。
+无对称性利用：源列过滤决定每个 rank 处理的源四面体，
+测试四面体遍历全部（含自项和互项）。
+
+# Legacy Parity
+与串行 `assemble_impedance_matrix(vefie, basis::PWCBasis)` 结果一致。
+"""
+function assemble_impedance_matrix_parallel(
+    vefie::VEFIE,
+    basis::PWCBasis,
+    permittivities::AbstractVector,
+)
+    comm    = MPI.COMM_WORLD
+    rank    = MPI.Comm_rank(comm)
+    n_procs = MPI.Comm_size(comm)
+
+    FT = typeof(real(vefie.freq))
+    CT = Complex{FT}
+    N  = num_basis(basis)
+
+    Z = mpiarray(CT, N, N; comm = comm)
+    local_cols = Z.indices[2]
+
+    rank == 0 && println(
+        "VEFIE-PWC MPI Assembly (column partition): N=$N, procs=$n_procs, threads=$(Threads.nthreads())",
+    )
+    MPI.Barrier(comm)
+    println("  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))")
+    MPI.Barrier(comm)
+    flush(stdout)
+
+    tetras = get_tetrahedra_info(basis.mesh, basis, permittivities)
+    ntet   = length(tetras)
+
+    # Constants
+    k          = vefie.k
+    k²         = k^2
+    jk         = im * k
+    omega      = 2π * vefie.freq
+    mu0        = FT(4π * 1e-7)
+    eps0       = FT(8.854187817e-12)
+    eta0       = sqrt(mu0 / eps0)
+    Jη₀divK   = im * eta0 / k
+    div4π      = FT(1) / (4 * FT(π))
+
+    # Quadrature from VEFIE struct
+    gq     = vefie.gq_info
+    gq_far = vefie.gq_far
+    Nq     = length(gq.weight)
+    Nq_far = length(gq_far.weight)
+
+    # Precompute GQ points for all tetrahedra
+    rq_near    = Vector{Matrix{FT}}(undef, ntet)
+    rq_far_pts = Vector{Matrix{FT}}(undef, ntet)
+    Threads.@threads for i = 1:ntet
+        rq_near[i]    = tetras[i].vertices * gq.coordinate
+        rq_far_pts[i] = tetras[i].vertices * gq_far.coordinate
+    end
+
+    # Source tets whose DOF columns fall in local_cols
+    src_tets = Int[]
+    for js = 1:ntet
+        tet = tetras[js]
+        for ni = 1:3
+            n = tet.inBfsID[ni]
+            if n != 0 && n in local_cols
+                push!(src_tets, js)
+                break
+            end
+        end
+    end
+
+    row_locks = [SpinLock() for _ = 1:N]
+    next_idx  = Threads.Atomic{Int}(1)
+    n_threads = Threads.nthreads()
+
+    Threads.@threads for _ = 1:n_threads
+        Z_ts_buf = zeros(CT, 3, 3)
+
+        while true
+            tidx = Threads.atomic_add!(next_idx, 1)
+            tidx > length(src_tets) && break
+
+            js    = src_tets[tidx]
+            tet_s = tetras[js]
+            κₛ    = tet_s.κ
+
+            # --- Self-term (ti == js) ---
+            rad_s = cbrt(tet_s.volume)
+            # Self: always near-field
+            _pwc_dyad_kernel!(
+                Z_ts_buf,
+                tet_s, tet_s,
+                rq_near[js], rq_near[js],
+                gq, gq,
+                Nq, Nq,
+                k, k², jk, Jη₀divK, div4π,
+            )
+            selfImp = CT(1) / (im * omega) / tet_s.ε * tet_s.volume
+            @inbounds for ni = 1:3
+                n = tet_s.inBfsID[ni]
+                (n == 0 || !(n in local_cols)) && continue
+                lock(row_locks[n])
+                for mi = 1:3
+                    m = tet_s.inBfsID[mi]
+                    m == 0 && continue
+                    val = Z_ts_buf[mi, ni] * κₛ
+                    if mi == ni
+                        val += selfImp
+                    end
+                    Z[m, n] += val
+                end
+                unlock(row_locks[n])
+            end
+
+            # --- Off-diagonal terms (ti != js) ---
+            for ti = 1:ntet
+                ti == js && continue
+                tet_t = tetras[ti]
+
+                dist_ts   = norm(tet_t.center - tet_s.center)
+                rad_t     = cbrt(tet_t.volume)
+                threshold = FT(3) * (rad_t + rad_s)
+
+                if dist_ts > threshold
+                    _pwc_dyad_kernel!(
+                        Z_ts_buf,
+                        tet_t, tet_s,
+                        rq_far_pts[ti], rq_far_pts[js],
+                        gq_far, gq_far,
+                        Nq_far, Nq_far,
+                        k, k², jk, Jη₀divK, div4π,
+                    )
+                else
+                    _pwc_dyad_kernel!(
+                        Z_ts_buf,
+                        tet_t, tet_s,
+                        rq_near[ti], rq_near[js],
+                        gq, gq,
+                        Nq, Nq,
+                        k, k², jk, Jη₀divK, div4π,
+                    )
+                end
+
+                # Write: test row m, source col n ∈ local_cols
+                @inbounds for ni = 1:3
+                    n = tet_s.inBfsID[ni]
+                    (n == 0 || !(n in local_cols)) && continue
+                    lock(row_locks[n])
+                    for mi = 1:3
+                        m = tet_t.inBfsID[mi]
+                        m == 0 && continue
+                        Z[m, n] += Z_ts_buf[mi, ni] * κₛ
+                    end
+                    unlock(row_locks[n])
+                end
+            end
+        end
+    end
+
+    sync!(Z)
+
+    rank == 0 && println("VEFIE-PWC MPI Assembly Completed.")
+    rank == 0 && flush(stdout)
+
+    return Z
+end
+
+"""
+    assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCBasis)
+
+使用 `vefie.permittivities` 的便捷重载。
+"""
+function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCBasis)
+    return assemble_impedance_matrix_parallel(vefie, basis, vefie.permittivities)
+end
+
+# =============================================================================
+# VEFIE + PWCHexBasis (MPI)
+# =============================================================================
+"""
+    assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
+
+MPI 并行组装 VEFIE 阻抗矩阵（PWC 六面体，列分区）。
+
+每个六面体贡献 3 个 DOF（x/y/z）。使用 Hexahedron 8 点（近场）/1 点（远场）高斯积分。
+
+# Legacy Parity
+与串行 `assemble_impedance_matrix(vefie, basis::PWCHexBasis)` 结果一致。
+"""
+function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
+    comm    = MPI.COMM_WORLD
+    rank    = MPI.Comm_rank(comm)
+    n_procs = MPI.Comm_size(comm)
+
+    FT = typeof(real(vefie.freq))
+    CT = Complex{FT}
+    N  = num_basis(basis)
+
+    Z = mpiarray(CT, N, N; comm = comm)
+    local_cols = Z.indices[2]
+
+    rank == 0 && println(
+        "VEFIE-PWC-Hex MPI Assembly (column partition): N=$N, procs=$n_procs, threads=$(Threads.nthreads())",
+    )
+    MPI.Barrier(comm)
+    println("  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))")
+    MPI.Barrier(comm)
+    flush(stdout)
+
+    hexas = get_hexahedra_info(basis.mesh, basis, vefie.permittivities)
+    nhex  = length(hexas)
+
+    # Constants
+    k         = vefie.k
+    k²        = k^2
+    jk        = im * k
+    omega     = 2π * vefie.freq
+    mu0       = FT(4π * 1e-7)
+    eps0      = FT(8.854187817e-12)
+    eta0      = sqrt(mu0 / eps0)
+    Jη₀divK  = im * eta0 / k
+    div4π     = FT(1) / (4 * FT(π))
+
+    # Local GQ for hexahedra
+    gq_hex     = GaussQuadratureInfo(:Hexahedron, 8, FT)
+    gq_hex_far = GaussQuadratureInfo(:Hexahedron, 1, FT)
+    Nq_hex     = length(gq_hex.weight)
+    Nq_hex_far = length(gq_hex_far.weight)
+
+    # Precompute GQ points
+    rq_near    = Vector{Matrix{FT}}(undef, nhex)
+    rq_far_pts = Vector{Matrix{FT}}(undef, nhex)
+    Threads.@threads for i = 1:nhex
+        rq_near[i]    = hexas[i].vertices * gq_hex.coordinate
+        rq_far_pts[i] = hexas[i].vertices * gq_hex_far.coordinate
+    end
+
+    # Source hexahedra whose DOF columns fall in local_cols
+    src_hexas = Int[]
+    for js = 1:nhex
+        hex = hexas[js]
+        for ni = 1:3
+            n = hex.inBfsID[ni]
+            if n != 0 && n in local_cols
+                push!(src_hexas, js)
+                break
+            end
+        end
+    end
+
+    row_locks = [SpinLock() for _ = 1:N]
+    next_idx  = Threads.Atomic{Int}(1)
+    n_threads = Threads.nthreads()
+
+    Threads.@threads for _ = 1:n_threads
+        Z_ts_buf = zeros(CT, 3, 3)
+
+        while true
+            tidx = Threads.atomic_add!(next_idx, 1)
+            tidx > length(src_hexas) && break
+
+            js    = src_hexas[tidx]
+            hex_s = hexas[js]
+            κₛ    = hex_s.κ
+
+            # --- Self-term ---
+            rad_s = cbrt(hex_s.volume)
+            _pwc_dyad_kernel!(
+                Z_ts_buf,
+                hex_s, hex_s,
+                rq_near[js], rq_near[js],
+                gq_hex, gq_hex,
+                Nq_hex, Nq_hex,
+                k, k², jk, Jη₀divK, div4π,
+            )
+            selfImp = CT(1) / (im * omega) / hex_s.ε * hex_s.volume
+            @inbounds for ni = 1:3
+                n = hex_s.inBfsID[ni]
+                (n == 0 || !(n in local_cols)) && continue
+                lock(row_locks[n])
+                for mi = 1:3
+                    m = hex_s.inBfsID[mi]
+                    m == 0 && continue
+                    val = Z_ts_buf[mi, ni] * κₛ
+                    if mi == ni
+                        val += selfImp
+                    end
+                    Z[m, n] += val
+                end
+                unlock(row_locks[n])
+            end
+
+            # --- Off-diagonal terms ---
+            for ti = 1:nhex
+                ti == js && continue
+                hex_t = hexas[ti]
+
+                dist_ts   = norm(hex_t.center - hex_s.center)
+                rad_t     = cbrt(hex_t.volume)
+                threshold = FT(3) * (rad_t + rad_s)
+
+                if dist_ts > threshold
+                    _pwc_dyad_kernel!(
+                        Z_ts_buf,
+                        hex_t, hex_s,
+                        rq_far_pts[ti], rq_far_pts[js],
+                        gq_hex_far, gq_hex_far,
+                        Nq_hex_far, Nq_hex_far,
+                        k, k², jk, Jη₀divK, div4π,
+                    )
+                else
+                    _pwc_dyad_kernel!(
+                        Z_ts_buf,
+                        hex_t, hex_s,
+                        rq_near[ti], rq_near[js],
+                        gq_hex, gq_hex,
+                        Nq_hex, Nq_hex,
+                        k, k², jk, Jη₀divK, div4π,
+                    )
+                end
+
+                @inbounds for ni = 1:3
+                    n = hex_s.inBfsID[ni]
+                    (n == 0 || !(n in local_cols)) && continue
+                    lock(row_locks[n])
+                    for mi = 1:3
+                        m = hex_t.inBfsID[mi]
+                        m == 0 && continue
+                        Z[m, n] += Z_ts_buf[mi, ni] * κₛ
+                    end
+                    unlock(row_locks[n])
+                end
+            end
+        end
+    end
+
+    sync!(Z)
+
+    rank == 0 && println("VEFIE-PWC-Hex MPI Assembly Completed.")
     rank == 0 && flush(stdout)
 
     return Z
