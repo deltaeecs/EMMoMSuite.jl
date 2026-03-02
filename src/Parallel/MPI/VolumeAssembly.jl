@@ -33,6 +33,57 @@ using SparseArrays
 using LinearAlgebra
 
 # =============================================================================
+# Common MPI column-partition setup helpers
+# =============================================================================
+
+"""
+    _mpi_surf_vol_setup(CT, n_surf, n_vol; comm, label) → NamedTuple
+
+MPI 列分区初始化辅助（表面+体积混合矩阵）。
+
+返回：
+- `comm, rank, n_procs` — MPI 环境
+- `Z`                   — 分布式矩阵，大小 (n_surf+n_vol) × (n_surf+n_vol)
+- `local_surf_cols`     — 本 rank 负责的列中属于表面 DOF（1:n_surf）部分
+- `local_vol_cols`      — 本 rank 负责的列中属于体积 DOF（n_surf+1:n_total）部分
+- `row_locks`           — 每行一把 SpinLock，防止行级别写-写竞争
+- `n_threads`           — Threads.nthreads()
+
+# 使用者负责：打印状态、元素加载、具体积分循环。
+"""
+function _mpi_surf_vol_setup(CT::Type, n_surf::Int, n_vol::Int; comm = MPI.COMM_WORLD, label::String = "")
+    rank    = MPI.Comm_rank(comm)
+    n_procs = MPI.Comm_size(comm)
+    n_total = n_surf + n_vol
+
+    Z = mpiarray(CT, n_total, n_total; comm = comm)
+    local_cols = Z.indices[2]
+
+    surf_lo = max(first(local_cols), 1)
+    surf_hi = min(last(local_cols), n_surf)
+    vol_lo  = max(first(local_cols), n_surf + 1)
+    vol_hi  = min(last(local_cols), n_total)
+
+    local_surf_cols = surf_lo <= surf_hi ? (surf_lo:surf_hi) : (1:0)
+    local_vol_cols  = vol_lo  <= vol_hi  ? (vol_lo:vol_hi)   : (1:0)
+
+    if !isempty(label)
+        rank == 0 && println(
+            "$label (n_surf=$n_surf, n_vol=$n_vol, n_total=$n_total, procs=$n_procs, threads=$(Threads.nthreads()))",
+        )
+        MPI.Barrier(comm)
+        println("  Rank $rank: surf_cols=$(length(local_surf_cols)), vol_cols=$(length(local_vol_cols))")
+        MPI.Barrier(comm)
+        flush(stdout)
+    end
+
+    row_locks = [SpinLock() for _ = 1:n_total]
+    n_threads = Threads.nthreads()
+
+    return (; comm, rank, n_procs, Z, local_cols = Z.indices[2], local_surf_cols, local_vol_cols, row_locks, n_threads)
+end
+
+# =============================================================================
 # VEFIE + SWGBasis (MPI)
 # =============================================================================
 """
@@ -159,10 +210,6 @@ function assemble_impedance_matrix_parallel(
     surf_basis::RWGBasis,
     vol_basis::SWGBasis,
 )
-    comm    = MPI.COMM_WORLD
-    rank    = MPI.Comm_rank(comm)
-    n_procs = MPI.Comm_size(comm)
-
     FT = typeof(real(scfie.freq))
     CT = Complex{FT}
 
@@ -170,24 +217,8 @@ function assemble_impedance_matrix_parallel(
     n_vol   = num_basis(vol_basis)
     n_total = n_surf + n_vol
 
-    Z = mpiarray(CT, n_total, n_total; comm = comm)
-    local_cols = Z.indices[2]
-
-    surf_lo = max(first(local_cols), 1)
-    surf_hi = min(last(local_cols), n_surf)
-    vol_lo  = max(first(local_cols), n_surf + 1)
-    vol_hi  = min(last(local_cols), n_total)
-
-    local_surf_cols = surf_lo <= surf_hi ? (surf_lo:surf_hi) : (1:0)
-    local_vol_cols  = vol_lo <= vol_hi ? (vol_lo:vol_hi) : (1:0)
-
-    rank == 0 && println(
-        "SCFIE MPI Assembly (column partition): n_surf=$n_surf, n_vol=$n_vol, n_total=$n_total, procs=$n_procs, threads=$(Threads.nthreads())",
-    )
-    MPI.Barrier(comm)
-    println("  Rank $rank: surf_cols=$(length(local_surf_cols)), vol_cols=$(length(local_vol_cols))")
-    MPI.Barrier(comm)
-    flush(stdout)
+    (; comm, rank, n_procs, Z, local_cols, local_surf_cols, local_vol_cols, row_locks, n_threads) =
+        _mpi_surf_vol_setup(CT, n_surf, n_vol; label = "SCFIE-SWG MPI Assembly (column partition)")
 
     tris        = get_triangles_info(surf_basis.mesh, surf_basis)
     ntri        = length(tris)
@@ -221,9 +252,7 @@ function assemble_impedance_matrix_parallel(
         end
     end
 
-    # 行级锁数组：n_total 把锁，每输出行一把，竞争范围从「全局/子块」降至「单行」
-    row_locks = [SpinLock() for _ = 1:n_total]
-    n_threads = Threads.nthreads()
+    # 行级锁数组由 _mpi_surf_vol_setup 提供
 
     rank == 0 && println("  [SCFIE 1+3b] Z_SS + Z_VS (surf cols)...")
     rank == 0 && flush(stdout)
@@ -765,10 +794,6 @@ function assemble_impedance_matrix_parallel(
     surf_basis::RWGBasis,
     vol_basis::PWCBasis,
 )
-    comm    = MPI.COMM_WORLD
-    rank    = MPI.Comm_rank(comm)
-    n_procs = MPI.Comm_size(comm)
-
     FT = typeof(real(scfie.freq))
     CT = Complex{FT}
 
@@ -776,24 +801,8 @@ function assemble_impedance_matrix_parallel(
     n_vol   = num_basis(vol_basis)
     n_total = n_surf + n_vol
 
-    Z = mpiarray(CT, n_total, n_total; comm = comm)
-    local_cols = Z.indices[2]
-
-    surf_lo = max(first(local_cols), 1)
-    surf_hi = min(last(local_cols), n_surf)
-    vol_lo  = max(first(local_cols), n_surf + 1)
-    vol_hi  = min(last(local_cols), n_total)
-
-    local_surf_cols = surf_lo <= surf_hi ? (surf_lo:surf_hi) : (1:0)
-    local_vol_cols  = vol_lo  <= vol_hi  ? (vol_lo:vol_hi)   : (1:0)
-
-    rank == 0 && println(
-        "SCFIE-PWC MPI Assembly (column partition): n_surf=$n_surf, n_vol=$n_vol, n_total=$n_total, procs=$n_procs, threads=$(Threads.nthreads())",
-    )
-    MPI.Barrier(comm)
-    println("  Rank $rank: surf_cols=$(length(local_surf_cols)), vol_cols=$(length(local_vol_cols))")
-    MPI.Barrier(comm)
-    flush(stdout)
+    (; comm, rank, n_procs, Z, local_surf_cols, local_vol_cols, row_locks, n_threads) =
+        _mpi_surf_vol_setup(CT, n_surf, n_vol; label = "SCFIE-PWC MPI Assembly (column partition)")
 
     tris   = get_triangles_info(surf_basis.mesh, surf_basis)
     ntri   = length(tris)
@@ -849,8 +858,6 @@ function assemble_impedance_matrix_parallel(
         end
     end
 
-    row_locks = [SpinLock() for _ = 1:n_total]
-    n_threads = Threads.nthreads()
 
     # ─── Phase 1: Z_SS + Z_VS (surf cols) ────────────────────────────────────
     rank == 0 && println("  [SCFIE-PWC 1] Z_SS + Z_VS (surf cols)...")
@@ -1109,10 +1116,6 @@ function assemble_impedance_matrix_parallel(
     surf_basis::RWGBasis,
     vol_basis::PWCHexBasis,
 )
-    comm    = MPI.COMM_WORLD
-    rank    = MPI.Comm_rank(comm)
-    n_procs = MPI.Comm_size(comm)
-
     FT = typeof(real(scfie.freq))
     CT = Complex{FT}
 
@@ -1120,24 +1123,8 @@ function assemble_impedance_matrix_parallel(
     n_vol   = num_basis(vol_basis)
     n_total = n_surf + n_vol
 
-    Z = mpiarray(CT, n_total, n_total; comm = comm)
-    local_cols = Z.indices[2]
-
-    surf_lo = max(first(local_cols), 1)
-    surf_hi = min(last(local_cols), n_surf)
-    vol_lo  = max(first(local_cols), n_surf + 1)
-    vol_hi  = min(last(local_cols), n_total)
-
-    local_surf_cols = surf_lo <= surf_hi ? (surf_lo:surf_hi) : (1:0)
-    local_vol_cols  = vol_lo  <= vol_hi  ? (vol_lo:vol_hi)   : (1:0)
-
-    rank == 0 && println(
-        "SCFIE-PWCHex MPI Assembly (column partition): n_surf=$n_surf, n_vol=$n_vol, n_total=$n_total, procs=$n_procs, threads=$(Threads.nthreads())",
-    )
-    MPI.Barrier(comm)
-    println("  Rank $rank: surf_cols=$(length(local_surf_cols)), vol_cols=$(length(local_vol_cols))")
-    MPI.Barrier(comm)
-    flush(stdout)
+    (; comm, rank, n_procs, Z, local_surf_cols, local_vol_cols, row_locks, n_threads) =
+        _mpi_surf_vol_setup(CT, n_surf, n_vol; label = "SCFIE-PWCHex MPI Assembly (column partition)")
 
     tris  = get_triangles_info(surf_basis.mesh, surf_basis)
     ntri  = length(tris)
@@ -1193,8 +1180,6 @@ function assemble_impedance_matrix_parallel(
         end
     end
 
-    row_locks = [SpinLock() for _ = 1:n_total]
-    n_threads = Threads.nthreads()
 
     # ─── Phase 1: Z_SS + Z_VS (surf cols) ────────────────────────────────────
     rank == 0 && println("  [SCFIE-PWCHex 1] Z_SS + Z_VS (surf cols)...")
