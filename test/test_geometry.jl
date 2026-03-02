@@ -1,6 +1,8 @@
 using Test
 using EMSuite
 using EMSuite.Geometry
+using LinearAlgebra
+using StaticArrays
 
 @testset "Geometry" begin
     @testset "TriangleMesh" begin
@@ -318,5 +320,37 @@ CTETRA, 1, 200, 1, 2, 3, 4
         finally
             rm(path, force=true)
         end
+    end
+
+    @testset "CoordinateTransforms" begin
+        # sphere2cart: θ=π/2, ϕ=0 → (1,0,0)
+        r1 = sphere2cart(1.0, π/2, 0.0)
+        @test isapprox(r1, [1.0, 0.0, 0.0]; atol=1e-12)
+
+        # sphere2cart: r=2, θ=0 → (0,0,2)  (zenith)
+        r2 = sphere2cart(2.0, 0.0, 0.0)
+        @test isapprox(r2, [0.0, 0.0, 2.0]; atol=1e-12)
+
+        # r̂θϕInfo from direction vector (vector constructor + normalization branch)
+        info1 = r̂θϕInfo([1.0, 0.0, 0.0])
+        @test isapprox(norm(info1.r̂), 1.0; atol=1e-12)
+        @test isapprox(info1.r̂, [1.0, 0.0, 0.0]; atol=1e-12)
+
+        # r̂θϕInfo with near-zero vector (edge case: if r ≈ 0 branch)
+        info_zero = r̂θϕInfo([0.0, 0.0, 0.0])
+        @test all(iszero, info_zero.r̂)
+
+        # globalObs2LocalObs with identity rotation (no-op transform)
+        FT = Float64
+        l2g = SMatrix{3,3,FT,9}(1,0,0,0,1,0,0,0,1)
+        obs_mat = fill(r̂θϕInfo(π/4, 0.0), 1, 2)
+        local_obs = globalObs2LocalObs(obs_mat, l2g)
+        @test size(local_obs) == (1, 2)
+        @test isapprox(local_obs[1,1].r̂, obs_mat[1,1].r̂; atol=1e-10)
+
+        # localObs2GlobalObs with identity rotation (no-op transform)
+        global_obs = localObs2GlobalObs(obs_mat, l2g)
+        @test size(global_obs) == (1, 2)
+        @test isapprox(global_obs[1,1].r̂, obs_mat[1,1].r̂; atol=1e-10)
     end
 end
