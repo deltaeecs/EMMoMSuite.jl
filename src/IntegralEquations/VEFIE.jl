@@ -1346,12 +1346,15 @@ function _rbf_far_kernel!(
     end
 
     # --- Loop over basis function pairs to compute F₂ and accumulate ---
+    # Precompute free-end coords for all 6 faces of each hex (before inner loop)
+    freeVns_all_s = [get_free_vns(hex_s, fi, gq_quad.coordinate) for fi = 1:6]
+    freeVms_all_t = [get_free_vns(hex_t, fi, gq_quad.coordinate) for fi = 1:6]
+
     @inbounds for ni = 1:6
         arean = hex_s.facesArea[ni]
         δκn = facess[ni].δκ
         isbdn = facess[ni].isbd
-        # Precompute free-end coords for source basis ni
-        freeVns_ni = get_free_vns(hex_s, ni, gq_quad.coordinate)
+        freeVns_ni = freeVns_all_s[ni]
 
         for mi = 1:6
             aream = hex_t.facesArea[mi]
@@ -1359,7 +1362,7 @@ function _rbf_far_kernel!(
             isbdm = facest[mi].isbd
             aman = aream * arean
             C₃ = mJη₀div4πK * aman
-            freeVms_mi = get_free_vns(hex_t, mi, gq_quad.coordinate)
+            freeVms_mi = freeVms_all_t[mi]
 
             # F₂ (ρₘ·ρₙ × G)
             F₂ = zero(CT)
