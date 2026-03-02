@@ -134,6 +134,8 @@ include("Parallel/Parallel.jl")
 using .Parallel
 export init_parallel!, mpi_rank, nprocs, barrier, @root, num_threads, thread_id
 export assemble_impedance_matrix_parallel
+export mpi_gmres!, mpi_gmres
+export MPIMatrix
 
 # Re-export Driver
 include("Driver.jl")

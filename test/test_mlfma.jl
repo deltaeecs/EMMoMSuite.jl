@@ -3,9 +3,11 @@ using EMSuite
 using EMSuite.FastAlgorithms.MLFMA
 using EMSuite.Geometry
 using EMSuite.BasisFunctions
+using EMSuite.IntegralEquations
 using EMSuite.CoreModule
 using StaticArrays
 using LinearAlgebra
+using MPI
 
 # Mock Operator
 struct MockOperator <: AbstractIntegralOperator
@@ -157,4 +159,49 @@ end
         topLevel = octree.levels[2]
         @test !topLevel.isleaf
     end
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 14.6: MLFMAOperatorMPI
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "MLFMAOperatorMPI (single-process)" begin
+    # Initialize MPI for single-process use
+    if !MPI.Initialized()
+        MPI.Init()
+    end
+    comm = MPI.COMM_WORLD
+
+    # Small sphere mesh for fast tests
+    radius = 0.5
+    freq   = 300e6   # λ ≈ 1 m
+    mesh   = generate_sphere_mesh(radius, 6, 12)
+    basis  = RWGBasis(mesh)
+    N      = num_basis(basis)
+    @test N > 0
+
+    efie          = EFIE(freq)
+    leafCubeEdgel = 0.3
+
+    # Serial reference
+    mlfma_serial = MLFMAOperator(efie, basis, leafCubeEdgel)
+    @test mlfma_serial isa MLFMAOperator
+
+    # Distributed (single process — should be identical to serial)
+    mlfma_mpi = MLFMAOperatorMPI(efie, basis, leafCubeEdgel; comm = comm)
+    @test mlfma_mpi isa MLFMAOperatorMPI
+    @test size(mlfma_mpi) == size(mlfma_serial)
+
+    # Random test vector
+    import Random: seed!
+    seed!(1234)
+    x = randn(ComplexF64, N)
+
+    y_serial = similar(x)
+    y_mpi    = similar(x)
+    mul!(y_serial, mlfma_serial, x)
+    mul!(y_mpi,    mlfma_mpi,    x)
+
+    # On P=1, results must be bitwise identical
+    @test maximum(abs.(y_mpi .- y_serial)) == 0.0
+    @test norm(y_mpi) ≈ norm(y_serial)
 end
