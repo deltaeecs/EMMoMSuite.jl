@@ -19,25 +19,27 @@ EMSuite provides a modular framework for solving electromagnetic scattering and 
 ```julia
 using EMSuite
 
-# 1. Load Mesh
-mesh = read_nas_mesh("plate.nas")
+# 1. 设置频率（更新全局 k0/η0）
+freq = 300e6
+set_frequency!(freq)
 
-# 2. Setup Basis
+# 2. 加载网格与基函数
+mesh  = read_nas_mesh("plate.nas")
 basis = RWGBasis(mesh)
 
-# 3. Define Operator
-freq = 300e6
+# 3. 定义算子 + 装配矩阵
 efie = EFIE(freq)
+Z    = assemble_impedance_matrix(efie, basis)
 
-# 4. Assemble Matrix
-Z = assemble_impedance_matrix(efie, basis)
+# 4. 激励（+z 方向入射，x 极化）
+V = excitation_vector(PlaneWave(freq, π/2, π, [1.0, 0.0, 0.0]), basis)
 
-# 5. Solve
-V = excitation_vector(PlaneWave(freq), basis)
-I = solve!(GMRESSolver(), Z, V)
+# 5. 求解
+I = solve!(LUSolver(), Z, V)
 
-# 6. Post-Process
-rcs = radarCrossSection(theta, phi, I, mesh, RWG)
+# 6. RCS
+θ = collect(range(0.0, π, length=181))
+_, _, rcs_db = radarCrossSection(θ, [0.0], I, basis)
 ```
 """
 module EMSuite

@@ -3,9 +3,10 @@ using EMSuite
 
 makedocs(
     sitename = "EMSuite.jl",
-    format = Documenter.HTML(),
+    format = Documenter.HTML(repolink = ""),
     modules = [EMSuite],
     remotes = nothing,
+    checkdocs = :none,      # 不强制要求所有 docstring 出现在手册中
     warnonly = true,
     pages = [
         "Home" => "index.md",
