@@ -103,7 +103,8 @@ function disaggregate_leaf!(
     basis::AbstractBasisFunction,
     operator::AbstractIntegralOperator,
     ZI::AbstractVector,
-    sorted_ids::Vector{Int},
+    sorted_ids::Vector{Int};
+    cube_filter = nothing,
 )
     disaggregate_leaf!(
         level,
@@ -111,7 +112,8 @@ function disaggregate_leaf!(
         [num_basis(basis)],
         operator,
         ZI,
-        sorted_ids,
+        sorted_ids;
+        cube_filter = cube_filter,
     )
 end
 
@@ -126,7 +128,8 @@ function disaggregate_leaf!(
     offsets::Vector{Int},
     operator::AbstractIntegralOperator,
     ZI::AbstractVector,
-    sorted_ids::Vector{Int},
+    sorted_ids::Vector{Int};
+    cube_filter = nothing,
 )
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -173,6 +176,7 @@ function disaggregate_leaf!(
     poles_ϕhat = [p.ϕhat for p in poles.r̂sθsϕs]
 
     Threads.@threads for iCube = 1:nCubes
+        cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = level.cubes[iCube]
         cubeCenter = cube.center
 

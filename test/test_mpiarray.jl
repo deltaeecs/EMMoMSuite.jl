@@ -44,3 +44,18 @@ np = nprocs()
         @test isnothing(xlc)
     end
 end
+
+@testset "MPIMatrix local column indexing" begin
+    A = mpiarray(Float64, (8, 8); partition = (1, np), buffersize = 0)
+    local_cols = A.indices[2]
+
+    @test local_col_index(A, first(local_cols)) == 1
+    @test local_col_index(A, last(local_cols)) == length(local_cols)
+
+    if first(local_cols) > 1
+        @test_throws BoundsError local_col_index(A, first(local_cols) - 1)
+    end
+    if last(local_cols) < size(A, 2)
+        @test_throws BoundsError local_col_index(A, last(local_cols) + 1)
+    end
+end
