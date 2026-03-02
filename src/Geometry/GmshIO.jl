@@ -3,8 +3,14 @@ using ..CoreModule
 """
     read_msh_mesh(pathname::String; FT=Float64)
 
-Read a Gmsh (.msh) mesh file (version 4.1).
-Currently supports only Triangle elements (type 2).
+Read a Gmsh (.msh) mesh file (version 4.1 ASCII format).
+Supports the following element types:
+- Type 2: 3-node triangles → returns `TriangleMesh`
+- Type 4: 4-node tetrahedra → returns `TetrahedraMesh`
+- Type 5: 8-node hexahedra → returns `HexahedraMesh`
+
+Priority when multiple types present: hexas > tetras > triangles.
+Surface triangles are ignored when volume elements exist.
 """
 function read_msh_mesh(pathname::String; FT = Float64)
     if !endswith(pathname, ".msh")
@@ -14,9 +20,8 @@ function read_msh_mesh(pathname::String; FT = Float64)
     lines = readlines(pathname)
 
     # Check version
-    if lines[2] != "4.1 0 8"
-        # Warning: strict check, might need relaxation for other 4.x versions
-        # But for now let's assume 4.1 ASCII
+    if !startswith(lines[2], "4.1")
+        @warn "GmshIO: Expected Gmsh format 4.1, got: $(lines[2]). Proceeding, but results may be incorrect."
     end
 
     node_start = findfirst(==("\$Nodes"), lines)
@@ -87,9 +92,11 @@ function read_msh_mesh(pathname::String; FT = Float64)
     num_elem_blocks = parse(Int, parts[1])
     total_elems = parse(Int, parts[2])
 
-    # We only care about triangles (type 2)
-    # First pass to count triangles
+    # Count elements by type
+    # Type 2: 3-node triangle, Type 4: 4-node tetrahedron, Type 5: 8-node hexahedron
     num_triangles = 0
+    num_tetras = 0
+    num_hexas = 0
     temp_line = elem_start + 2
 
     block_infos = [] # Store (line_idx, num_elems, type, entityTag)
@@ -105,35 +112,74 @@ function read_msh_mesh(pathname::String; FT = Float64)
 
         if elem_type == 2 # 3-node triangle
             num_triangles += num_elems_in_block
+        elseif elem_type == 4 # 4-node tetrahedron
+            num_tetras += num_elems_in_block
+        elseif elem_type == 5 # 8-node hexahedron
+            num_hexas += num_elems_in_block
         end
 
         temp_line += 1 + num_elems_in_block
     end
 
     triangles = zeros(Int, 3, num_triangles)
-    tags = zeros(Int, num_triangles)
+    tri_tags = zeros(Int, num_triangles)
+    tetras = zeros(Int, 4, num_tetras)
+    tet_tags = zeros(Int, num_tetras)
+    hexas = zeros(Int, 8, num_hexas)
+    hex_tags = zeros(Int, num_hexas)
 
     tri_idx = 1
+    tet_idx = 1
+    hex_idx = 1
     for (start_line, num, type, tag) in block_infos
         if type == 2
             for i = 0:num-1
                 parts = split(lines[start_line+i])
-                # elementTag node1 node2 node3
-                # n1 = parse(Int, parts[2])
-                # n2 = parse(Int, parts[3])
-                # n3 = parse(Int, parts[4])
-
-                # Gmsh 4.1: elementTag nodeTags...
                 n1 = node_tag_map[parse(Int, parts[2])]
                 n2 = node_tag_map[parse(Int, parts[3])]
                 n3 = node_tag_map[parse(Int, parts[4])]
-
                 triangles[:, tri_idx] = [n1, n2, n3]
-                tags[tri_idx] = tag # Use entityTag as physical tag/region ID
+                tri_tags[tri_idx] = tag
                 tri_idx += 1
+            end
+        elseif type == 4 # tetrahedron
+            for i = 0:num-1
+                parts = split(lines[start_line+i])
+                n1 = node_tag_map[parse(Int, parts[2])]
+                n2 = node_tag_map[parse(Int, parts[3])]
+                n3 = node_tag_map[parse(Int, parts[4])]
+                n4 = node_tag_map[parse(Int, parts[5])]
+                tetras[:, tet_idx] = [n1, n2, n3, n4]
+                tet_tags[tet_idx] = tag
+                tet_idx += 1
+            end
+        elseif type == 5 # hexahedron
+            for i = 0:num-1
+                parts = split(lines[start_line+i])
+                ns = [node_tag_map[parse(Int, parts[k])] for k in 2:9]
+                hexas[:, hex_idx] = ns
+                hex_tags[hex_idx] = tag
+                hex_idx += 1
             end
         end
     end
 
-    return TriangleMesh(num_triangles, node, triangles, tags)
+    # Return the highest-dimensional mesh found
+    # Priority: hexas > tetras > triangles; surface elements ignored when volume elements exist
+    if num_hexas > 0
+        if num_tetras > 0
+            @warn "GmshIO: Mixed hexahedra ($num_hexas) and tetrahedra ($num_tetras) found. Only hexahedra will be returned."
+        end
+        if num_triangles > 0
+            @warn "GmshIO: Surface triangles ($num_triangles) ignored; returning HexahedraMesh."
+        end
+        return HexahedraMesh(num_hexas, node, hexas, hex_tags)
+    elseif num_tetras > 0
+        if num_triangles > 0
+            @warn "GmshIO: Surface triangles ($num_triangles) ignored; returning TetrahedraMesh."
+        end
+        return TetrahedraMesh(num_tetras, node, tetras, tet_tags)
+    else
+        return TriangleMesh(num_triangles, node, triangles, tri_tags)
+    end
 end
