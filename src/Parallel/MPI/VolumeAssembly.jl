@@ -1,9 +1,9 @@
 # VolumeAssembly.jl
-# MPI 并行体积分方程组装：在 Parallel 命名空间扩展
-# `Assembly.assemble_impedance_matrix_parallel`。
+# MPI 骞惰浣撶Н鍒嗘柟绋嬬粍瑁咃細鍦?Parallel 鍛藉悕绌洪棿鎵╁睍
+# `Assembly.assemble_impedance_matrix_parallel`銆?
 #
-# 当前实现采用 MPI 列分区（每个 rank 只持有全局矩阵的连续列范围），
-# 并在每个 rank 内使用多线程并行遍历源/测试几何元素。
+# 褰撳墠瀹炵幇閲囩敤 MPI 鍒楀垎鍖猴紙姣忎釜 rank 鍙寔鏈夊叏灞€鐭╅樀鐨勮繛缁垪鑼冨洿锛夛紝
+# 骞跺湪姣忎釜 rank 鍐呬娇鐢ㄥ绾跨▼骞惰閬嶅巻婧?娴嬭瘯鍑犱綍鍏冪礌銆?
 
 import .Assembly: assemble_impedance_matrix_parallel
 
@@ -37,19 +37,19 @@ using LinearAlgebra
 # =============================================================================
 
 """
-    _mpi_surf_vol_setup(CT, n_surf, n_vol; comm, label) → NamedTuple
+    _mpi_surf_vol_setup(CT, n_surf, n_vol; comm, label) 鈫?NamedTuple
 
-MPI 列分区初始化辅助（表面+体积混合矩阵）。
+MPI 鍒楀垎鍖哄垵濮嬪寲杈呭姪锛堣〃闈?浣撶Н娣峰悎鐭╅樀锛夈€?
 
-返回：
-- `comm, rank, n_procs` — MPI 环境
-- `Z`                   — 分布式矩阵，大小 (n_surf+n_vol) × (n_surf+n_vol)
-- `local_surf_cols`     — 本 rank 负责的列中属于表面 DOF（1:n_surf）部分
-- `local_vol_cols`      — 本 rank 负责的列中属于体积 DOF（n_surf+1:n_total）部分
-- `row_locks`           — 每行一把 SpinLock，防止行级别写-写竞争
-- `n_threads`           — Threads.nthreads()
+杩斿洖锛?
+- `comm, rank, n_procs` 鈥?MPI 鐜
+- `Z`                   鈥?鍒嗗竷寮忕煩闃碉紝澶у皬 (n_surf+n_vol) 脳 (n_surf+n_vol)
+- `local_surf_cols`     鈥?鏈?rank 璐熻矗鐨勫垪涓睘浜庤〃闈?DOF锛?:n_surf锛夐儴鍒?
+- `local_vol_cols`      鈥?鏈?rank 璐熻矗鐨勫垪涓睘浜庝綋绉?DOF锛坣_surf+1:n_total锛夐儴鍒?
+- `row_locks`           鈥?姣忚涓€鎶?SpinLock锛岄槻姝㈣绾у埆鍐?鍐欑珵浜?
+- `n_threads`           鈥?Threads.nthreads()
 
-# 使用者负责：打印状态、元素加载、具体积分循环。
+# 浣跨敤鑰呰礋璐ｏ細鎵撳嵃鐘舵€併€佸厓绱犲姞杞姐€佸叿浣撶Н鍒嗗惊鐜€?
 """
 function _mpi_surf_vol_setup(CT::Type, n_surf::Int, n_vol::Int; comm = MPI.COMM_WORLD, label::String = "")
     rank    = MPI.Comm_rank(comm)
@@ -89,9 +89,9 @@ end
 """
     assemble_impedance_matrix_parallel(vefie, basis::SWGBasis, permittivities)
 
-MPI 并行组装 VEFIE 阻抗矩阵（列分区）。
+MPI 骞惰缁勮 VEFIE 闃绘姉鐭╅樀锛堝垪鍒嗗尯锛夈€?
 
-每个 rank 仅负责本地列 `local_cols`，并在本地线程中完成相关源四面体贡献写入。
+姣忎釜 rank 浠呰礋璐ｆ湰鍦板垪 `local_cols`锛屽苟鍦ㄦ湰鍦扮嚎绋嬩腑瀹屾垚鐩稿叧婧愬洓闈綋璐＄尞鍐欏叆銆?
 """
 function assemble_impedance_matrix_parallel(
     vefie::VEFIE,
@@ -133,34 +133,45 @@ function assemble_impedance_matrix_parallel(
         end
     end
 
-    row_locks = [SpinLock() for _ = 1:N]
-    next_idx  = Threads.Atomic{Int}(1)
-    n_threads = Threads.nthreads()
+    # Lockfree threading: partition local_cols into T exclusive sub-ranges.
+    # Each thread owns col_lo..col_hi and writes Z[*, col] only for those cols.
+    # Since col ranges are disjoint, no (row, col) pair is written concurrently.
+    n_threads    = Threads.nthreads()
+    n_local_cols = length(local_cols)
+    col_chunk    = max(1, cld(n_local_cols, n_threads))
 
-    Threads.@threads for _ = 1:n_threads
-        while true
-            tidx = Threads.atomic_add!(next_idx, 1)
-            tidx > length(src_tets) && break
+    Threads.@threads for tid = 1:n_threads
+        col_lo = first(local_cols) + (tid - 1) * col_chunk
+        col_hi = min(first(local_cols) + tid * col_chunk - 1, last(local_cols))
 
-            js      = src_tets[tidx]
+        for js in src_tets
             tet_s   = tetras[js]
             cache_s = basis_cache[js]
 
+            # Quick skip if tet_s has no DOF in this thread's col range
+            has_col = false
+            @inbounds for j = 1:4
+                n = tet_s.inBfsID[j]
+                if n != 0 && col_lo <= n <= col_hi
+                    has_col = true; break
+                end
+            end
+            has_col || continue
+
+            # Self-interaction (test == source)
             Z_self = vefie_element_interaction_kernel(vefie, tet_s, tet_s, cache_s, cache_s)
             M      = vefie_mass_matrix_cached(vefie, tet_s, cache_s)
             @inbounds for i = 1:4
                 m = tet_s.inBfsID[i]
                 m == 0 && continue
-                lock(row_locks[m])
                 @inbounds for j = 1:4
                     n = tet_s.inBfsID[j]
-                    n == 0 && continue
-                    n in local_cols || continue
-                    Z[m, n] += Z_self[i, j] + M[i, j]
+                    (n == 0 || !(col_lo <= n <= col_hi)) && continue
+                    Z[m, n] += Z_self[i, j] + M[i, j]   # no lock: col exclusive
                 end
-                unlock(row_locks[m])
             end
 
+            # Off-diagonal interactions
             for it = 1:ntet
                 it == js && continue
                 tet_t   = tetras[it]
@@ -169,14 +180,11 @@ function assemble_impedance_matrix_parallel(
                 @inbounds for i = 1:4
                     m = tet_t.inBfsID[i]
                     m == 0 && continue
-                    lock(row_locks[m])
                     @inbounds for j = 1:4
                         n = tet_s.inBfsID[j]
-                        n == 0 && continue
-                        n in local_cols || continue
-                        Z[m, n] += Z_ts[i, j]
+                        (n == 0 || !(col_lo <= n <= col_hi)) && continue
+                        Z[m, n] += Z_ts[i, j]   # no lock: col exclusive
                     end
-                    unlock(row_locks[m])
                 end
             end
         end
@@ -197,13 +205,13 @@ end
 """
     assemble_impedance_matrix_parallel(scfie, surf_basis::RWGBasis, vol_basis::SWGBasis)
 
-MPI 并行组装 SCFIE 耦合矩阵（列分区）。
+MPI 骞惰缁勮 SCFIE 鑰﹀悎鐭╅樀锛堝垪鍒嗗尯锛夈€?
 
-全局索引布局:
-- `1:n_surf`：表面 RWG 自由度
-- `n_surf+1:n_total`：体 SWG 自由度
+鍏ㄥ眬绱㈠紩甯冨眬:
+- `1:n_surf`锛氳〃闈?RWG 鑷敱搴?
+- `n_surf+1:n_total`锛氫綋 SWG 鑷敱搴?
 
-各子块按“源列是否归本 rank”写入本地列块，最终 `sync!(Z)` 同步。
+鍚勫瓙鍧楁寜鈥滄簮鍒楁槸鍚﹀綊鏈?rank鈥濆啓鍏ユ湰鍦板垪鍧楋紝鏈€缁?`sync!(Z)` 鍚屾銆?
 """
 function assemble_impedance_matrix_parallel(
     scfie::SCFIE,
@@ -252,64 +260,75 @@ function assemble_impedance_matrix_parallel(
         end
     end
 
-    # 行级锁数组由 _mpi_surf_vol_setup 提供
+    # row_locks 鐢?_mpi_surf_vol_setup 鎻愪緵锛堝凡涓嶅啀鐢ㄤ簬鐑惊鐜紝淇濈暀渚?Fss 淇锛?
 
     rank == 0 && println("  [SCFIE 1+3b] Z_SS + Z_VS (surf cols)...")
     rank == 0 && flush(stdout)
 
-    next_ss = Threads.Atomic{Int}(1)
-    Threads.@threads for _ = 1:n_threads
-        l_efie = zeros(CT, 3, 3)
-        l_mfie = zeros(CT, 3, 3)
-        l_loc  = zeros(CT, 3, 3)
-        while true
-            tidx = Threads.atomic_add!(next_ss, 1)
-            tidx > length(src_tris_surf) && break
-            t_src = src_tris_surf[tidx]
-            tri_s = tris[t_src]
+    # Phase 1 lockfree: partition local_surf_cols into T exclusive sub-ranges.
+    # Each thread writes only to Z[*, col] for col in its own surf col range.
+    # Different threads never write the same (row,col) 鈫?no race, no lock.
+    if !isempty(local_surf_cols)
+        n_surf_local  = length(local_surf_cols)
+        surf_col_chunk = max(1, cld(n_surf_local, n_threads))
 
-            for t_tst = 1:ntri
-                tri_t = tris[t_tst]
-                fill!(l_efie, zero(CT))
-                fill!(l_mfie, zero(CT))
-                fill!(l_loc, zero(CT))
-                efie_interaction!(l_efie, cfie.efie, tri_t, tri_s)
-                mfie_interaction!(l_mfie, cfie.mfie, tri_t, tri_s)
-                alpha_val = scfie.alpha
-                @. l_loc = alpha_val * l_efie + (1 - alpha_val) * l_mfie
+        Threads.@threads for tid = 1:n_threads
+            col_lo = first(local_surf_cols) + (tid - 1) * surf_col_chunk
+            col_hi = min(first(local_surf_cols) + tid * surf_col_chunk - 1, last(local_surf_cols))
+            l_efie = zeros(CT, 3, 3)
+            l_mfie = zeros(CT, 3, 3)
+            l_loc  = zeros(CT, 3, 3)
+
+            for t_src in src_tris_surf
+                tri_s = tris[t_src]
+
+                # Quick skip if tri_s has no surf DOF in this thread's col range
+                has_col = false
                 @inbounds for j = 1:3
-                    col = tri_s.inBfsID[j]
-                    col == 0 && continue
-                    col in local_surf_cols || continue
-                    bf_s      = surf_basis.functions[col]
-                    sign_s    = (bf_s.support[1] == t_src) ? bf_s.signs[1] : bf_s.signs[2]
-                    @inbounds for i = 1:3
-                        row = tri_t.inBfsID[i]
-                        row == 0 && continue
-                        bf_t      = surf_basis.functions[row]
-                        sign_t    = (bf_t.support[1] == t_tst) ? bf_t.signs[1] : bf_t.signs[2]
-                        lock(row_locks[row])
-                        Z[row, col] += l_loc[i, j] * sign_t * sign_s
-                        unlock(row_locks[row])
+                    c = tri_s.inBfsID[j]
+                    if c != 0 && col_lo <= c <= col_hi
+                        has_col = true; break
                     end
                 end
-            end
+                has_col || continue
 
-            for js = 1:ntet
-                tet       = tetras[js]
-                Z_sv      = scfie_sv_only_interaction(scfie, tri_s, tet)
-                kappa_inv = iszero(tet.κ) ? zero(CT) : CT(1) / tet.κ
-                @inbounds for i = 1:3
-                    col = tri_s.inBfsID[i]
-                    col == 0 && continue
-                    col in local_surf_cols || continue
-                    @inbounds for j = 1:4
-                        n = tet.inBfsID[j]
-                        n == 0 && continue
-                        row = n_surf + n
-                        lock(row_locks[row])
-                        Z[row, col] += Z_sv[i, j] * kappa_inv
-                        unlock(row_locks[row])
+                # Z_SS: CFIE surf-surf
+                for t_tst = 1:ntri
+                    tri_t = tris[t_tst]
+                    fill!(l_efie, zero(CT)); fill!(l_mfie, zero(CT)); fill!(l_loc, zero(CT))
+                    efie_interaction!(l_efie, cfie.efie, tri_t, tri_s)
+                    mfie_interaction!(l_mfie, cfie.mfie, tri_t, tri_s)
+                    alpha_val = scfie.alpha
+                    @. l_loc = alpha_val * l_efie + (1 - alpha_val) * l_mfie
+                    @inbounds for j = 1:3
+                        col = tri_s.inBfsID[j]
+                        (col == 0 || !(col_lo <= col <= col_hi)) && continue
+                        bf_s   = surf_basis.functions[col]
+                        sign_s = (bf_s.support[1] == t_src) ? bf_s.signs[1] : bf_s.signs[2]
+                        @inbounds for i = 1:3
+                            row = tri_t.inBfsID[i]
+                            row == 0 && continue
+                            bf_t   = surf_basis.functions[row]
+                            sign_t = (bf_t.support[1] == t_tst) ? bf_t.signs[1] : bf_t.signs[2]
+                            Z[row, col] += l_loc[i, j] * sign_t * sign_s   # no lock: col exclusive
+                        end
+                    end
+                end
+
+                # Z_VS: vol rows, surf cols
+                for js = 1:ntet
+                    tet       = tetras[js]
+                    Z_sv      = scfie_sv_only_interaction(scfie, tri_s, tet)
+                    kappa_inv = iszero(tet.κ) ? zero(CT) : CT(1) / tet.κ
+                    @inbounds for i = 1:3
+                        col = tri_s.inBfsID[i]
+                        (col == 0 || !(col_lo <= col <= col_hi)) && continue
+                        @inbounds for j = 1:4
+                            n = tet.inBfsID[j]
+                            n == 0 && continue
+                            row = n_surf + n
+                            Z[row, col] += Z_sv[i, j] * kappa_inv   # no lock: col exclusive
+                        end
                     end
                 end
             end
@@ -319,77 +338,84 @@ function assemble_impedance_matrix_parallel(
     rank == 0 && println("  [SCFIE 2+3a] Z_VV + Z_SV (vol cols)...")
     rank == 0 && flush(stdout)
 
-    next_vv = Threads.Atomic{Int}(1)
-    Threads.@threads for _ = 1:n_threads
-        while true
-            tidx = Threads.atomic_add!(next_vv, 1)
-            tidx > length(src_tets_vol) && break
-            js      = src_tets_vol[tidx]
-            tet_s   = tetras[js]
-            cache_s = basis_cache[js]
+    # Phase 2 lockfree: partition local_vol_cols into T exclusive sub-ranges.
+    if !isempty(local_vol_cols)
+        n_vol_local  = length(local_vol_cols)
+        vol_col_chunk = max(1, cld(n_vol_local, n_threads))
 
-            for it = 1:ntet
-                tet_t   = tetras[it]
-                cache_t = basis_cache[it]
-                if it == js
-                    Z_self = vefie_element_interaction_kernel(
-                        vefie_inner,
-                        tet_s,
-                        tet_s,
-                        cache_s,
-                        cache_s,
-                    )
-                    M_mat = vefie_mass_matrix_cached(vefie_inner, tet_s, cache_s)
-                    @inbounds for j = 1:4
-                        n = tet_s.inBfsID[j]
-                        n == 0 && continue
-                        (n_surf + n) in local_vol_cols || continue
-                        @inbounds for i = 1:4
-                            m = tet_s.inBfsID[i]
-                            m == 0 && continue
-                            row = n_surf + m
-                            lock(row_locks[row])
-                            Z[row, n_surf + n] += Z_self[i, j] + M_mat[i, j]
-                            unlock(row_locks[row])
-                        end
+        Threads.@threads for tid = 1:n_threads
+            col_lo = first(local_vol_cols) + (tid - 1) * vol_col_chunk
+            col_hi = min(first(local_vol_cols) + tid * vol_col_chunk - 1, last(local_vol_cols))
+
+            for js in src_tets_vol
+                tet_s   = tetras[js]
+                cache_s = basis_cache[js]
+
+                # Quick skip if tet_s has no vol col in this thread's range
+                has_col = false
+                @inbounds for j = 1:4
+                    n = tet_s.inBfsID[j]
+                    c = n_surf + n
+                    if n != 0 && col_lo <= c <= col_hi
+                        has_col = true; break
                     end
-                else
-                    Z_ts = vefie_element_interaction_kernel(
-                        vefie_inner,
-                        tet_t,
-                        tet_s,
-                        cache_t,
-                        cache_s,
-                    )
-                    @inbounds for j = 1:4
-                        n = tet_s.inBfsID[j]
-                        n == 0 && continue
-                        (n_surf + n) in local_vol_cols || continue
-                        @inbounds for i = 1:4
-                            m = tet_t.inBfsID[i]
-                            m == 0 && continue
-                            row = n_surf + m
-                            lock(row_locks[row])
-                            Z[row, n_surf + n] += Z_ts[i, j]
-                            unlock(row_locks[row])
+                end
+                has_col || continue
+
+                # Z_VV: vol-vol (SWG)
+                for it = 1:ntet
+                    tet_t   = tetras[it]
+                    cache_t = basis_cache[it]
+                    if it == js
+                        Z_self = vefie_element_interaction_kernel(
+                            vefie_inner, tet_s, tet_s, cache_s, cache_s,
+                        )
+                        M_mat = vefie_mass_matrix_cached(vefie_inner, tet_s, cache_s)
+                        @inbounds for j = 1:4
+                            n = tet_s.inBfsID[j]
+                            n == 0 && continue
+                            col = n_surf + n
+                            col_lo <= col <= col_hi || continue
+                            @inbounds for i = 1:4
+                                m = tet_s.inBfsID[i]
+                                m == 0 && continue
+                                row = n_surf + m
+                                Z[row, col] += Z_self[i, j] + M_mat[i, j]   # no lock
+                            end
+                        end
+                    else
+                        Z_ts = vefie_element_interaction_kernel(
+                            vefie_inner, tet_t, tet_s, cache_t, cache_s,
+                        )
+                        @inbounds for j = 1:4
+                            n = tet_s.inBfsID[j]
+                            n == 0 && continue
+                            col = n_surf + n
+                            col_lo <= col <= col_hi || continue
+                            @inbounds for i = 1:4
+                                m = tet_t.inBfsID[i]
+                                m == 0 && continue
+                                row = n_surf + m
+                                Z[row, n_surf + n] += Z_ts[i, j]   # no lock
+                            end
                         end
                     end
                 end
-            end
 
-            for it_tri = 1:ntri
-                tri  = tris[it_tri]
-                Z_sv = scfie_sv_only_interaction(scfie, tri, tet_s)
-                @inbounds for i = 1:3
-                    m = tri.inBfsID[i]
-                    m == 0 && continue
-                    @inbounds for j = 1:4
-                        n = tet_s.inBfsID[j]
-                        n == 0 && continue
-                        (n_surf + n) in local_vol_cols || continue
-                        lock(row_locks[m])
-                        Z[m, n_surf + n] += Z_sv[i, j]
-                        unlock(row_locks[m])
+                # Z_SV: surf rows, vol cols
+                for it_tri = 1:ntri
+                    tri  = tris[it_tri]
+                    Z_sv = scfie_sv_only_interaction(scfie, tri, tet_s)
+                    @inbounds for i = 1:3
+                        m = tri.inBfsID[i]
+                        m == 0 && continue
+                        @inbounds for j = 1:4
+                            n = tet_s.inBfsID[j]
+                            n == 0 && continue
+                            col = n_surf + n
+                            col_lo <= col <= col_hi || continue
+                            Z[m, col] += Z_sv[i, j]   # no lock: col exclusive
+                        end
                     end
                 end
             end
@@ -421,14 +447,14 @@ end
 """
     assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCBasis, permittivities)
 
-MPI 并行组装 VEFIE 阻抗矩阵（PWC 四面体，列分区）。
+MPI 骞惰缁勮 VEFIE 闃绘姉鐭╅樀锛圥WC 鍥涢潰浣擄紝鍒楀垎鍖猴級銆?
 
-每个四面体贡献 3 个 DOF（x/y/z 分量）。
-无对称性利用：源列过滤决定每个 rank 处理的源四面体，
-测试四面体遍历全部（含自项和互项）。
+姣忎釜鍥涢潰浣撹础鐚?3 涓?DOF锛坸/y/z 鍒嗛噺锛夈€?
+鏃犲绉版€у埄鐢細婧愬垪杩囨护鍐冲畾姣忎釜 rank 澶勭悊鐨勬簮鍥涢潰浣擄紝
+娴嬭瘯鍥涢潰浣撻亶鍘嗗叏閮紙鍚嚜椤瑰拰浜掗」锛夈€?
 
 # Legacy Parity
-与串行 `assemble_impedance_matrix(vefie, basis::PWCBasis)` 结果一致。
+涓庝覆琛?`assemble_impedance_matrix(vefie, basis::PWCBasis)` 缁撴灉涓€鑷淬€?
 """
 function assemble_impedance_matrix_parallel(
     vefie::VEFIE,
@@ -459,14 +485,14 @@ function assemble_impedance_matrix_parallel(
 
     # Constants
     k          = vefie.k
-    k²         = k^2
+    k虏         = k^2
     jk         = im * k
-    omega      = 2π * vefie.freq
-    mu0        = FT(4π * 1e-7)
+    omega      = 2蟺 * vefie.freq
+    mu0        = FT(4蟺 * 1e-7)
     eps0       = FT(8.854187817e-12)
     eta0       = sqrt(mu0 / eps0)
     Jη₀divK   = im * eta0 / k
-    div4π      = FT(1) / (4 * FT(π))
+    div4蟺      = FT(1) / (4 * FT(蟺))
 
     # Quadrature from VEFIE struct
     gq     = vefie.gq_info
@@ -495,50 +521,57 @@ function assemble_impedance_matrix_parallel(
         end
     end
 
-    row_locks = [SpinLock() for _ = 1:N]
-    next_idx  = Threads.Atomic{Int}(1)
     n_threads = Threads.nthreads()
 
-    Threads.@threads for _ = 1:n_threads
+    # Lockfree: each thread owns an exclusive sub-range of local_cols.
+    # col (source DOF) is exclusive per thread 鈫?no (row,col) write conflict.
+    n_local_cols = length(local_cols)
+    col_chunk    = max(1, cld(n_local_cols, n_threads))
+
+    Threads.@threads for tid = 1:n_threads
+        col_lo   = first(local_cols) + (tid - 1) * col_chunk
+        col_hi   = min(first(local_cols) + tid * col_chunk - 1, last(local_cols))
         Z_ts_buf = zeros(CT, 3, 3)
 
-        while true
-            tidx = Threads.atomic_add!(next_idx, 1)
-            tidx > length(src_tets) && break
-
-            js    = src_tets[tidx]
+        for js in src_tets
             tet_s = tetras[js]
-            κₛ    = tet_s.κ
+            κₛ   = tet_s.κ
 
-            # --- Self-term (ti == js) ---
+            # Quick skip if tet_s has no source DOF in this thread's col range
+            has_col = false
+            @inbounds for ni = 1:3
+                n = tet_s.inBfsID[ni]
+                if n != 0 && col_lo <= n <= col_hi
+                    has_col = true; break
+                end
+            end
+            has_col || continue
+
             rad_s = cbrt(tet_s.volume)
-            # Self: always near-field
+
+            # Self-term (ti == js)
             _pwc_dyad_kernel!(
                 Z_ts_buf,
                 tet_s, tet_s,
                 rq_near[js], rq_near[js],
                 gq, gq,
                 Nq, Nq,
-                k, k², jk, Jη₀divK, div4π,
+                k, k虏, jk, Jη₀divK, div4蟺,
             )
-            selfImp = CT(1) / (im * omega) / tet_s.ε * tet_s.volume
+            selfImp = CT(1) / (im * omega) / tet_s.蔚 * tet_s.volume
             @inbounds for ni = 1:3
                 n = tet_s.inBfsID[ni]
-                (n == 0 || !(n in local_cols)) && continue
-                lock(row_locks[n])
+                (n == 0 || !(col_lo <= n <= col_hi)) && continue
                 for mi = 1:3
                     m = tet_s.inBfsID[mi]
                     m == 0 && continue
                     val = Z_ts_buf[mi, ni] * κₛ
-                    if mi == ni
-                        val += selfImp
-                    end
-                    Z[m, n] += val
+                    mi == ni && (val += selfImp)
+                    Z[m, n] += val   # no lock: n exclusive to tid
                 end
-                unlock(row_locks[n])
             end
 
-            # --- Off-diagonal terms (ti != js) ---
+            # Off-diagonal terms (ti != js)
             for ti = 1:ntet
                 ti == js && continue
                 tet_t = tetras[ti]
@@ -554,7 +587,7 @@ function assemble_impedance_matrix_parallel(
                         rq_far_pts[ti], rq_far_pts[js],
                         gq_far, gq_far,
                         Nq_far, Nq_far,
-                        k, k², jk, Jη₀divK, div4π,
+                        k, k虏, jk, Jη₀divK, div4蟺,
                     )
                 else
                     _pwc_dyad_kernel!(
@@ -563,21 +596,18 @@ function assemble_impedance_matrix_parallel(
                         rq_near[ti], rq_near[js],
                         gq, gq,
                         Nq, Nq,
-                        k, k², jk, Jη₀divK, div4π,
+                        k, k虏, jk, Jη₀divK, div4蟺,
                     )
                 end
 
-                # Write: test row m, source col n ∈ local_cols
                 @inbounds for ni = 1:3
                     n = tet_s.inBfsID[ni]
-                    (n == 0 || !(n in local_cols)) && continue
-                    lock(row_locks[n])
+                    (n == 0 || !(col_lo <= n <= col_hi)) && continue
                     for mi = 1:3
                         m = tet_t.inBfsID[mi]
                         m == 0 && continue
-                        Z[m, n] += Z_ts_buf[mi, ni] * κₛ
+                        Z[m, n] += Z_ts_buf[mi, ni] * κₛ  # no lock: n exclusive to tid
                     end
-                    unlock(row_locks[n])
                 end
             end
         end
@@ -594,7 +624,7 @@ end
 """
     assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCBasis)
 
-使用 `vefie.permittivities` 的便捷重载。
+浣跨敤 `vefie.permittivities` 鐨勪究鎹烽噸杞姐€?
 """
 function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCBasis)
     return assemble_impedance_matrix_parallel(vefie, basis, vefie.permittivities)
@@ -606,12 +636,12 @@ end
 """
     assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
 
-MPI 并行组装 VEFIE 阻抗矩阵（PWC 六面体，列分区）。
+MPI 骞惰缁勮 VEFIE 闃绘姉鐭╅樀锛圥WC 鍏潰浣擄紝鍒楀垎鍖猴級銆?
 
-每个六面体贡献 3 个 DOF（x/y/z）。使用 Hexahedron 8 点（近场）/1 点（远场）高斯积分。
+姣忎釜鍏潰浣撹础鐚?3 涓?DOF锛坸/y/z锛夈€備娇鐢?Hexahedron 8 鐐癸紙杩戝満锛?1 鐐癸紙杩滃満锛夐珮鏂Н鍒嗐€?
 
 # Legacy Parity
-与串行 `assemble_impedance_matrix(vefie, basis::PWCHexBasis)` 结果一致。
+涓庝覆琛?`assemble_impedance_matrix(vefie, basis::PWCHexBasis)` 缁撴灉涓€鑷淬€?
 """
 function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
     comm    = MPI.COMM_WORLD
@@ -638,14 +668,14 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
 
     # Constants
     k         = vefie.k
-    k²        = k^2
+    k虏        = k^2
     jk        = im * k
-    omega     = 2π * vefie.freq
-    mu0       = FT(4π * 1e-7)
+    omega     = 2蟺 * vefie.freq
+    mu0       = FT(4蟺 * 1e-7)
     eps0      = FT(8.854187817e-12)
     eta0      = sqrt(mu0 / eps0)
     Jη₀divK  = im * eta0 / k
-    div4π     = FT(1) / (4 * FT(π))
+    div4蟺     = FT(1) / (4 * FT(蟺))
 
     # Local GQ for hexahedra
     gq_hex     = GaussQuadratureInfo(:Hexahedron, 8, FT)
@@ -674,49 +704,57 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
         end
     end
 
-    row_locks = [SpinLock() for _ = 1:N]
-    next_idx  = Threads.Atomic{Int}(1)
     n_threads = Threads.nthreads()
 
-    Threads.@threads for _ = 1:n_threads
+    # Lockfree: each thread owns an exclusive sub-range of local_cols.
+    # col (source DOF) is exclusive per thread 鈫?no (row,col) write conflict.
+    n_local_cols = length(local_cols)
+    col_chunk    = max(1, cld(n_local_cols, n_threads))
+
+    Threads.@threads for tid = 1:n_threads
+        col_lo   = first(local_cols) + (tid - 1) * col_chunk
+        col_hi   = min(first(local_cols) + tid * col_chunk - 1, last(local_cols))
         Z_ts_buf = zeros(CT, 3, 3)
 
-        while true
-            tidx = Threads.atomic_add!(next_idx, 1)
-            tidx > length(src_hexas) && break
-
-            js    = src_hexas[tidx]
+        for js in src_hexas
             hex_s = hexas[js]
-            κₛ    = hex_s.κ
+            κₛ   = hex_s.κ
 
-            # --- Self-term ---
+            # Quick skip if hex_s has no source DOF in this thread's col range
+            has_col = false
+            @inbounds for ni = 1:3
+                n = hex_s.inBfsID[ni]
+                if n != 0 && col_lo <= n <= col_hi
+                    has_col = true; break
+                end
+            end
+            has_col || continue
+
             rad_s = cbrt(hex_s.volume)
+
+            # Self-term
             _pwc_dyad_kernel!(
                 Z_ts_buf,
                 hex_s, hex_s,
                 rq_near[js], rq_near[js],
                 gq_hex, gq_hex,
                 Nq_hex, Nq_hex,
-                k, k², jk, Jη₀divK, div4π,
+                k, k虏, jk, Jη₀divK, div4蟺,
             )
-            selfImp = CT(1) / (im * omega) / hex_s.ε * hex_s.volume
+            selfImp = CT(1) / (im * omega) / hex_s.蔚 * hex_s.volume
             @inbounds for ni = 1:3
                 n = hex_s.inBfsID[ni]
-                (n == 0 || !(n in local_cols)) && continue
-                lock(row_locks[n])
+                (n == 0 || !(col_lo <= n <= col_hi)) && continue
                 for mi = 1:3
                     m = hex_s.inBfsID[mi]
                     m == 0 && continue
                     val = Z_ts_buf[mi, ni] * κₛ
-                    if mi == ni
-                        val += selfImp
-                    end
-                    Z[m, n] += val
+                    mi == ni && (val += selfImp)
+                    Z[m, n] += val   # no lock: n exclusive to tid
                 end
-                unlock(row_locks[n])
             end
 
-            # --- Off-diagonal terms ---
+            # Off-diagonal terms
             for ti = 1:nhex
                 ti == js && continue
                 hex_t = hexas[ti]
@@ -732,7 +770,7 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
                         rq_far_pts[ti], rq_far_pts[js],
                         gq_hex_far, gq_hex_far,
                         Nq_hex_far, Nq_hex_far,
-                        k, k², jk, Jη₀divK, div4π,
+                        k, k虏, jk, Jη₀divK, div4蟺,
                     )
                 else
                     _pwc_dyad_kernel!(
@@ -741,20 +779,18 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
                         rq_near[ti], rq_near[js],
                         gq_hex, gq_hex,
                         Nq_hex, Nq_hex,
-                        k, k², jk, Jη₀divK, div4π,
+                        k, k虏, jk, Jη₀divK, div4蟺,
                     )
                 end
 
                 @inbounds for ni = 1:3
                     n = hex_s.inBfsID[ni]
-                    (n == 0 || !(n in local_cols)) && continue
-                    lock(row_locks[n])
+                    (n == 0 || !(col_lo <= n <= col_hi)) && continue
                     for mi = 1:3
                         m = hex_t.inBfsID[mi]
                         m == 0 && continue
-                        Z[m, n] += Z_ts_buf[mi, ni] * κₛ
+                        Z[m, n] += Z_ts_buf[mi, ni] * κₛ  # no lock: n exclusive to tid
                     end
-                    unlock(row_locks[n])
                 end
             end
         end
@@ -774,20 +810,20 @@ end
 """
     assemble_impedance_matrix_parallel(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCBasis)
 
-MPI 并行组装 SCFIE 耦合矩阵（列分区），体积分方程基函数为 PWCBasis（四面体）。
+MPI 骞惰缁勮 SCFIE 鑰﹀悎鐭╅樀锛堝垪鍒嗗尯锛夛紝浣撶Н鍒嗘柟绋嬪熀鍑芥暟涓?PWCBasis锛堝洓闈綋锛夈€?
 
-全局索引布局:
-- `1:n_surf`  : 表面 RWG 自由度
-- `n_surf+1:n_total` : 体 PWC 自由度（每四面体 3 个 x/y/z 分量）
+鍏ㄥ眬绱㈠紩甯冨眬:
+- `1:n_surf`  : 琛ㄩ潰 RWG 鑷敱搴?
+- `n_surf+1:n_total` : 浣?PWC 鑷敱搴︼紙姣忓洓闈綋 3 涓?x/y/z 鍒嗛噺锛?
 
-组装分两阶段：
-1. **surf cols**（源在表面）: 填充 Z_SS + Z_VS
-2. **vol cols** （源在体积）: 填充 Z_VV + Z_SV
+缁勮鍒嗕袱闃舵锛?
+1. **surf cols**锛堟簮鍦ㄨ〃闈級: 濉厖 Z_SS + Z_VS
+2. **vol cols** 锛堟簮鍦ㄤ綋绉級: 濉厖 Z_VV + Z_SV
 
-无 Fss 边界修正（PWC 无半基函数）。
+鏃?Fss 杈圭晫淇锛圥WC 鏃犲崐鍩哄嚱鏁帮級銆?
 
 # Legacy Parity
-与串行 `assemble_impedance_matrix(scfie, surf_basis::RWGBasis, vol_basis::PWCBasis)` 一致。
+涓庝覆琛?`assemble_impedance_matrix(scfie, surf_basis::RWGBasis, vol_basis::PWCBasis)` 涓€鑷淬€?
 """
 function assemble_impedance_matrix_parallel(
     scfie::SCFIE,
@@ -813,12 +849,12 @@ function assemble_impedance_matrix_parallel(
 
     # Physical constants (for coupling dyad and Z_VV kernel)
     k         = scfie.k
-    k²        = k^2
+    k虏        = k^2
     jk        = im * k
-    omega     = FT(2π) * scfie.freq
+    omega     = FT(2蟺) * scfie.freq
     eta0      = scfie.eta
     Jη₀divK  = im * eta0 / k
-    div4π     = FT(1) / (4 * FT(π))
+    div4蟺     = FT(1) / (4 * FT(蟺))
 
     # Quadrature
     gq_s       = scfie.gq_surf                            # Triangle 7-pt
@@ -859,23 +895,33 @@ function assemble_impedance_matrix_parallel(
     end
 
 
-    # ─── Phase 1: Z_SS + Z_VS (surf cols) ────────────────────────────────────
+    # 鈹€鈹€鈹€ Phase 1: Z_SS + Z_VS (surf cols) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     rank == 0 && println("  [SCFIE-PWC 1] Z_SS + Z_VS (surf cols)...")
     rank == 0 && flush(stdout)
 
-    next_ss = Threads.Atomic{Int}(1)
-    Threads.@threads for _ = 1:n_threads
+    # Lockfree: each thread owns exclusive surf_col sub-range 鈫?no (row,col) race.
+    if !isempty(local_surf_cols)
+        n_surf_local   = length(local_surf_cols)
+        surf_col_chunk = max(1, cld(n_surf_local, n_threads))
+
+    Threads.@threads for tid = 1:n_threads
+        col_lo = first(local_surf_cols) + (tid - 1) * surf_col_chunk
+        col_hi = min(first(local_surf_cols) + tid * surf_col_chunk - 1, last(local_surf_cols))
         l_efie = zeros(CT, 3, 3)
         l_mfie = zeros(CT, 3, 3)
         l_loc  = zeros(CT, 3, 3)
         dyadG  = zeros(CT, 3, 3)
 
-        while true
-            tidx = Threads.atomic_add!(next_ss, 1)
-            tidx > length(src_tris_surf) && break
-
-            t_src = src_tris_surf[tidx]
+        for t_src in src_tris_surf
             tri_s = tris[t_src]
+
+            # Quick skip if tri_s has no surf DOF in this thread's col range
+            has_col = false
+            @inbounds for j = 1:3
+                c = tri_s.inBfsID[j]
+                if c != 0 && col_lo <= c <= col_hi; has_col = true; break; end
+            end
+            has_col || continue
 
             # Z_SS: CFIE surface-surface interactions
             for t_tst = 1:ntri
@@ -887,8 +933,7 @@ function assemble_impedance_matrix_parallel(
                 @. l_loc = alpha_val * l_efie + (1 - alpha_val) * l_mfie
                 @inbounds for j = 1:3
                     col = tri_s.inBfsID[j]
-                    col == 0 && continue
-                    col in local_surf_cols || continue
+                    (col == 0 || !(col_lo <= col <= col_hi)) && continue
                     bf_s   = surf_basis.functions[col]
                     sign_s = (bf_s.support[1] == t_src) ? bf_s.signs[1] : bf_s.signs[2]
                     @inbounds for i = 1:3
@@ -896,14 +941,12 @@ function assemble_impedance_matrix_parallel(
                         row == 0 && continue
                         bf_t   = surf_basis.functions[row]
                         sign_t = (bf_t.support[1] == t_tst) ? bf_t.signs[1] : bf_t.signs[2]
-                        lock(row_locks[row])
-                        Z[row, col] += l_loc[i, j] * sign_t * sign_s
-                        unlock(row_locks[row])
+                        Z[row, col] += l_loc[i, j] * sign_t * sign_s   # no lock: col exclusive
                     end
                 end
             end
 
-            # Z_VS: source = tri_s (col = m ∈ local_surf_cols), test = all tets
+            # Z_VS: source = tri_s (col = m 鈭?local_surf_cols), test = all tets
             r_q_tri = rq_tri[t_src]
             for js = 1:ntet
                 tet   = tetras[js]
@@ -924,18 +967,18 @@ function assemble_impedance_matrix_parallel(
 
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
-                        R̂x = Rx * divR; R̂y = Ry * divR; R̂z = Rz * divR
-                        GR   = exp(-jk * R) * div4π * divR * gq_v.weight[gj]
+                        R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
+                        GR   = exp(-jk * R) * div4蟺 * divR * gq_v.weight[gj]
 
-                        RR11 = R̂x*R̂x; RR12 = R̂x*R̂y; RR13 = R̂x*R̂z
-                        RR22 = R̂y*R̂y; RR23 = R̂y*R̂z; RR33 = R̂z*R̂z
+                        RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
+                        RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z
 
-                        dyadG[1,1] += GR * ((1 - RR11) * k² - (1 - 3RR11) * jkpR)
-                        dyadG[2,2] += GR * ((1 - RR22) * k² - (1 - 3RR22) * jkpR)
-                        dyadG[3,3] += GR * ((1 - RR33) * k² - (1 - 3RR33) * jkpR)
-                        od12 = GR * (-RR12 * k² + 3RR12 * jkpR)
-                        od13 = GR * (-RR13 * k² + 3RR13 * jkpR)
-                        od23 = GR * (-RR23 * k² + 3RR23 * jkpR)
+                        dyadG[1,1] += GR * ((1 - RR11) * k虏 - (1 - 3RR11) * jkpR)
+                        dyadG[2,2] += GR * ((1 - RR22) * k虏 - (1 - 3RR22) * jkpR)
+                        dyadG[3,3] += GR * ((1 - RR33) * k虏 - (1 - 3RR33) * jkpR)
+                        od12 = GR * (-RR12 * k虏 + 3RR12 * jkpR)
+                        od13 = GR * (-RR13 * k虏 + 3RR13 * jkpR)
+                        od23 = GR * (-RR23 * k虏 + 3RR23 * jkpR)
                         dyadG[1,2] += od12; dyadG[2,1] += od12
                         dyadG[1,3] += od13; dyadG[3,1] += od13
                         dyadG[2,3] += od23; dyadG[3,2] += od23
@@ -944,45 +987,54 @@ function assemble_impedance_matrix_parallel(
                     for mi = 1:3
                         m = tri_s.inBfsID[mi]
                         m == 0 && continue
-                        m in local_surf_cols || continue
+                        col_lo <= m <= col_hi || continue   # this thread's surf cols only
                         lm    = tri_s.edgel[mi]
                         freeV = tri_s.vertices[:, mi]
-                        ρmi   = SVector(rgi[1] - freeV[1], rgi[2] - freeV[2], rgi[3] - freeV[3])
+                        蟻mi   = SVector(rgi[1] - freeV[1], rgi[2] - freeV[2], rgi[3] - freeV[3])
                         temp  = gq_s.weight[gi] * lm / 2
 
                         for ni = 1:3
                             n     = tet.inBfsID[ni]
-                            # Z_VS: test=vol, source=surf → row = n_surf+n, col = m
-                            dot_vs = ρmi[1]*dyadG[ni,1] + ρmi[2]*dyadG[ni,2] + ρmi[3]*dyadG[ni,3]
+                            dot_vs = 蟻mi[1]*dyadG[ni,1] + 蟻mi[2]*dyadG[ni,2] + 蟻mi[3]*dyadG[ni,3]
                             z_vs   = temp * dot_vs * Jη₀divK * Vs
                             row_vs = n_surf + n
-                            lock(row_locks[row_vs])
-                            Z[row_vs, m] += z_vs
-                            unlock(row_locks[row_vs])
+                            Z[row_vs, m] += z_vs   # no lock: col=m exclusive to tid
                         end
                     end
                 end
             end
         end
-    end
+    end   # threads
+    end   # if !isempty(local_surf_cols)
 
-    # ─── Phase 2: Z_VV + Z_SV (vol cols) ─────────────────────────────────────
+    # 鈹€鈹€鈹€ Phase 2: Z_VV + Z_SV (vol cols) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     rank == 0 && println("  [SCFIE-PWC 2] Z_VV + Z_SV (vol cols)...")
     rank == 0 && flush(stdout)
 
-    next_vv = Threads.Atomic{Int}(1)
-    Threads.@threads for _ = 1:n_threads
+    # Lockfree: each thread owns exclusive vol_col sub-range.
+    if !isempty(local_vol_cols)
+        n_vol_local   = length(local_vol_cols)
+        vol_col_chunk = max(1, cld(n_vol_local, n_threads))
+
+    Threads.@threads for tid = 1:n_threads
+        col_lo   = first(local_vol_cols) + (tid - 1) * vol_col_chunk
+        col_hi   = min(first(local_vol_cols) + tid * vol_col_chunk - 1, last(local_vol_cols))
         Z_ts_buf = zeros(CT, 3, 3)
         dyadG    = zeros(CT, 3, 3)
 
-        while true
-            tidx = Threads.atomic_add!(next_vv, 1)
-            tidx > length(src_tets_vol) && break
-
-            js    = src_tets_vol[tidx]
+        for js in src_tets_vol
             tet_s = tetras[js]
-            κₛ    = tet_s.κ
+            κₛ   = tet_s.κ
             rad_s = cbrt(tet_s.volume)
+
+            # Quick skip if tet_s has no vol col in this thread's range
+            has_col = false
+            @inbounds for ni = 1:3
+                n = tet_s.inBfsID[ni]
+                c = n_surf + n
+                if n != 0 && col_lo <= c <= col_hi; has_col = true; break; end
+            end
+            has_col || continue
 
             # Z_VV: _pwc_dyad_kernel! for (tet_s, all tets)
             for ti = 1:ntet
@@ -1002,33 +1054,31 @@ function assemble_impedance_matrix_parallel(
                     is_far ? gq_far_tet : gq_v,
                     is_far ? Nq_far : Nq_v,
                     is_far ? Nq_far : Nq_v,
-                    k, k², jk, Jη₀divK, div4π,
+                    k, k虏, jk, Jη₀divK, div4蟺,
                 )
 
                 @inbounds for ni = 1:3
                     n = tet_s.inBfsID[ni]
                     col = n_surf + n
-                    col in local_vol_cols || continue
-                    lock(row_locks[col])
+                    col_lo <= col <= col_hi || continue
                     for mi = 1:3
                         m   = tet_t.inBfsID[mi]
                         row = n_surf + m
                         if ti == js
                             val = Z_ts_buf[mi, ni] * κₛ
                             if mi == ni
-                                selfImp = CT(1) / (im * omega) / tet_s.ε * tet_s.volume
+                                selfImp = CT(1) / (im * omega) / tet_s.蔚 * tet_s.volume
                                 val += selfImp
                             end
-                            Z[row, col] += val
+                            Z[row, col] += val   # no lock: col exclusive
                         else
-                            Z[row, col] += Z_ts_buf[mi, ni] * κₛ
+                            Z[row, col] += Z_ts_buf[mi, ni] * κₛ  # no lock
                         end
                     end
-                    unlock(row_locks[col])
                 end
             end
 
-            # Z_SV: source = tet_s (col = n_surf+n ∈ local_vol_cols), test = all tris
+            # Z_SV: source = tet_s (col 鈭?thread's vol range), test = all tris
             r_q_v = rq_tet_near[js]
             for it = 1:ntri
                 tri   = tris[it]
@@ -1048,18 +1098,18 @@ function assemble_impedance_matrix_parallel(
 
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
-                        R̂x = Rx * divR; R̂y = Ry * divR; R̂z = Rz * divR
-                        GR   = exp(-jk * R) * div4π * divR * gq_v.weight[gj]
+                        R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
+                        GR   = exp(-jk * R) * div4蟺 * divR * gq_v.weight[gj]
 
-                        RR11 = R̂x*R̂x; RR12 = R̂x*R̂y; RR13 = R̂x*R̂z
-                        RR22 = R̂y*R̂y; RR23 = R̂y*R̂z; RR33 = R̂z*R̂z
+                        RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
+                        RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z
 
-                        dyadG[1,1] += GR * ((1 - RR11) * k² - (1 - 3RR11) * jkpR)
-                        dyadG[2,2] += GR * ((1 - RR22) * k² - (1 - 3RR22) * jkpR)
-                        dyadG[3,3] += GR * ((1 - RR33) * k² - (1 - 3RR33) * jkpR)
-                        od12 = GR * (-RR12 * k² + 3RR12 * jkpR)
-                        od13 = GR * (-RR13 * k² + 3RR13 * jkpR)
-                        od23 = GR * (-RR23 * k² + 3RR23 * jkpR)
+                        dyadG[1,1] += GR * ((1 - RR11) * k虏 - (1 - 3RR11) * jkpR)
+                        dyadG[2,2] += GR * ((1 - RR22) * k虏 - (1 - 3RR22) * jkpR)
+                        dyadG[3,3] += GR * ((1 - RR33) * k虏 - (1 - 3RR33) * jkpR)
+                        od12 = GR * (-RR12 * k虏 + 3RR12 * jkpR)
+                        od13 = GR * (-RR13 * k虏 + 3RR13 * jkpR)
+                        od23 = GR * (-RR23 * k虏 + 3RR23 * jkpR)
                         dyadG[1,2] += od12; dyadG[2,1] += od12
                         dyadG[1,3] += od13; dyadG[3,1] += od13
                         dyadG[2,3] += od23; dyadG[3,2] += od23
@@ -1070,25 +1120,23 @@ function assemble_impedance_matrix_parallel(
                         m == 0 && continue
                         lm    = tri.edgel[mi]
                         freeV = tri.vertices[:, mi]
-                        ρmi   = SVector(rgi[1] - freeV[1], rgi[2] - freeV[2], rgi[3] - freeV[3])
+                        蟻mi   = SVector(rgi[1] - freeV[1], rgi[2] - freeV[2], rgi[3] - freeV[3])
                         temp  = gq_s.weight[gi] * lm / 2
 
                         for ni = 1:3
                             n   = tet_s.inBfsID[ni]
                             col = n_surf + n
-                            col in local_vol_cols || continue
-                            # Z_SV: test=surf, source=vol → row = m, col = n_surf+n
-                            dot_sv = ρmi[1]*dyadG[1,ni] + ρmi[2]*dyadG[2,ni] + ρmi[3]*dyadG[3,ni]
+                            col_lo <= col <= col_hi || continue
+                            dot_sv = 蟻mi[1]*dyadG[1,ni] + 蟻mi[2]*dyadG[2,ni] + 蟻mi[3]*dyadG[3,ni]
                             z_sv   = temp * dot_sv * Jη₀divK * tet_s.volume * κₛ
-                            lock(row_locks[m])
-                            Z[m, col] += z_sv
-                            unlock(row_locks[m])
+                            Z[m, col] += z_sv   # no lock: col exclusive
                         end
                     end
                 end
             end
         end
-    end
+    end   # threads
+    end   # if !isempty(local_vol_cols)
 
     sync!(Z)
 
@@ -1104,12 +1152,12 @@ end
 """
     assemble_impedance_matrix_parallel(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::PWCHexBasis)
 
-MPI 并行组装 SCFIE 耦合矩阵（列分区），体积分方程基函数为 PWCHexBasis（六面体）。
+MPI 骞惰缁勮 SCFIE 鑰﹀悎鐭╅樀锛堝垪鍒嗗尯锛夛紝浣撶Н鍒嗘柟绋嬪熀鍑芥暟涓?PWCHexBasis锛堝叚闈綋锛夈€?
 
-与 PWCBasis 版本结构相同，区别在于：六面体 GQ（8点近场/1点远场）在本地创建。
+涓?PWCBasis 鐗堟湰缁撴瀯鐩稿悓锛屽尯鍒湪浜庯細鍏潰浣?GQ锛?鐐硅繎鍦?1鐐硅繙鍦猴級鍦ㄦ湰鍦板垱寤恒€?
 
 # Legacy Parity
-与串行 `assemble_impedance_matrix(scfie, surf_basis::RWGBasis, vol_basis::PWCHexBasis)` 一致。
+涓庝覆琛?`assemble_impedance_matrix(scfie, surf_basis::RWGBasis, vol_basis::PWCHexBasis)` 涓€鑷淬€?
 """
 function assemble_impedance_matrix_parallel(
     scfie::SCFIE,
@@ -1135,12 +1183,12 @@ function assemble_impedance_matrix_parallel(
 
     # Physical constants
     k         = scfie.k
-    k²        = k^2
+    k虏        = k^2
     jk        = im * k
-    omega     = FT(2π) * scfie.freq
+    omega     = FT(2蟺) * scfie.freq
     eta0      = scfie.eta
     Jη₀divK  = im * eta0 / k
-    div4π     = FT(1) / (4 * FT(π))
+    div4蟺     = FT(1) / (4 * FT(蟺))
 
     # Quadrature
     gq_s        = scfie.gq_surf                              # Triangle 7-pt
@@ -1181,23 +1229,33 @@ function assemble_impedance_matrix_parallel(
     end
 
 
-    # ─── Phase 1: Z_SS + Z_VS (surf cols) ────────────────────────────────────
+    # 鈹€鈹€鈹€ Phase 1: Z_SS + Z_VS (surf cols) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     rank == 0 && println("  [SCFIE-PWCHex 1] Z_SS + Z_VS (surf cols)...")
     rank == 0 && flush(stdout)
 
-    next_ss = Threads.Atomic{Int}(1)
-    Threads.@threads for _ = 1:n_threads
+    # Lockfree: each thread owns exclusive surf_col sub-range.
+    if !isempty(local_surf_cols)
+        n_surf_local   = length(local_surf_cols)
+        surf_col_chunk = max(1, cld(n_surf_local, n_threads))
+
+    Threads.@threads for tid = 1:n_threads
+        col_lo = first(local_surf_cols) + (tid - 1) * surf_col_chunk
+        col_hi = min(first(local_surf_cols) + tid * surf_col_chunk - 1, last(local_surf_cols))
         l_efie = zeros(CT, 3, 3)
         l_mfie = zeros(CT, 3, 3)
         l_loc  = zeros(CT, 3, 3)
         dyadG  = zeros(CT, 3, 3)
 
-        while true
-            tidx = Threads.atomic_add!(next_ss, 1)
-            tidx > length(src_tris_surf) && break
-
-            t_src = src_tris_surf[tidx]
+        for t_src in src_tris_surf
             tri_s = tris[t_src]
+
+            # Quick skip: any surf col in this thread's range?
+            has_col = false
+            @inbounds for j = 1:3
+                c = tri_s.inBfsID[j]
+                if c != 0 && col_lo <= c <= col_hi; has_col = true; break; end
+            end
+            has_col || continue
 
             # Z_SS
             for t_tst = 1:ntri
@@ -1209,8 +1267,7 @@ function assemble_impedance_matrix_parallel(
                 @. l_loc = alpha_val * l_efie + (1 - alpha_val) * l_mfie
                 @inbounds for j = 1:3
                     col = tri_s.inBfsID[j]
-                    col == 0 && continue
-                    col in local_surf_cols || continue
+                    (col == 0 || !(col_lo <= col <= col_hi)) && continue
                     bf_s   = surf_basis.functions[col]
                     sign_s = (bf_s.support[1] == t_src) ? bf_s.signs[1] : bf_s.signs[2]
                     @inbounds for i = 1:3
@@ -1218,9 +1275,7 @@ function assemble_impedance_matrix_parallel(
                         row == 0 && continue
                         bf_t   = surf_basis.functions[row]
                         sign_t = (bf_t.support[1] == t_tst) ? bf_t.signs[1] : bf_t.signs[2]
-                        lock(row_locks[row])
-                        Z[row, col] += l_loc[i, j] * sign_t * sign_s
-                        unlock(row_locks[row])
+                        Z[row, col] += l_loc[i, j] * sign_t * sign_s   # no lock: col exclusive
                     end
                 end
             end
@@ -1246,18 +1301,18 @@ function assemble_impedance_matrix_parallel(
 
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
-                        R̂x = Rx * divR; R̂y = Ry * divR; R̂z = Rz * divR
-                        GR   = exp(-jk * R) * div4π * divR * gq_hex_near.weight[gj]
+                        R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
+                        GR   = exp(-jk * R) * div4蟺 * divR * gq_hex_near.weight[gj]
 
-                        RR11 = R̂x*R̂x; RR12 = R̂x*R̂y; RR13 = R̂x*R̂z
-                        RR22 = R̂y*R̂y; RR23 = R̂y*R̂z; RR33 = R̂z*R̂z
+                        RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
+                        RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z
 
-                        dyadG[1,1] += GR * ((1 - RR11) * k² - (1 - 3RR11) * jkpR)
-                        dyadG[2,2] += GR * ((1 - RR22) * k² - (1 - 3RR22) * jkpR)
-                        dyadG[3,3] += GR * ((1 - RR33) * k² - (1 - 3RR33) * jkpR)
-                        od12 = GR * (-RR12 * k² + 3RR12 * jkpR)
-                        od13 = GR * (-RR13 * k² + 3RR13 * jkpR)
-                        od23 = GR * (-RR23 * k² + 3RR23 * jkpR)
+                        dyadG[1,1] += GR * ((1 - RR11) * k虏 - (1 - 3RR11) * jkpR)
+                        dyadG[2,2] += GR * ((1 - RR22) * k虏 - (1 - 3RR22) * jkpR)
+                        dyadG[3,3] += GR * ((1 - RR33) * k虏 - (1 - 3RR33) * jkpR)
+                        od12 = GR * (-RR12 * k虏 + 3RR12 * jkpR)
+                        od13 = GR * (-RR13 * k虏 + 3RR13 * jkpR)
+                        od23 = GR * (-RR23 * k虏 + 3RR23 * jkpR)
                         dyadG[1,2] += od12; dyadG[2,1] += od12
                         dyadG[1,3] += od13; dyadG[3,1] += od13
                         dyadG[2,3] += od23; dyadG[3,2] += od23
@@ -1266,44 +1321,54 @@ function assemble_impedance_matrix_parallel(
                     for mi = 1:3
                         m = tri_s.inBfsID[mi]
                         m == 0 && continue
-                        m in local_surf_cols || continue
+                        col_lo <= m <= col_hi || continue   # this thread's surf cols only
                         lm    = tri_s.edgel[mi]
                         freeV = tri_s.vertices[:, mi]
-                        ρmi   = SVector(rgi[1]-freeV[1], rgi[2]-freeV[2], rgi[3]-freeV[3])
+                        蟻mi   = SVector(rgi[1]-freeV[1], rgi[2]-freeV[2], rgi[3]-freeV[3])
                         temp  = gq_s.weight[gi] * lm / 2
 
                         for ni = 1:3
                             n     = hex.inBfsID[ni]
-                            dot_vs = ρmi[1]*dyadG[ni,1] + ρmi[2]*dyadG[ni,2] + ρmi[3]*dyadG[ni,3]
+                            dot_vs = 蟻mi[1]*dyadG[ni,1] + 蟻mi[2]*dyadG[ni,2] + 蟻mi[3]*dyadG[ni,3]
                             z_vs   = temp * dot_vs * Jη₀divK * Vs
                             row_vs = n_surf + n
-                            lock(row_locks[row_vs])
-                            Z[row_vs, m] += z_vs
-                            unlock(row_locks[row_vs])
+                            Z[row_vs, m] += z_vs   # no lock: col=m exclusive to tid
                         end
                     end
                 end
             end
         end
-    end
+    end   # threads
+    end   # if !isempty(local_surf_cols)
 
-    # ─── Phase 2: Z_VV + Z_SV (vol cols) ─────────────────────────────────────
+    # 鈹€鈹€鈹€ Phase 2: Z_VV + Z_SV (vol cols) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     rank == 0 && println("  [SCFIE-PWCHex 2] Z_VV + Z_SV (vol cols)...")
     rank == 0 && flush(stdout)
 
-    next_vv = Threads.Atomic{Int}(1)
-    Threads.@threads for _ = 1:n_threads
+    # Lockfree: each thread owns exclusive vol_col sub-range.
+    if !isempty(local_vol_cols)
+        n_vol_local   = length(local_vol_cols)
+        vol_col_chunk = max(1, cld(n_vol_local, n_threads))
+
+    Threads.@threads for tid = 1:n_threads
+        col_lo   = first(local_vol_cols) + (tid - 1) * vol_col_chunk
+        col_hi   = min(first(local_vol_cols) + tid * vol_col_chunk - 1, last(local_vol_cols))
         Z_ts_buf = zeros(CT, 3, 3)
         dyadG    = zeros(CT, 3, 3)
 
-        while true
-            tidx = Threads.atomic_add!(next_vv, 1)
-            tidx > length(src_hexas_vol) && break
-
-            js    = src_hexas_vol[tidx]
+        for js in src_hexas_vol
             hex_s = hexas[js]
-            κₛ    = hex_s.κ
+            κₛ   = hex_s.κ
             rad_s = cbrt(hex_s.volume)
+
+            # Quick skip if hex_s has no vol col in this thread's range
+            has_col = false
+            @inbounds for ni = 1:3
+                n = hex_s.inBfsID[ni]
+                c = n_surf + n
+                if n != 0 && col_lo <= c <= col_hi; has_col = true; break; end
+            end
+            has_col || continue
 
             # Z_VV: _pwc_dyad_kernel! for (hex_s, all hexas)
             for ti = 1:nhex
@@ -1323,29 +1388,27 @@ function assemble_impedance_matrix_parallel(
                     is_far ? gq_hex_far : gq_hex_near,
                     is_far ? Nq_hex_far : Nq_hex,
                     is_far ? Nq_hex_far : Nq_hex,
-                    k, k², jk, Jη₀divK, div4π,
+                    k, k虏, jk, Jη₀divK, div4蟺,
                 )
 
                 @inbounds for ni = 1:3
                     n   = hex_s.inBfsID[ni]
                     col = n_surf + n
-                    col in local_vol_cols || continue
-                    lock(row_locks[col])
+                    col_lo <= col <= col_hi || continue
                     for mi = 1:3
                         m   = hex_t.inBfsID[mi]
                         row = n_surf + m
                         if ti == js
                             val = Z_ts_buf[mi, ni] * κₛ
                             if mi == ni
-                                selfImp = CT(1) / (im * omega) / hex_s.ε * hex_s.volume
+                                selfImp = CT(1) / (im * omega) / hex_s.蔚 * hex_s.volume
                                 val += selfImp
                             end
-                            Z[row, col] += val
+                            Z[row, col] += val   # no lock: col exclusive
                         else
-                            Z[row, col] += Z_ts_buf[mi, ni] * κₛ
+                            Z[row, col] += Z_ts_buf[mi, ni] * κₛ  # no lock
                         end
                     end
-                    unlock(row_locks[col])
                 end
             end
 
@@ -1369,18 +1432,18 @@ function assemble_impedance_matrix_parallel(
 
                         divR  = FT(1) / R
                         jkpR  = (jk + divR) * divR
-                        R̂x = Rx * divR; R̂y = Ry * divR; R̂z = Rz * divR
-                        GR   = exp(-jk * R) * div4π * divR * gq_hex_near.weight[gj]
+                        R虃x = Rx * divR; R虃y = Ry * divR; R虃z = Rz * divR
+                        GR   = exp(-jk * R) * div4蟺 * divR * gq_hex_near.weight[gj]
 
-                        RR11 = R̂x*R̂x; RR12 = R̂x*R̂y; RR13 = R̂x*R̂z
-                        RR22 = R̂y*R̂y; RR23 = R̂y*R̂z; RR33 = R̂z*R̂z
+                        RR11 = R虃x*R虃x; RR12 = R虃x*R虃y; RR13 = R虃x*R虃z
+                        RR22 = R虃y*R虃y; RR23 = R虃y*R虃z; RR33 = R虃z*R虃z
 
-                        dyadG[1,1] += GR * ((1 - RR11) * k² - (1 - 3RR11) * jkpR)
-                        dyadG[2,2] += GR * ((1 - RR22) * k² - (1 - 3RR22) * jkpR)
-                        dyadG[3,3] += GR * ((1 - RR33) * k² - (1 - 3RR33) * jkpR)
-                        od12 = GR * (-RR12 * k² + 3RR12 * jkpR)
-                        od13 = GR * (-RR13 * k² + 3RR13 * jkpR)
-                        od23 = GR * (-RR23 * k² + 3RR23 * jkpR)
+                        dyadG[1,1] += GR * ((1 - RR11) * k虏 - (1 - 3RR11) * jkpR)
+                        dyadG[2,2] += GR * ((1 - RR22) * k虏 - (1 - 3RR22) * jkpR)
+                        dyadG[3,3] += GR * ((1 - RR33) * k虏 - (1 - 3RR33) * jkpR)
+                        od12 = GR * (-RR12 * k虏 + 3RR12 * jkpR)
+                        od13 = GR * (-RR13 * k虏 + 3RR13 * jkpR)
+                        od23 = GR * (-RR23 * k虏 + 3RR23 * jkpR)
                         dyadG[1,2] += od12; dyadG[2,1] += od12
                         dyadG[1,3] += od13; dyadG[3,1] += od13
                         dyadG[2,3] += od23; dyadG[3,2] += od23
@@ -1391,24 +1454,23 @@ function assemble_impedance_matrix_parallel(
                         m == 0 && continue
                         lm    = tri.edgel[mi]
                         freeV = tri.vertices[:, mi]
-                        ρmi   = SVector(rgi[1]-freeV[1], rgi[2]-freeV[2], rgi[3]-freeV[3])
+                        蟻mi   = SVector(rgi[1]-freeV[1], rgi[2]-freeV[2], rgi[3]-freeV[3])
                         temp  = gq_s.weight[gi] * lm / 2
 
                         for ni = 1:3
                             n   = hex_s.inBfsID[ni]
                             col = n_surf + n
-                            col in local_vol_cols || continue
-                            dot_sv = ρmi[1]*dyadG[1,ni] + ρmi[2]*dyadG[2,ni] + ρmi[3]*dyadG[3,ni]
+                            col_lo <= col <= col_hi || continue
+                            dot_sv = 蟻mi[1]*dyadG[1,ni] + 蟻mi[2]*dyadG[2,ni] + 蟻mi[3]*dyadG[3,ni]
                             z_sv   = temp * dot_sv * Jη₀divK * hex_s.volume * κₛ
-                            lock(row_locks[m])
-                            Z[m, col] += z_sv
-                            unlock(row_locks[m])
+                            Z[m, col] += z_sv   # no lock: col exclusive
                         end
                     end
                 end
             end
         end
-    end
+    end   # threads
+    end   # if !isempty(local_vol_cols)
 
     sync!(Z)
 
