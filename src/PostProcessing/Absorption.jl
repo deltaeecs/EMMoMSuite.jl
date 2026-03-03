@@ -72,37 +72,7 @@ function absorbed_power(
     I_coeffs::Vector{Complex{FT}},
     permittivities::Vector{Complex{FT}},
 ) where {IT,FT}
-    omega = get_omega()
-    nt    = num_elements(basis.mesh)
-
-    # Polarisation current density at each element centroid
-    J_pol = geoVolumeCurrentCal(I_coeffs, basis, permittivities)
-
-    # Element volumes
-    V = _element_volumes(basis)
-
-    P_density = Vector{FT}(undef, nt)
-
-    for t in 1:nt
-        eps_r       = permittivities[t]
-        abs2_epsr_m1 = abs2(eps_r - one(Complex{FT}))
-
-        if abs2_epsr_m1 < 1e-30
-            # Vacuum or near-vacuum: no loss
-            P_density[t] = zero(FT)
-            continue
-        end
-
-        eps_pp = FT(-imag(eps_r))          # ε_r'' = -Im(ε_r) ≥ 0 for lossy
-
-        # |J_pol[t]|² = Σ |J_i|²
-        J2 = sum(abs2, J_pol[t])     # real, non-negative
-
-        P_density[t] = eps_pp * J2 / (2 * FT(omega) * FT(_eps0_abs) * abs2_epsr_m1)
-    end
-
-    P_total = dot(P_density, V)
-
+    P_total, P_density, _ = _absorbed_power_impl(basis, I_coeffs, permittivities)
     return (; P_total, P_density)
 end
 
@@ -138,10 +108,9 @@ function sar(
     permittivities::Vector{Complex{FT}},
     mass_densities::Vector{FT},
 ) where {IT,FT}
-    (; P_total, P_density) = absorbed_power(basis, I_coeffs, permittivities)
-
-    V   = _element_volumes(basis)
-    nt  = length(P_density)
+    # Reuse the volume vector to avoid computing it twice
+    P_total, P_density, V = _absorbed_power_impl(basis, I_coeffs, permittivities)
+    nt = length(P_density)
 
     SAR_per_element = Vector{FT}(undef, nt)
     for t in 1:nt
@@ -158,6 +127,40 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Shared implementation — returns (P_total, P_density, V) so both absorbed_power
+# and sar can reuse V without a second call to _element_volumes.
+function _absorbed_power_impl(
+    basis::Union{SWGBasis{IT,FT}, PWCBasis{IT,FT}},
+    I_coeffs::Vector{Complex{FT}},
+    permittivities::Vector{Complex{FT}},
+) where {IT,FT}
+    omega = get_omega()
+    nt    = num_elements(basis.mesh)
+
+    J_pol = geoVolumeCurrentCal(I_coeffs, basis, permittivities)
+    V     = _element_volumes(basis)
+
+    P_density = Vector{FT}(undef, nt)
+
+    for t in 1:nt
+        eps_r        = permittivities[t]
+        abs2_eps_m1  = abs2(eps_r - one(Complex{FT}))
+
+        if abs2_eps_m1 < 1e-30
+            P_density[t] = zero(FT)
+            continue
+        end
+
+        eps_pp = FT(-imag(eps_r))           # ε_r'' = -Im(ε_r) ≥ 0 for lossy
+        J2     = sum(abs2, J_pol[t])        # |J_pol|² = Σ|J_i|²
+
+        P_density[t] = eps_pp * J2 / (2 * FT(omega) * FT(_eps0_abs) * abs2_eps_m1)
+    end
+
+    P_total = dot(P_density, V)
+    return P_total, P_density, V
+end
 
 """
     _element_volumes(basis) → Vector{FT}
