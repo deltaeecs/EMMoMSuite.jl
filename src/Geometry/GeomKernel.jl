@@ -77,12 +77,12 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 
 """
-    box_solid(Lx, Ly, Lz; center=SVector(0.,0.,0.), material_label="", boundary_labels=Dict()) → BRepSolid
+    box_solid(Lx, Ly, Lz; origin=SVector(0.,0.,0.), material_label="", boundary_labels=Dict()) → BRepSolid
 
 Create an axis-aligned box with dimensions Lx × Ly × Lz.
 
-`center` is the position of the vertex at the *minimum-coordinate corner*
-(i.e. the box spans `[center_x, center_x+Lx] × ... × [center_z, center_z+Lz]`).
+`origin` is the position of the minimum-coordinate corner vertex
+(i.e. the box spans `[origin_x, origin_x+Lx] × ... × [origin_z, origin_z+Lz]`).
 
 The 6 quadrilateral faces are ordered with CCW winding when viewed from outside:
   1. Bottom  (z=0,   outward n = −z)
@@ -94,11 +94,11 @@ The 6 quadrilateral faces are ordered with CCW winding when viewed from outside:
 """
 function box_solid(
     Lx::FT, Ly::FT, Lz::FT;
-    center::SVector{3,FT} = SVector(zero(FT), zero(FT), zero(FT)),
+    origin::SVector{3,FT} = SVector(zero(FT), zero(FT), zero(FT)),
     material_label::String = "",
     boundary_labels::Dict{Int,String} = Dict{Int,String}(),
 ) where {FT<:AbstractFloat}
-    o = center
+    o = origin
     # 8 corners (1-indexed)
     verts = SVector{3,FT}[
         o + SVector(zero(FT), zero(FT), zero(FT)),   # 1: (0,0,0)
