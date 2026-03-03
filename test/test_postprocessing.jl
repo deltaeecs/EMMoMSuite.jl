@@ -153,3 +153,56 @@ end
     @test pts_plane[end, 1] ≈ origin + u_vec
     @test pts_plane[1, end] ≈ origin + v_vec
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 17.3 — geoVolumeCurrentCal
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "geoVolumeCurrentCal" begin
+    using EMSuite.PostProcessing: geoVolumeCurrentCal
+
+    freq = 300e6
+    set_frequency!(freq)
+
+    # 最小 Tet 网格：1×1×1 box，4×4×4 分割 → 6*4³=384 tets
+    mesh = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+    FT   = Float64
+    CT   = ComplexF64
+
+    # ─── SWG 基 ──────────────────────────────────────────────────────────────
+    basis_swg = SWGBasis(mesh)
+    N_swg     = num_basis(basis_swg)
+    I_swg     = ones(CT, N_swg)
+    ε_r       = 2.0 .+ 0.0im
+    perms_swg = fill(CT(ε_r), num_elements(mesh))
+
+    J_swg = geoVolumeCurrentCal(I_swg, basis_swg, perms_swg)
+
+    # 返回每个 tet 一个 SVector{3,CT}
+    @test length(J_swg) == num_elements(mesh)
+    @test eltype(J_swg) <: SVector{3}
+    @test all(all(isfinite, j) for j in J_swg)
+    # 对称网格上合力矩应接近 0（各向同性均匀 mesh 期望净 J≈0）
+    J_mag = norm.(J_swg)
+    @test maximum(J_mag) > 0.0   # 场不全为零
+
+    # ─── PWC 基 ──────────────────────────────────────────────────────────────
+    basis_pwc = PWCBasis(mesh)
+    N_pwc     = num_basis(basis_pwc)  # 3 * num_tets
+    I_pwc     = ones(CT, N_pwc)
+    perms_pwc = fill(CT(ε_r), num_elements(mesh))
+
+    J_pwc = geoVolumeCurrentCal(I_pwc, basis_pwc, perms_pwc)
+
+    @test length(J_pwc) == num_elements(mesh)
+    @test eltype(J_pwc) <: SVector{3}
+    @test all(all(isfinite, j) for j in J_pwc)
+    # 所有 I=1 → J = κ₀*(ε_r-1)*[1,1,1] 标准化后的量级
+    # 实际上 PWC 中 I 直接对应 J*V，所以 J_tet = [I_x/V, I_y/V, I_z/V]
+    # 这里每个分量 I=1，所以 J_x = J_y = J_z = 1/V
+    # 验证各分量相等
+    Jx = [real(j[1]) for j in J_pwc]
+    Jy = [real(j[2]) for j in J_pwc]
+    Jz = [real(j[3]) for j in J_pwc]
+    @test all(Jx .≈ Jy)
+    @test all(Jy .≈ Jz)
+end
