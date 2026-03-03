@@ -101,3 +101,55 @@ end
     ka   = k * radius  # ≈ 1.88
     @test rcs[end] > 0  # 后向 RCS > 0
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FieldCut.jl
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "FieldCut" begin
+    using EMSuite.PostProcessing: field_cut_line, field_cut_plane
+
+    freq = 300e6
+    set_frequency!(freq)
+
+    # 最小 RWG 网格
+    nodes    = [0.0 1.0 0.0 1.0; 0.0 0.0 1.0 1.0; 0.0 0.0 0.0 0.0]
+    elements = [1 2; 2 4; 3 3]
+    mesh     = TriangleMesh(2, nodes, elements, [1,1])
+    basis    = RWGBasis(mesh)
+    I_coeffs = ones(ComplexF64, num_basis(basis))
+
+    FT = Float64
+
+    # --- field_cut_line ---
+    p1 = SVector{3,FT}(2.0, 0.0, 0.0)
+    p2 = SVector{3,FT}(2.0, 0.0, 2.0)
+    N  = 5
+
+    pts_line, E_line = field_cut_line(p1, p2, N, basis, I_coeffs)
+
+    @test length(pts_line) == N
+    @test length(E_line)   == N
+    @test eltype(pts_line) <: SVector{3}
+    @test eltype(E_line)   <: SVector{3}
+    # 第一个点等于 p1，最后一个等于 p2
+    @test pts_line[1]   ≈ p1
+    @test pts_line[end] ≈ p2
+    # 所有场值有限
+    @test all(all(isfinite, e) for e in E_line)
+
+    # --- field_cut_plane ---
+    origin = SVector{3,FT}(2.0, -1.0, -1.0)
+    u_vec  = SVector{3,FT}(0.0, 1.0, 0.0)   # y 方向
+    v_vec  = SVector{3,FT}(0.0, 0.0, 1.0)   # z 方向
+    Nu, Nv = 3, 4
+
+    pts_plane, E_plane = field_cut_plane(origin, u_vec, v_vec, Nu, Nv, basis, I_coeffs)
+
+    @test size(pts_plane) == (Nu, Nv)
+    @test size(E_plane)   == (Nu, Nv)
+    @test all(all(isfinite, e) for e in E_plane)
+    # 验证角点坐标
+    @test pts_plane[1, 1] ≈ origin
+    @test pts_plane[end, 1] ≈ origin + u_vec
+    @test pts_plane[1, end] ≈ origin + v_vec
+end
