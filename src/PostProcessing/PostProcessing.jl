@@ -23,7 +23,7 @@ using .FarField
 using .NearField
 using .FieldCut
 
-export radarCrossSection, farField, geoElectricJCal, calculate_near_field
+export radarCrossSection, farField, geoElectricJCal, geoVolumeCurrentCal, calculate_near_field
 export r̂θϕInfo, raditionalIntegralNθϕCal
 export field_cut_line, field_cut_plane
 

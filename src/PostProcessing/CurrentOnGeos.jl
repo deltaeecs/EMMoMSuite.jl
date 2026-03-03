@@ -9,7 +9,7 @@ using ...BasisFunctions
 using ...Utilities.Parameters
 using ...CoreModule: num_elements, vertices, elements
 
-export geoElectricJCal
+export geoElectricJCal, geoVolumeCurrentCal
 
 """
     geoElectricJCal(ICoeff, basis::RWGBasis)
@@ -130,6 +130,113 @@ function geoElectricJCal(
     end
 
     return Jtris
+end
+
+# ─── Phase 17.3: Volume equivalent currents ─────────────────────────────────
+
+"""
+    geoVolumeCurrentCal(I_coeffs, basis::SWGBasis, permittivities)
+
+Reconstruct the equivalent polarisation current density **J_eq(r)** at the
+centroid of each tetrahedron from a SWG expansion.
+
+For each tetrahedron `t`, the current is the sum over all SWG basis functions
+that support `t`:
+
+    J_eq(r_c^t) = κ_t · Σ_{n ∈ supp(t)} I_n · f_n(r_c^t)
+
+where κ_t = (ε_r_t − 1)/ε_r_t and f_n(r) = ±A_n/(3V_t) · (r − v_free).
+
+# Returns
+`Vector{SVector{3,CT}}` of length `num_elements(mesh)`.
+"""
+function geoVolumeCurrentCal(
+    I_coeffs::Vector{CT},
+    basis::SWGBasis{IT,FT},
+    permittivities::Vector{CT},
+) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
+    mesh   = basis.mesh
+    nt     = num_elements(mesh)
+    nodes  = vertices(mesh)
+    tetras = elements(mesh)
+
+    J_vol = zeros(SVector{3,CT}, nt)
+
+    for n in 1:num_basis(basis)
+        In = I_coeffs[n]
+        abs(In) < 1e-30 && continue
+
+        bf = basis.functions[n]
+
+        for k_supp in 1:2
+            t_idx = bf.support[k_supp]
+            t_idx == 0 && continue
+
+            # Tet geometry
+            vi    = tetras[:, t_idx]
+            r1    = nodes[:, vi[1]]; r2 = nodes[:, vi[2]]
+            r3    = nodes[:, vi[3]]; r4 = nodes[:, vi[4]]
+            r_c   = (r1 + r2 + r3 + r4) ./ 4       # centroid
+
+            vol   = abs(det(hcat(r2-r1, r3-r1, r4-r1))) / 6
+            lf    = bf.local_face_idx[k_supp]
+            v_free = nodes[:, vi[lf]]
+
+            sign_k  = k_supp == 1 ? FT(1) : FT(-1)
+            const_bf = bf.area / (3 * vol)
+
+            # f_n at centroid
+            ρ = r_c .- v_free
+            f_n_rc = sign_k * const_bf .* ρ
+
+            # κ
+            eps_r  = permittivities[t_idx]
+            kappa  = (eps_r - one(CT)) / eps_r
+
+            J_vol[t_idx] = J_vol[t_idx] + CT(kappa * In) * SVector{3,CT}(f_n_rc)
+        end
+    end
+
+    return J_vol
+end
+
+"""
+    geoVolumeCurrentCal(I_coeffs, basis::PWCBasis, permittivities)
+
+Reconstruct the equivalent polarisation current density at each tetrahedron
+from a PWC expansion.
+
+For PWC the current is piecewise constant within each tet:
+
+    J_eq_t = κ_t · [I_{3t-2}, I_{3t-1}, I_{3t}]
+
+where κ_t = (ε_r_t − 1)/ε_r_t.
+
+# Returns
+`Vector{SVector{3,CT}}` of length `num_elements(mesh)`.
+"""
+function geoVolumeCurrentCal(
+    I_coeffs::Vector{CT},
+    basis::PWCBasis{IT,FT},
+    permittivities::Vector{CT},
+) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
+    nt    = length(basis.functions)
+    J_vol = Vector{SVector{3,CT}}(undef, nt)
+
+    for t in 1:nt
+        pwc    = basis.functions[t]
+        eps_r  = permittivities[t]
+        kappa  = (eps_r - one(CT)) / eps_r
+
+        Jt = SVector{3,CT}(
+            I_coeffs[pwc.inBfsID[1]],
+            I_coeffs[pwc.inBfsID[2]],
+            I_coeffs[pwc.inBfsID[3]],
+        )
+        J_vol[t] = kappa * Jt
+    end
+
+    return J_vol
 end
 
 end
