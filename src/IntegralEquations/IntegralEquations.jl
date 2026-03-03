@@ -25,10 +25,14 @@ using .VEFIEModule
 include("SCFIE.jl")
 using .SCFIEModule
 
+include("PMCHW.jl")
+using .PMCHWModule
+
 include("Excitation.jl")
 using .Excitation
 
-export EFIE, MFIE, CFIE, VEFIE, SCFIE, assemble_impedance_matrix
+export EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, assemble_impedance_matrix
 export green_function_free_space
+export assemble_K_offdiag, efie_from_keta, excitation_vector
 
 end

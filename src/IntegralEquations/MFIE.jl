@@ -11,7 +11,7 @@ using SparseArrays
 
 import ..CoreModule: assemble_impedance_matrix
 
-export MFIE, assemble_impedance_matrix, mfie_interaction!
+export MFIE, assemble_impedance_matrix, mfie_interaction!, assemble_K_offdiag
 
 """
     MFIE{FT, CT} <: AbstractIntegralOperator
@@ -282,6 +282,69 @@ function calc_k_term_fast!(
     end
 
     return nothing
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PMCHWT support: principal-value K-operator (no mass-matrix self-term)
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    assemble_K_offdiag(basis::RWGBasis, k) -> Matrix{Complex}
+
+Assemble the **off-diagonal** (principal-value) K-operator matrix with
+overall factor ``1 / (16\\pi)``.
+
+The self-interaction (diagonal mass-matrix) term is deliberately omitted.
+This is the building block for the PMCHWT ``Z^{EM}`` and ``Z^{HJ}`` blocks.
+
+# Arguments
+- `basis`: RWG basis on a closed triangular mesh
+- `k`:     Wavenumber of the propagation medium (real for lossless)
+
+# Returns
+- ``N \\times N`` complex matrix ``K``, where the diagonal is identically zero.
+
+# Note
+`assemble_K_offdiag(basis, k0) + assemble_K_offdiag(basis, k1)` gives the
+combined K-block needed for PMCHWT interior/exterior superposition.
+"""
+function assemble_K_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
+    CT = Complex{FT}
+    # eta = 1.0  →  eta_div_16pi = 1.0 / (16π), the pure K factor for PMCHWT
+    gq = GaussQuadratureInfo(:Triangle, 4, FT)
+    mfie_k = MFIE{FT,CT}(zero(FT), k, one(FT), gq)
+
+    # Precompute quadrature points (same as the standard MFIE assembly)
+    mesh     = basis.mesh
+    nt       = num_elements(mesh)
+    N_points = length(gq.weight)
+
+    quad_points = Vector{SVector{N_points,SVector{3,FT}}}(undef, nt)
+    Threads.@threads for t in 1:nt
+        v_idx = mesh.triangles[:, t]
+        v1 = SVector{3,FT}(mesh.node[:, v_idx[1]])
+        v2 = SVector{3,FT}(mesh.node[:, v_idx[2]])
+        v3 = SVector{3,FT}(mesh.node[:, v_idx[3]])
+        quad_points[t] = SVector{N_points,SVector{3,FT}}(
+            v1 * gq.coordinate[1, i] + v2 * gq.coordinate[2, i] + v3 * gq.coordinate[3, i]
+            for i in 1:N_points
+        )
+    end
+
+    # Interaction wrapper: skip self-term (do not add mass matrix)
+    function k_offdiag_interaction!(Z_local, op, t_test, t_src, qpts)
+        if t_test.triID == t_src.triID
+            return nothing          # no self-term in PMCHWT K-block
+        end
+        r_test = qpts[t_test.triID]
+        r_src  = qpts[t_src.triID]
+        calc_k_term_fast!(Z_local, op, t_test, t_src, r_test, r_src)
+        return nothing
+    end
+
+    wrapper = (Z, op, t1, t2) -> k_offdiag_interaction!(Z, op, t1, t2, quad_points)
+    # K is NOT symmetric (no symmetry exploitation)
+    return assemble_generic(mfie_k, basis, wrapper, symmetric = false)
 end
 
 end
