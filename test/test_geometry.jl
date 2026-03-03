@@ -1037,3 +1037,74 @@ end
     result_AA = intersect_solids(boxA, boxA)
     @test solid_volume(result_AA) ≈ v_A rtol=1e-8
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "GmshAPI" begin
+    using EMSuite: generate_gmsh_sphere, generate_gmsh_box, generate_gmsh_from_file
+
+    # ── 1. 球面三角网格 ───────────────────────────────────────────────────────
+    r     = 1.0
+    smesh = generate_gmsh_sphere(r; mesh_size=0.3)
+    @test smesh isa TriangleMesh
+    @test smesh.trinum > 0
+    # 面积 ≈ 4π r²，网格误差应 < 5%
+    S_analytic = 4π * r^2
+    S_mesh = sum(
+        0.5 * norm(cross(
+            smesh.node[:, smesh.triangles[2, t]] - smesh.node[:, smesh.triangles[1, t]],
+            smesh.node[:, smesh.triangles[3, t]] - smesh.node[:, smesh.triangles[1, t]]))
+        for t in 1:smesh.trinum)
+    @test abs(S_mesh - S_analytic) / S_analytic < 0.05
+
+    # ── 2. 半径 0.5 球面 ─────────────────────────────────────────────────────
+    smesh2 = generate_gmsh_sphere(0.5; mesh_size=0.2)
+    @test smesh2 isa TriangleMesh
+    @test smesh2.trinum > 0
+
+    # ── 3. Box 四面体网格 ─────────────────────────────────────────────────────
+    bmesh = generate_gmsh_box(1.0, 2.0, 3.0; mesh_size=0.5)
+    @test bmesh isa TetrahedraMesh
+    @test bmesh.tetnum > 0
+    # 体积 ≈ Lx*Ly*Lz，误差 < 1%（结构化参数，误差主要来自表面元素）
+    V_analytic = 1.0 * 2.0 * 3.0
+    # 累加 tet 体积
+    V_mesh = sum(begin
+        v1 = bmesh.node[:, bmesh.tetras[1, t]]
+        v2 = bmesh.node[:, bmesh.tetras[2, t]]
+        v3 = bmesh.node[:, bmesh.tetras[3, t]]
+        v4 = bmesh.node[:, bmesh.tetras[4, t]]
+        abs(dot(v2 - v1, cross(v3 - v1, v4 - v1))) / 6
+    end for t in 1:bmesh.tetnum)
+    @test abs(V_mesh - V_analytic) / V_analytic < 0.01
+
+    # ── 4. Box 节点坐标范围检查 ───────────────────────────────────────────────
+    Lx, Ly, Lz = 2.0, 3.0, 4.0
+    bmesh2 = generate_gmsh_box(Lx, Ly, Lz; mesh_size=1.0)
+    @test bmesh2 isa TetrahedraMesh
+    xs = bmesh2.node[1, :]
+    ys = bmesh2.node[2, :]
+    zs = bmesh2.node[3, :]
+    @test minimum(xs) ≥ -1e-10 && maximum(xs) ≤ Lx + 1e-10
+    @test minimum(ys) ≥ -1e-10 && maximum(ys) ≤ Ly + 1e-10
+    @test minimum(zs) ≥ -1e-10 && maximum(zs) ≤ Lz + 1e-10
+
+    # ── 5. generate_gmsh_from_file：读取 .geo 文件（Box → TetrahedraMesh）──
+    geo_content = """
+    SetFactory("OpenCASCADE");
+    Box(1) = {0, 0, 0, 1, 1, 1};
+    """
+    geo_file = tempname() * ".geo"
+    write(geo_file, geo_content)
+    fmesh = generate_gmsh_from_file(geo_file; mesh_size=0.5)
+    @test fmesh isa TetrahedraMesh
+    @test fmesh.tetnum > 0
+    rm(geo_file; force=true)
+
+    # ── 6. 不存在的文件应抛出错误 ───────────────────────────────────────────
+    @test_throws Exception generate_gmsh_from_file("nonexistent.geo"; mesh_size=0.1)
+
+    # ── 7. mesh_size 影响网格密度：更小的 mesh_size → 更多三角形 ─────────────
+    coarse = generate_gmsh_sphere(1.0; mesh_size=0.5)
+    fine   = generate_gmsh_sphere(1.0; mesh_size=0.2)
+    @test fine.trinum > coarse.trinum
+end
