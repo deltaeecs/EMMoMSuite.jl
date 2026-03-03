@@ -160,4 +160,78 @@ using StaticArrays
     end
     rm(filename_bad)
 
+    # ─── Phase 17.6: VTK HexahedraMesh + complex vector + multi-field ─────────
+
+    @testset "save_vtk HexahedraMesh" begin
+        m = generate_box_volume_mesh(1.0, 1.0, 1.0, 1, 1, 1)
+        @test m isa HexahedraMesh
+        outfiles = save_vtk("test_hex", m)
+        @test !isempty(outfiles)
+        @test isfile(outfiles[1])
+        for f in outfiles; rm(f); end
+
+        # With scalar cell data
+        outfiles2 = save_vtk("test_hex_cdata", m, ones(m.hexnum); data_name="vol")
+        @test !isempty(outfiles2)
+        for f in outfiles2; rm(f); end
+
+        # With scalar point data
+        nv = size(m.node, 2)
+        outfiles3 = save_vtk("test_hex_pdata", m, ones(nv); data_name="nodal")
+        @test !isempty(outfiles3)
+        for f in outfiles3; rm(f); end
+    end
+
+    @testset "save_vtk complex vector field" begin
+        m  = generate_sphere_mesh(1.0, 6, 12)
+        nv = size(m.node, 2)
+
+        # Complex vector at each node (point data)
+        Evec = [SVector(1.0+2im, 3.0+4im, 5.0+6im) for _ in 1:nv]
+
+        # :real_imag
+        outfiles_ri = save_vtk("test_Efield_ri", m, Evec; field_name="E", save_mode=:real_imag)
+        @test !isempty(outfiles_ri)
+        for f in outfiles_ri; rm(f); end
+
+        # :magnitude
+        outfiles_mag = save_vtk("test_Efield_mag", m, Evec; field_name="E", save_mode=:magnitude)
+        @test !isempty(outfiles_mag)
+        for f in outfiles_mag; rm(f); end
+
+        # Cell data version (one vec per triangle)
+        Ecell = [SVector(1.0+0im, 0.0+0im, 0.0+0im) for _ in 1:m.trinum]
+        outfiles_cell = save_vtk("test_Efield_cell", m, Ecell; field_name="Jsurf")
+        @test !isempty(outfiles_cell)
+        for f in outfiles_cell; rm(f); end
+
+        # Unknown save_mode → error
+        @test_throws ErrorException save_vtk("test_err", m, Evec; save_mode=:unknown_mode)
+    end
+
+    @testset "save_vtk_multi" begin
+        m  = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+        nv = size(m.node, 2)
+        nt = m.tetnum
+
+        pd = Dict{String,Any}("temperature" => rand(nv), "pressure" => rand(nv))
+        cd = Dict{String,Any}("density" => rand(nt))
+
+        outfiles = save_vtk_multi("test_multi", m; point_data=pd, cell_data=cd)
+        @test !isempty(outfiles)
+        for f in outfiles; rm(f); end
+
+        # TriangleMesh
+        mt = generate_rectangle_mesh(1.0, 1.0, 3, 3)
+        outfiles2 = save_vtk_multi("test_multi_tri", mt; point_data=Dict{String,Any}("x" => ones(size(mt.node,2))))
+        @test !isempty(outfiles2)
+        for f in outfiles2; rm(f); end
+
+        # HexahedraMesh
+        mh = generate_box_volume_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+        outfiles3 = save_vtk_multi("test_multi_hex", mh; cell_data=Dict{String,Any}("vol_tag"=>ones(mh.hexnum)))
+        @test !isempty(outfiles3)
+        for f in outfiles3; rm(f); end
+    end
+
 end
