@@ -206,3 +206,106 @@ end
     @test all(Jx .≈ Jy)
     @test all(Jy .≈ Jz)
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 17.5 — AntennaMetrics
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "AntennaMetrics" begin
+    using EMSuite.PostProcessing: antenna_directivity, input_impedance, beam_metrics
+
+    freq = 300e6
+    set_frequency!(freq)
+
+    # ─── beam_metrics ────────────────────────────────────────────────────────
+    @testset "beam_metrics" begin
+        # Synthetic 1-D pattern: main lobe at index 5, two side lobes
+        θs  = collect(range(0.0, π, length=21))
+        # Peak (0 dB) at center; parabolic main lobe, side lobes ≈ -15 dB
+        pat = -30.0 .* ((θs .- π/2) / (π/4)).^2
+        pat = clamp.(pat, -40.0, 0.0)
+        # Add artificial side lobe
+        pat[2] = -15.0
+
+        bm = beam_metrics(θs, pat)
+
+        @test bm isa NamedTuple
+        @test haskey(bm, :peak_angle)
+        @test haskey(bm, :HPBW)
+        @test haskey(bm, :SLL_dB)
+
+        # Peak should be at π/2
+        @test bm.peak_angle ≈ π/2 atol=0.01
+
+        # HPBW > 0
+        @test bm.HPBW > 0
+
+        # SLL_dB should be negative (side lobe below main lobe)
+        @test bm.SLL_dB < 0
+
+        # With only one lobe (monotone decay), SLL_dB = 0
+        mono_pat = -collect(range(0.0, 30.0, length=10))
+        bm2 = beam_metrics(collect(range(0.0, π, length=10)), mono_pat)
+        @test bm2.SLL_dB == 0.0
+    end
+
+    # ─── input_impedance ─────────────────────────────────────────────────────
+    @testset "input_impedance" begin
+        # Minimal RWG mesh (2 triangles → 1 basis function)
+        nodes    = [0.0 1.0 0.0 1.0; 0.0 0.0 1.0 1.0; 0.0 0.0 0.0 0.0]
+        elements = [1 2; 2 4; 3 3]
+        mesh     = TriangleMesh(2, nodes, elements, [1,1])
+        basis    = RWGBasis(mesh)
+
+        # DeltaGapSource on edge 1, voltage = 1.0 V
+        source  = DeltaGapSource(freq, [1], 1.0 + 0.0im)
+        ICoeff  = ComplexF64[0.1 - 0.01im]   # mock MoM solution
+
+        Z_in = input_impedance(source, ICoeff, basis)
+
+        # Z_in = 1.0 / (0.1 - 0.01im)
+        expected = 1.0 / (0.1 - 0.01im)
+        @test Z_in ≈ expected
+
+        # Z_in is Complex
+        @test Z_in isa Complex
+    end
+
+    # ─── antenna_directivity ─────────────────────────────────────────────────
+    @testset "antenna_directivity" begin
+        # Minimal RWG mesh
+        nodes    = [0.0 1.0 0.0 1.0; 0.0 0.0 1.0 1.0; 0.0 0.0 0.0 0.0]
+        elements = [1 2; 2 4; 3 3]
+        mesh     = TriangleMesh(2, nodes, elements, [1,1])
+        basis    = RWGBasis(mesh)
+        ICoeff   = ComplexF64[1.0 + 1.0im]
+
+        # Coarse θ/ϕ grid (needs ≥ 2 per axis)
+        θs = collect(range(0.0, π, length=5))
+        ϕs = collect(range(0.0, 2π, length=5))
+
+        result = antenna_directivity(θs, ϕs, ICoeff, basis)
+
+        @test result isa NamedTuple
+        @test haskey(result, :D)
+        @test haskey(result, :P_rad)
+        @test !haskey(result, :G)        # P_input not supplied
+
+        # Shape
+        @test size(result.D) == (length(θs), length(ϕs))
+
+        # D ≥ 0
+        @test all(result.D .>= 0)
+        @test all(isfinite, result.D)
+        @test result.P_rad >= 0
+
+        # ── With P_input → also get G and η_eff ──────────────────────────────
+        result2 = antenna_directivity(θs, ϕs, ICoeff, basis; P_input=result.P_rad)
+
+        @test haskey(result2, :G)
+        @test haskey(result2, :η_eff)
+        # η_eff should be 1.0 when P_input = P_rad
+        @test result2.η_eff ≈ 1.0 atol=1e-10
+        # G ≈ D when η_eff = 1
+        @test result2.G ≈ result.D atol=1e-10
+    end
+end
