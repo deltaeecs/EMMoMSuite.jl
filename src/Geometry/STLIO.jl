@@ -9,7 +9,6 @@ Exported:
 """
 
 using LinearAlgebra
-using StaticArrays
 
 export read_stl_mesh, write_stl_mesh
 

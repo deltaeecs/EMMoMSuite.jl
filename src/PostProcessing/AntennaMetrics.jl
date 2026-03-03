@@ -90,7 +90,7 @@ function antenna_directivity(
     D = P_rad > 0 ? 4π .* U ./ P_rad : zeros(FT, Nθ, Nϕ)
 
     if P_input !== nothing
-        P_input_r = Float64(P_input)::Float64
+        P_input_r = Float64(P_input)
         η_eff = P_rad / P_input_r
         G = η_eff .* D
         return (; D, G, P_rad, η_eff)
