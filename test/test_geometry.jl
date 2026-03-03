@@ -964,3 +964,76 @@ end
         for t in 1:tri_mesh.trinum)
     @test total_tri_area ≈ 6.0 rtol=1e-10
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "BooleanOps" begin
+    using StaticArrays
+
+    # Phase 18.2: 凸多面体布尔操作
+    using EMSuite: intersect_solids, union_solids, subtract_solid, csg_volume
+
+    # ── 1. 相交：两个单位立方体，沿 x 偏移 0.5 ─────────────────────────────
+    boxA = box_solid(1.0, 1.0, 1.0)                      # [0,1]³
+    boxB = box_solid(1.0, 1.0, 1.0;
+                     origin=SVector(0.5, 0.0, 0.0))      # [0.5,1.5]³
+    result_AB = intersect_solids(boxA, boxB)
+    @test result_AB isa BRepSolid
+    @test solid_volume(result_AB) ≈ 0.5 rtol=1e-8
+
+    # ── 2. 相交：完全不重叠 → 体积为 0 ──────────────────────────────────────
+    boxC = box_solid(1.0, 1.0, 1.0;
+                     origin=SVector(2.0, 0.0, 0.0))      # [2,3]³
+    result_AC = intersect_solids(boxA, boxC)
+    @test solid_volume(result_AC) < 1e-12
+
+    # ── 3. 相交：B 完全包含在 A 内 ────────────────────────────────────────────
+    boxD = box_solid(0.5, 0.5, 0.5;
+                     origin=SVector(0.25, 0.25, 0.25))   # [0.25,0.75]³ ⊂ boxA
+    result_AD = intersect_solids(boxA, boxD)
+    @test solid_volume(result_AD) ≈ solid_volume(boxD) rtol=1e-8
+
+    # ── 4. 相交结果满足流形条件 ────────────────────────────────────────────────
+    @test check_manifold(result_AB; warn=false)
+
+    # ── 5. 体积不等式：V(A∩B) ≤ min(V(A),V(B)) ──────────────────────────────
+    @test solid_volume(result_AB) ≤ min(solid_volume(boxA), solid_volume(boxB)) + 1e-12
+
+    # ── 6. union_solids 返回结构 ──────────────────────────────────────────────
+    uni = union_solids(boxA, boxB)
+    @test uni isa CSGNode
+    @test uni.op == :union
+
+    # ── 7. subtract_solid 返回结构 ────────────────────────────────────────────
+    sub = subtract_solid(boxA, boxB)
+    @test sub isa CSGNode
+    @test sub.op == :subtract
+
+    # ── 8. csg_volume: union 体积 = V(A)+V(B)-V(A∩B)（容斥原理）─────────────
+    v_A  = solid_volume(boxA)
+    v_B  = solid_volume(boxB)
+    v_AB = solid_volume(result_AB)
+    @test csg_volume(uni) ≈ v_A + v_B - v_AB rtol=1e-8
+
+    # ── 9. csg_volume: subtract 体积 = V(A)-V(A∩B) ────────────────────────────
+    @test csg_volume(sub) ≈ v_A - v_AB rtol=1e-8
+
+    # ── 10. leaf CSGNode 体积 = solid 体积 ───────────────────────────────────
+    leaf = CSGNode(:leaf, boxA, nothing)
+    @test csg_volume(leaf) ≈ v_A rtol=1e-8
+
+    # ── 11. 相交交换律：V(A∩B) == V(B∩A) ──────────────────────────────────────
+    result_BA = intersect_solids(boxB, boxA)
+    @test solid_volume(result_BA) ≈ solid_volume(result_AB) rtol=1e-8
+
+    # ── 12. 正方形面片数量合理（相交结果为凸多面体）─────────────────────────
+    @test length(result_AB.faces) >= 4   # 至少 4 个面
+
+    # ── 13. z-全重叠，x 偏移：表面积验证 ─────────────────────────────────────
+    # A∩B 为 [0.5,1]×[0,1]×[0,1]（Lx=0.5,Ly=Lz=1）
+    # 面积 = 2(0.5×1 + 1×1 + 0.5×1) = 2×2 = 4.0
+    @test solid_surface_area(result_AB) ≈ 4.0 rtol=1e-8
+
+    # ── 14. 全等相交：A∩A = A ─────────────────────────────────────────────────
+    result_AA = intersect_solids(boxA, boxA)
+    @test solid_volume(result_AA) ≈ v_A rtol=1e-8
+end

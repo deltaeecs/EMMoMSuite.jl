@@ -104,7 +104,8 @@ export TriangleMesh,
     read_stl_mesh, write_stl_mesh,
     tet_volume, area,
     BRepFace, BRepSolid, CSGNode,
-    box_solid, solid_volume, solid_surface_area, check_manifold, convert_to_triangle_mesh
+    box_solid, solid_volume, solid_surface_area, check_manifold, convert_to_triangle_mesh,
+    intersect_solids, union_solids, subtract_solid, csg_volume
 
 # Re-export PostProcessing symbols
 using .PostProcessing
