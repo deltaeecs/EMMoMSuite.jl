@@ -309,3 +309,99 @@ end
         @test result2.G ≈ result.D atol=1e-10
     end
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 17.8 — absorbed_power / SAR
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "Absorption" begin
+    using EMSuite.PostProcessing: absorbed_power, sar
+
+    freq = 300e6
+    set_frequency!(freq)
+    ω   = 2π * freq
+    c0  = 299792458.0
+    μ₀  = 4π * 1e-7
+    ε₀  = 1.0 / (c0^2 * μ₀)
+    CT  = ComplexF64
+
+    # 最小 Tet 网格：2×2×2 节点 → 6 tets，每个体积 = 1/6
+    mesh  = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+    N_tet = num_elements(mesh)
+
+    # 辅助：提取每个 tet 的实际体积
+    function tet_vols(m)
+        vs = [abs(dot(m.node[:, m.tetras[2,t]] - m.node[:, m.tetras[1,t]],
+                      cross(m.node[:, m.tetras[3,t]] - m.node[:, m.tetras[1,t]],
+                            m.node[:, m.tetras[4,t]] - m.node[:, m.tetras[1,t]]))) / 6
+              for t in 1:num_elements(m)]
+        return vs
+    end
+    V = tet_vols(mesh)
+
+    ε_r   = 2.0 - 1.0im   # lossy: ε_r'' = 1.0, |ε_r-1|² = |(1-j)|² = 2
+    perms = fill(CT(ε_r), N_tet)
+
+    # ─── PWC: 精确解析验证 ─────────────────────────────────────────────────
+    basis_pwc = PWCBasis(mesh)
+    N_pwc     = num_basis(basis_pwc)   # = 3 * N_tet
+    I_coeffs  = ones(CT, N_pwc)
+
+    # J_pol[t] = κ * [1,1,1] where κ = (ε_r-1)/ε_r
+    # E_t = J_pol / (jωε₀(ε_r-1)) → |E_t|² = |J_pol|²/(ω²ε₀²|ε_r-1|²) = 3|κ|²/(ω²ε₀²|ε_r-1|²)
+    # P_abs,t = (ω/2) ε₀ ε_r'' |E_t|² V_t
+    #         = ε_r'' |J_pol|² V_t / (2ωε₀|ε_r-1|²)
+    # = (-Im(ε_r)) * 3 * |κ|² V_t / (2ωε₀|ε_r-1|²)
+    # = ε_r'' * 3 / |ε_r|² V_t / (2ωε₀)
+    # with ε_r = 2-j: -Im=1, |ε_r|²=5 → P_abs,t = 3V/(10ωε₀)
+    eps_pp      = -imag(ε_r)             # 1.0
+    expected_Pd = eps_pp * 3.0 / (abs2(ε_r) * 2 * ω * ε₀)   # W/m³
+
+    result = absorbed_power(basis_pwc, I_coeffs, perms)
+
+    @test result isa NamedTuple
+    @test haskey(result, :P_total)
+    @test haskey(result, :P_density)
+    @test length(result.P_density) == N_tet
+    @test all(result.P_density .>= 0)
+
+    # 各单元 P_density 应等于解析值
+    @test result.P_density ≈ fill(expected_Pd, N_tet) rtol=1e-10
+
+    # 能量守恒：P_total = sum(P_density * V)
+    @test result.P_total ≈ sum(result.P_density .* V) rtol=1e-10
+
+    # ─── 无损材料：P_total = 0 ───────────────────────────────────────────────
+    perms_ll  = fill(CT(2.0 + 0.0im), N_tet)
+    result_ll = absorbed_power(basis_pwc, I_coeffs, perms_ll)
+    @test result_ll.P_total < 1e-30
+    @test all(result_ll.P_density .< 1e-30)
+
+    # ─── SAR ─────────────────────────────────────────────────────────────────
+    ρ_body    = 1000.0           # kg/m³
+    rhos      = fill(ρ_body, N_tet)
+    sar_result = sar(basis_pwc, I_coeffs, perms, rhos)
+
+    @test sar_result isa NamedTuple
+    @test haskey(sar_result, :SAR_total)
+    @test haskey(sar_result, :SAR_per_element)
+    @test length(sar_result.SAR_per_element) == N_tet
+
+    # SAR_per_element[t] = P_density[t] / ρ
+    @test sar_result.SAR_per_element ≈ result.P_density ./ ρ_body rtol=1e-10
+
+    # SAR_total = P_total / total_mass
+    total_mass = sum(rhos .* V)
+    @test sar_result.SAR_total ≈ result.P_total / total_mass rtol=1e-10
+
+    # ─── SWG: 结构性测试 ─────────────────────────────────────────────────────
+    basis_swg = SWGBasis(mesh)
+    N_swg     = num_basis(basis_swg)
+    I_swg     = ones(CT, N_swg)
+    result_swg = absorbed_power(basis_swg, I_swg, perms)
+
+    @test result_swg.P_total > 0
+    @test length(result_swg.P_density) == N_tet
+    @test all(isfinite, result_swg.P_density)
+    @test all(result_swg.P_density .>= 0)
+    @test result_swg.P_total ≈ sum(result_swg.P_density .* V) rtol=1e-10
+end
