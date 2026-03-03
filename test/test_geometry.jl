@@ -888,3 +888,79 @@ end
         @test vol_orig ≈ vol_round atol=1e-8
     end
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 18.1 — GeomKernel: CSG / B-Rep 数据结构
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "GeomKernel" begin
+    using EMSuite.Geometry: BRepFace, BRepSolid, CSGNode,
+                             box_solid, solid_volume, solid_surface_area,
+                             check_manifold, convert_to_triangle_mesh
+    using StaticArrays, LinearAlgebra
+
+    # ── 1. BRepFace 类型构造 ─────────────────────────────────────────────────
+    face = BRepFace([1, 2, 3, 4])
+    @test face isa BRepFace
+    @test face.vertex_indices == [1, 2, 3, 4]
+
+    # ── 2. box_solid 单位立方体 ──────────────────────────────────────────────
+    box = box_solid(1.0, 1.0, 1.0)
+    @test box isa BRepSolid
+    @test length(box.vertices) == 8      # 8 角点
+    @test length(box.faces) == 6         # 6 个四边形面
+    @test length(box.edges) == 12        # 12 条棱
+    @test all(length(f.vertex_indices) == 4 for f in box.faces)
+
+    # ── 3. 体积（散度定理）──────────────────────────────────────────────────
+    @test solid_volume(box) ≈ 1.0 rtol=1e-10
+
+    box2 = box_solid(2.0, 3.0, 4.0)
+    @test solid_volume(box2) ≈ 24.0 rtol=1e-10
+
+    # ── 4. 表面积 ────────────────────────────────────────────────────────────
+    @test solid_surface_area(box) ≈ 6.0 rtol=1e-10
+    @test solid_surface_area(box2) ≈ 2*(2*3 + 3*4 + 4*2) rtol=1e-10
+
+    # ── 5. 流形检验 (unit cube → true) ──────────────────────────────────────
+    @test check_manifold(box) == true
+
+    # ── 6. boundary_labels ───────────────────────────────────────────────────
+    box_lab = box_solid(1.0, 1.0, 1.0;
+                        material_label="copper",
+                        boundary_labels=Dict(1 => "bottom", 6 => "top"))
+    @test box_lab.material_label == "copper"
+    @test box_lab.boundary_labels[1] == "bottom"
+    @test box_lab.boundary_labels[6] == "top"
+
+    # ── 7. 偏移原点 center 参数 ──────────────────────────────────────────────
+    origin = SVector(1.0, 2.0, 3.0)
+    box_off = box_solid(1.0, 1.0, 1.0; center=origin)
+    min_v = reduce(
+        (a, b) -> SVector(min(a[1],b[1]), min(a[2],b[2]), min(a[3],b[3])),
+        box_off.vertices)
+    @test min_v ≈ origin rtol=1e-10
+
+    # ── 8. CSGNode 树构造 ────────────────────────────────────────────────────
+    node = CSGNode(:subtract, box, box2)
+    @test node.op == :subtract
+    @test node.left === box
+    @test node.right === box2
+
+    leaf = CSGNode(:leaf, box, nothing)
+    @test leaf.op == :leaf
+    @test leaf.right === nothing
+
+    # ── 9. convert_to_triangle_mesh ──────────────────────────────────────────
+    tri_mesh = convert_to_triangle_mesh(box)
+    @test tri_mesh isa TriangleMesh
+    # 单位立方体：6 个四边形面 → 12 个三角形
+    @test tri_mesh.trinum == 12
+    @test size(tri_mesh.node, 2) == 8   # 8 个唯一节点
+    # 三角形面积之和 ≈ 表面积
+    total_tri_area = sum(
+        0.5 * norm(cross(
+            tri_mesh.node[:, tri_mesh.triangles[2, t]] - tri_mesh.node[:, tri_mesh.triangles[1, t]],
+            tri_mesh.node[:, tri_mesh.triangles[3, t]] - tri_mesh.node[:, tri_mesh.triangles[1, t]]))
+        for t in 1:tri_mesh.trinum)
+    @test total_tri_area ≈ 6.0 rtol=1e-10
+end

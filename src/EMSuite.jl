@@ -102,7 +102,9 @@ export TriangleMesh,
     MeshQualityReport, mesh_quality,
     remove_duplicate_nodes, fix_element_orientation, detect_degenerates,
     read_stl_mesh, write_stl_mesh,
-    tet_volume, area
+    tet_volume, area,
+    BRepFace, BRepSolid, CSGNode,
+    box_solid, solid_volume, solid_surface_area, check_manifold, convert_to_triangle_mesh
 
 # Re-export PostProcessing symbols
 using .PostProcessing
