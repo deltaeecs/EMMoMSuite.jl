@@ -145,7 +145,9 @@ Compute the (positive) volume of a closed solid via the divergence theorem:
 
 Each face is triangulated by fan triangulation from its first vertex.
 The face winding must be outward-CCW for the formula to give positive volume.
-"""
+!!! note
+    Fan triangulation is exact for **convex** planar faces only.
+    Non-convex (concave) polygon faces may produce incorrect results."""
 function solid_volume(solid::BRepSolid{FT}) where {FT}
     vs = solid.vertices
     vol = zero(FT)
@@ -171,6 +173,10 @@ end
     solid_surface_area(solid::BRepSolid) → Float64
 
 Total surface area of the solid (sum over all faces, triangulated).
+
+!!! note
+    Uses fan triangulation from each face's first vertex.
+    Exact for **convex** faces; may be inaccurate for concave polygon faces.
 """
 function solid_surface_area(solid::BRepSolid{FT}) where {FT}
     vs   = solid.vertices
