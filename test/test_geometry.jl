@@ -1112,3 +1112,58 @@ end
     @test fine.trinum > coarse.trinum
     end  # if EMSUITE_TEST_GMSH
 end  # @testset "GmshAPI"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 18.3 SurfaceMeshing 测试（默认跳过；设 EMSUITE_TEST_GMSH=1 启用）
+@testset "SurfaceMeshing" begin
+    if get(ENV, "EMSUITE_TEST_GMSH", "0") != "1"
+        @test_skip "SurfaceMeshing Gmsh tests skipped (set EMSUITE_TEST_GMSH=1 to enable)"
+    else
+        # ── 辅助：计算 TriangleMesh 总面积 ──────────────────────────────────
+        function _tri_area(m::TriangleMesh)
+            sum(
+                0.5 * norm(cross(
+                    m.node[:, m.triangles[2, t]] - m.node[:, m.triangles[1, t]],
+                    m.node[:, m.triangles[3, t]] - m.node[:, m.triangles[1, t]]))
+                for t in 1:m.trinum)
+        end
+
+        # ── 1. 单位 Box → TriangleMesh ───────────────────────────────────────
+        solid = box_solid(1.0, 1.0, 1.0)
+        mesh  = surface_mesh_gmsh(solid, 0.3)
+        @test mesh isa TriangleMesh
+        @test mesh.trinum > 0
+
+        # ── 2. 网格面积 ≈ solid_surface_area（5% 容差）─────────────────────
+        S_ref  = solid_surface_area(solid)
+        S_mesh = _tri_area(mesh)
+        @test abs(S_mesh - S_ref) / S_ref < 0.05
+
+        # ── 3. mesh_size 影响密度：更细 → 更多三角形 ────────────────────────
+        coarse = surface_mesh_gmsh(solid, 0.5)
+        fine   = surface_mesh_gmsh(solid, 0.15)
+        @test fine.trinum > coarse.trinum
+
+        # ── 4. Float32 节点坐标类型 ─────────────────────────────────────────
+        mesh_f32 = surface_mesh_gmsh(solid, 0.3; FT=Float32)
+        @test eltype(mesh_f32.node) == Float32
+        @test mesh_f32.trinum > 0
+
+        # ── 5. 非单位 Box ─────────────────────────────────────────────────
+        solid2 = box_solid(2.0, 3.0, 0.5)
+        mesh2  = surface_mesh_gmsh(solid2, 0.4)
+        @test mesh2 isa TriangleMesh
+        S2_ref  = solid_surface_area(solid2)
+        S2_mesh = _tri_area(mesh2)
+        @test abs(S2_mesh - S2_ref) / S2_ref < 0.05
+
+        # ── 6. tags 覆盖所有 6 个 Box 面 ────────────────────────────────────
+        #     （surface_mesh_gmsh 应将三角形 tag 设为所属面索引 1…nfaces）
+        @test sort(unique(mesh.tags)) == collect(1:length(solid.faces))
+
+        # ── 7. surface_mesh 便捷接口 ─────────────────────────────────────────
+        mesh_hi = surface_mesh(solid; max_size=0.3, min_size=0.05)
+        @test mesh_hi isa TriangleMesh
+        @test mesh_hi.trinum > 0
+    end  # if EMSUITE_TEST_GMSH
+end  # @testset "SurfaceMeshing"
