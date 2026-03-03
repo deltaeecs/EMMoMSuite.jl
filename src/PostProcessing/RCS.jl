@@ -407,4 +407,80 @@ function radarCrossSection(
     return RCSθsϕs, RCS_total, RCS_dB
 end
 
+"""
+    radarCrossSection(θs_obs, ϕs_obs, ICoeff, basis, k0, eta0)
+
+PMCHWT 双流远场 RCS。`ICoeff` 长度为 2N：前 N 个是等效电流 J 的系数，后 N 个是
+等效磁流 M 的系数；两者均在同一 RWG basis 上展开。
+
+散射远场（自由空间）公式（对应 e^{-jωt} 约定）：
+```
+E_θ = C × [η₀ N_θ + L_ϕ]
+E_ϕ = C × [η₀ N_ϕ - L_θ]
+```
+其中
+```
+N = ∫ J e^{jk₀ r̂·r'} dS,   L = ∫ M e^{jk₀ r̂·r'} dS
+```
+RCS (m²) = k₀²/(4π) × (|E_θ|² + |E_ϕ|²)
+
+# 参数
+- `k0`:   自由空间波数 (rad/m)
+- `eta0`: 自由空间波阻抗 (Ω)，通常 ≈ 377 Ω
+
+# 返回
+- `RCSθsϕs` : [2, Nθ, Nϕ]，分量 RCS (m²)
+- `RCS_total`: [Nθ, Nϕ]，全极化 RCS (m²)
+- `RCS_dB`  : [Nθ, Nϕ]，全极化 RCS (dBsm)
+"""
+function radarCrossSection(
+    θs_obs::Vector{FT},
+    ϕs_obs::Vector{FT},
+    ICoeff::Vector{CT},
+    basis::RWGBasis{IT,FT},
+    k0::FT,
+    eta0::FT,
+) where {IT,FT,CT}
+    N = num_basis(basis)
+    @assert length(ICoeff) == 2N "PMCHWT: ICoeff 长度应为 2N=$(2N)，实际为 $(length(ICoeff))"
+
+    I_J = @view ICoeff[1:N]
+    I_M = @view ICoeff[N+1:2N]
+
+    Nθ_obs = length(θs_obs)
+    Nϕ_obs = length(ϕs_obs)
+    nobs   = Nθ_obs * Nϕ_obs
+
+    θsobsInfo = [∠Info(θ) for θ in θs_obs]
+    ϕsobsInfo = [∠Info(ϕ) for ϕ in ϕs_obs]
+
+    r̂θsϕs      = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
+    r̂θsϕs_flat = vec(r̂θsϕs)
+
+    RCS_flat = zeros(FT, 2, nobs)
+
+    @threads for ii = 1:nobs
+        r_info = r̂θsϕs_flat[ii]
+
+        # N = ∫ J e^{jk₀ r̂·r'} dS  (同现有 EFIE RCS 路径)
+        Nθϕ = radiation_integral_rwg(r_info, basis, I_J)
+        # L = ∫ M e^{jk₀ r̂·r'} dS  (M 展开在同一 RWG basis 上)
+        Lθϕ = radiation_integral_rwg(r_info, basis, I_M)
+
+        # 合并：E_θ = η₀ Nθ + Lϕ,  E_ϕ = η₀ Nϕ - Lθ
+        E_theta = eta0 * Nθϕ[1] + Lθϕ[2]
+        E_phi   = eta0 * Nθϕ[2] - Lθϕ[1]
+
+        factor = k0^2 / (4 * FT(π))
+        RCS_flat[1, ii] = factor * abs2(E_theta)
+        RCS_flat[2, ii] = factor * abs2(E_phi)
+    end
+
+    RCSθsϕs = reshape(RCS_flat, 2, Nθ_obs, Nϕ_obs)
+    RCS_total = RCSθsϕs[1, :, :] + RCSθsϕs[2, :, :]
+    RCS_dB    = 10 .* log10.(RCS_total)
+
+    return RCSθsϕs, RCS_total, RCS_dB
+end
+
 end

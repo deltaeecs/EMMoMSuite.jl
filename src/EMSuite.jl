@@ -78,7 +78,7 @@ export SimulationResult
 using .Utilities
 export init_logging,
     @showprogress, SimulationParameters, set_frequency!, get_k0, get_eta0, get_omega
-export calculate_mie_rcs_pec_sphere
+export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere
 
 # Re-export Geometry symbols
 using .Geometry
