@@ -808,3 +808,83 @@ end
         @test dot(n1b, n2b) >= 0
     end
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 16.6 — STL & NAS I/O
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "STLIO" begin
+    using EMSuite.Geometry: read_stl_mesh, write_stl_mesh
+
+    # Simple triangle: one facet
+    nodes  = [0.0 1.0 0.0; 0.0 0.0 1.0; 0.0 0.0 0.0]
+    mesh   = TriangleMesh(1, nodes, reshape(Int[1,2,3], 3, 1), [1])
+
+    mktempdir() do tmpdir
+        stl_path = joinpath(tmpdir, "test.stl")
+
+        # ── write ASCII STL ───────────────────────────────────────────────────
+        write_stl_mesh(stl_path, mesh)
+        @test isfile(stl_path)
+
+        content = read(stl_path, String)
+        @test occursin("solid", content)
+        @test occursin("facet normal", content)
+        @test occursin("vertex", content)
+        @test occursin("endsolid", content)
+
+        # ── read back ─────────────────────────────────────────────────────────
+        m2 = read_stl_mesh(stl_path)
+        @test m2 isa TriangleMesh
+        @test m2.trinum == 1
+        # After round-trip the 3 vertices should be preserved
+        @test size(m2.node, 2) == 3  # 3 unique nodes (1 triangle)
+
+        # Vertex roundtrip (order may differ — check set equality)
+        orig_verts  = Set([nodes[:, i] for i in 1:3])
+        round_verts = Set([m2.node[:, i] for i in 1:size(m2.node,2)])
+        @test orig_verts == round_verts
+
+        # ── multi-triangle write/read round-trip ──────────────────────────────
+        mesh3 = generate_sphere_mesh(1.0, 8, 8)
+        stl3_path = joinpath(tmpdir, "sphere.stl")
+        write_stl_mesh(stl3_path, mesh3)
+
+        m3 = read_stl_mesh(stl3_path)
+        @test m3.trinum == mesh3.trinum
+        # Number of unique nodes should be ≤ 3 * Ntri (shared nodes merged)
+        @test size(m3.node, 2) <= 3 * m3.trinum
+        # All elements are degenerate-free
+        @test isempty(detect_degenerates(m3))
+    end
+end
+
+@testset "write_nas_mesh TetrahedraMesh" begin
+    m = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+
+    mktempdir() do tmpdir
+        nas_path = joinpath(tmpdir, "box.nas")
+        write_nas_mesh(nas_path, m)
+
+        @test isfile(nas_path)
+        content = read(nas_path, String)
+        @test occursin("GRID", content)
+        @test occursin("CTETRA", content)
+        @test occursin("ENDDATA", content)
+
+        # Round-trip: read back and compare
+        m2 = read_nas_mesh(nas_path)
+        @test m2 isa TetrahedraMesh
+        @test m2.tetnum == m.tetnum
+        @test size(m2.node, 2) == size(m.node, 2)
+
+        # Total volume preserved
+        function tet_vol(nd, tets, t)
+            v1 = nd[:, tets[1,t]]; v2 = nd[:, tets[2,t]]
+            v3 = nd[:, tets[3,t]]; v4 = nd[:, tets[4,t]]
+            abs(tet_volume(v1, v2, v3, v4))
+        end
+        vol_orig  = sum(tet_vol(m.node,  m.tetras,  t) for t in 1:m.tetnum)
+        vol_round = sum(tet_vol(m2.node, m2.tetras, t) for t in 1:m2.tetnum)
+        @test vol_orig ≈ vol_round atol=1e-8
+    end
+end

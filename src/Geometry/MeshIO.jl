@@ -649,3 +649,33 @@ function write_nas_mesh(pathname::String, mesh::TriangleMesh; scale = 1.0)
         println(f, "ENDDATA")
     end
 end
+
+"""
+    write_nas_mesh(pathname::String, mesh::TetrahedraMesh; scale=1.0)
+
+Write a TetrahedraMesh to a Nastran (.nas) file using free-field GRID and CTETRA cards.
+"""
+function write_nas_mesh(pathname::String, mesh::TetrahedraMesh; scale = 1.0)
+    open(pathname, "w") do f
+        println(f, "\$ Created by EMSuite")
+        println(f, "BEGIN BULK")
+
+        for i = 1:num_vertices(mesh)
+            x = mesh.node[1, i] * scale
+            y = mesh.node[2, i] * scale
+            z = mesh.node[3, i] * scale
+            println(f, "GRID, $i, , $x, $y, $z")
+        end
+
+        for i = 1:num_elements(mesh)
+            n1 = mesh.tetras[1, i]
+            n2 = mesh.tetras[2, i]
+            n3 = mesh.tetras[3, i]
+            n4 = mesh.tetras[4, i]
+            pid = isempty(mesh.tags) ? 1 : mesh.tags[i]
+            println(f, "CTETRA, $i, $pid, $n1, $n2, $n3, $n4")
+        end
+
+        println(f, "ENDDATA")
+    end
+end

@@ -87,18 +87,32 @@ export TriangleMesh,
     TriangleInfo,
     read_nas_mesh,
     read_mixed_nas_mesh,
+    write_nas_mesh,
     read_msh_mesh,
     generate_rectangle_mesh,
     generate_cylinder_mesh,
-    generate_sphere_mesh
+    generate_sphere_mesh,
+    generate_ellipsoid_mesh,
+    generate_cone_mesh,
+    generate_torus_mesh,
+    generate_box_volume_mesh,
+    generate_box_tet_mesh,
+    extract_surface,
+    translate_mesh, scale_mesh, rotate_mesh, transform_mesh, merge_meshes,
+    MeshQualityReport, mesh_quality,
+    remove_duplicate_nodes, fix_element_orientation, detect_degenerates,
+    read_stl_mesh, write_stl_mesh,
+    tet_volume, area
 
 # Re-export PostProcessing symbols
 using .PostProcessing
-export radarCrossSection, farField, geoElectricJCal, calculate_near_field
+export radarCrossSection, farField, geoElectricJCal, geoVolumeCurrentCal, calculate_near_field
+export field_cut_line, field_cut_plane
+export antenna_directivity, input_impedance, beam_metrics
 
 # Re-export IO symbols
 using .IO
-export save_RCS_txt, save_results_hdf5, save_result, save_vtk
+export save_RCS_txt, save_RCS_csv, save_results_hdf5, save_result, save_vtk, save_vtk_multi
 
 
 # Re-export BasisFunctions symbols
