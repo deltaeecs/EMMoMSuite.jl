@@ -44,9 +44,10 @@ function surface_mesh_gmsh(
     algorithm::Int = 6,
 )
     _ms     = Float64(mesh_size)
+    _ms > 0 || error("SurfaceMeshing: mesh_size must be positive, got $_ms")
     nfaces  = length(solid.faces)
     nfaces == 0 && error("SurfaceMeshing: BRepSolid has no faces")
-    length(solid.vertices) == 0 && error("SurfaceMeshing: BRepSolid has no vertices")
+    isempty(solid.vertices) && error("SurfaceMeshing: BRepSolid has no vertices")
 
     # Build an edge lookup: canonical (v_lo, v_hi) → index in solid.edges
     edge_map = Dict{Tuple{Int,Int},Int}()
@@ -126,15 +127,12 @@ end
     _extract_tagged_triangle_mesh(gmsh, nfaces, FT) → TriangleMesh
 
 Collect all triangular surface elements from the active Gmsh session, one
-Gmsh surface (corresponding to one BRepSolid face) at a time.  The `tags`
-field of the returned `TriangleMesh` contains the 1-based BRepFace index for
-every triangle, enabling downstream label propagation (Phase 18.4).
+Gmsh surface entity at a time (entity tag == BRepFace index).
+Node coordinates are extracted once via `_extract_nodes_for_elements`.
+The `tags` field of the returned `TriangleMesh` contains the 1-based
+BRepFace index for every triangle, enabling Phase 18.4 label propagation.
 """
 function _extract_tagged_triangle_mesh(gmsh, nfaces::Int, FT::Type{<:AbstractFloat})
-    # Bulk-query all node coordinates once to avoid repeated API calls.
-    all_ntags, coord, _ = gmsh.model.mesh.getNodes()
-    tagpos = Dict{Int,Int}(all_ntags[i] => i for i in eachindex(all_ntags))
-
     # Accumulate connectivity and face tags over all BRepFace surfaces.
     all_conn  = Int[]    # flat node-tag list (3 entries per triangle)
     elem_face = Int[]    # face index (1-based) for each triangle
@@ -150,18 +148,7 @@ function _extract_tagged_triangle_mesh(gmsh, nfaces::Int, FT::Type{<:AbstractFlo
     ntri = length(elem_face)
     ntri == 0 && error("SurfaceMeshing: no triangles generated for BRepSolid")
 
-    unique_tags = unique(all_conn)
-    tag2idx     = Dict{Int,Int}(t => i for (i, t) in enumerate(unique_tags))
-
-    Nv       = length(unique_tags)
-    node_mat = Matrix{FT}(undef, 3, Nv)
-    @inbounds for (i, t) in enumerate(unique_tags)
-        p = tagpos[t]
-        node_mat[1, i] = FT(coord[3*(p-1)+1])
-        node_mat[2, i] = FT(coord[3*(p-1)+2])
-        node_mat[3, i] = FT(coord[3*(p-1)+3])
-    end
-
+    node_mat, tag2idx = _extract_nodes_for_elements(gmsh, all_conn, FT)
     conn_mat = _build_connectivity(all_conn, tag2idx, 3, ntri)
 
     return TriangleMesh(ntri, node_mat, conn_mat, elem_face)
