@@ -16,7 +16,7 @@ using .Singularities
 
 import ..CoreModule: assemble_impedance_matrix
 
-export EFIE, assemble_impedance_matrix, efie_interaction, efie_interaction!
+export EFIE, assemble_impedance_matrix, efie_interaction, efie_interaction!, efie_from_keta
 
 """
     EFIE{FT, CT} <: AbstractIntegralOperator
@@ -75,10 +75,33 @@ function EFIE(freq::FT) where {FT}
 end
 
 """
-    assemble_impedance_matrix(efie::EFIE, basis::RWGBasis)
+    efie_from_keta(k::FT, eta::FT, factor::Complex{FT}) where {FT}
 
-Assemble the impedance matrix Z for the EFIE using RWG basis functions.
+Low-level constructor for EFIE-like operators with an **explicit** wavenumber,
+intrinsic impedance, and overall scaling factor.
+
+This is used internally by the PMCHWT formulation to construct L-operators for
+interior/exterior regions and for the ``Z^{HM}`` block (which uses a different
+factor from the standard EFIE).
+
+# Arguments
+- `k`:      Wavenumber of the propagation medium (must be real ≥ 0)
+- `eta`:    Intrinsic impedance ``\\eta = \\sqrt{\\mu/\\varepsilon}`` (for record-keeping)
+- `factor`: Scaling factor applied after numerical integration.
+  - For ``Z^{EJ}`` block:  ``factor = jk\\eta/(16\\pi)``
+  - For ``Z^{HM}`` block:  ``factor = jk/(\\eta \\cdot 16\\pi)``
+
+# Returns
+`EFIE{FT, Complex{FT}, 4, 7}` operator that can be passed to
+`assemble_impedance_matrix`.
 """
+function efie_from_keta(k::FT, eta::FT, factor::Complex{FT}) where {FT}
+    gq_far  = GaussQuadratureInfo(:Triangle, 4, FT)
+    gq_near = GaussQuadratureInfo(:Triangle, 7, FT)
+    C4divk2 = FT(4) / k^2
+    SSCg    = compute_SSCg(k)  # Singularities.compute_SSCg accessible here
+    return EFIE{FT,Complex{FT},4,7}(FT(0), k, eta, gq_far, gq_near, C4divk2, factor, SSCg)
+end
 function assemble_impedance_matrix(efie::EFIE{FT,CT}, basis::RWGBasis{IT,FT}) where {IT,FT,CT}
     # Precompute quadrature points for Far Field
     mesh = basis.mesh

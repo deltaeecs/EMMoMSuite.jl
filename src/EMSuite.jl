@@ -154,7 +154,8 @@ export RWGBasis,
 
 # Re-export IntegralEquations symbols
 using .IntegralEquations
-export EFIE, MFIE, CFIE, VEFIE, SCFIE, assemble_impedance_matrix
+export EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, assemble_impedance_matrix
+export assemble_K_offdiag, efie_from_keta, excitation_vector
 
 # Re-export Solvers symbols
 using .Solvers

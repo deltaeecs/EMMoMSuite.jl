@@ -7,6 +7,7 @@ using ..EFIEModule
 using ..MFIEModule
 using ..CFIEModule
 using ..VEFIEModule
+using ..PMCHWModule
 using LinearAlgebra
 using StaticArrays
 
@@ -164,6 +165,35 @@ function excitation_vector(op::CFIE, source::PlaneWave, basis::RWGBasis)
     # V_cfie = alpha * V_efie + (1-alpha) * V_mfie
     # Note: V_mfie is already scaled by eta in excitation_vector(MFIE)
     return op.alpha * V_efie + (1 - op.alpha) * V_mfie
+end
+
+"""
+    excitation_vector(op::PMCHW, source::PlaneWave, basis::RWGBasis) → Vector{Complex}
+
+计算 PMCHWT 激励向量 V（长度 2N）。
+
+```
+V = [V_E]   V_E[m] = -∫ f_m(r) · (n̂ × E^inc) dS  （电场 RHS）
+    [V_H]   V_H[m] = -∫ f_m(r) · (n̂ × H^inc) dS  （磁场 RHS）
+```
+
+V_E 调用 EFIE 激励接口；V_H 调用 MFIE 激励接口（η₀ 已由 MFIE 接口内置）。
+"""
+function excitation_vector(op::PMCHW{FT,CT}, source::PlaneWave, basis::RWGBasis{IT,FT}) where {IT,FT,CT}
+    N = num_basis(basis)
+    V = zeros(CT, 2N)
+
+    # V_E：使用 EFIE 激励（∫ f_m · E^inc dS）
+    efie_dummy = EFIE(op.freq)
+    V_E = excitation_vector(efie_dummy, source, basis)
+    V[1:N] .= V_E
+
+    # V_H：使用 MFIE 激励（∫ f_m · H^inc dS，MFIE 接口已含 η₀ 因子）
+    mfie_dummy = MFIE(op.freq)
+    V_H = excitation_vector(mfie_dummy, source, basis)
+    V[N+1:2N] .= V_H
+
+    return V
 end
 
 # Delta Gap (Same for all operators usually, as it forces V)
