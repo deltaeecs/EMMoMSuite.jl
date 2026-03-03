@@ -23,6 +23,11 @@ using StaticArrays
 using LinearAlgebra
 using JLD2
 
+export MaterialModel, Isotropic, Anisotropic
+export MaterialEntry, MaterialLibrary
+export add_material!, get_material
+export save_library, load_library, load_builtin_library
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Abstract base
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,7 +263,3 @@ function load_builtin_library()
     return lib
 end
 
-export MaterialModel, Isotropic, Anisotropic
-export MaterialEntry, MaterialLibrary
-export add_material!, get_material
-export save_library, load_library, load_builtin_library
