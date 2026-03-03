@@ -121,10 +121,10 @@ function _read_binary_stl(raw::Vector{UInt8}, ::Type{FT}) where {FT}
     for ti in 1:n_tris
         # Skip normal (3 × Float32 = 12 bytes)
         ptr += 12
-        # v1, v2, v3 (each 3 × Float32 = 12 bytes)
-        v1 = FT.(reinterpret(Float32, raw[ptr:ptr+11]));       ptr += 12
-        v2 = FT.(reinterpret(Float32, raw[ptr:ptr+11]));       ptr += 12
-        v3 = FT.(reinterpret(Float32, raw[ptr:ptr+11]));       ptr += 12
+        # v1, v2, v3 (each 3 × Float32 = 12 bytes); @view avoids per-vertex allocation
+        v1 = FT.(reinterpret(Float32, @view raw[ptr:ptr+11]));  ptr += 12
+        v2 = FT.(reinterpret(Float32, @view raw[ptr:ptr+11]));  ptr += 12
+        v3 = FT.(reinterpret(Float32, @view raw[ptr:ptr+11]));  ptr += 12
         # Attribute byte count (2 bytes, usually 0)
         ptr += 2
         tris[ti] = (v1, v2, v3)
