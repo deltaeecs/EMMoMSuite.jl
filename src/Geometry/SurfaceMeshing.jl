@@ -108,7 +108,7 @@ target element size; `min_size` and `curvature_factor` are accepted for API
 compatibility and reserved for Phase 18.4 adaptive size-field support.
 """
 function surface_mesh(
-    solid::BRepSolid;
+    solid::BRepSolid{<:AbstractFloat};
     min_size::Real         = 0.01,
     max_size::Real         = 0.1,
     curvature_factor::Real = 0.2,
@@ -155,7 +155,7 @@ function _extract_tagged_triangle_mesh(gmsh, nfaces::Int, FT::Type{<:AbstractFlo
 
     Nv       = length(unique_tags)
     node_mat = Matrix{FT}(undef, 3, Nv)
-    for (i, t) in enumerate(unique_tags)
+    @inbounds for (i, t) in enumerate(unique_tags)
         p = tagpos[t]
         node_mat[1, i] = FT(coord[3*(p-1)+1])
         node_mat[2, i] = FT(coord[3*(p-1)+2])
