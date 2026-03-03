@@ -109,6 +109,7 @@ using .PostProcessing
 export radarCrossSection, farField, geoElectricJCal, geoVolumeCurrentCal, calculate_near_field
 export field_cut_line, field_cut_plane
 export antenna_directivity, input_impedance, beam_metrics
+export absorbed_power, sar
 
 # Re-export IO symbols
 using .IO
