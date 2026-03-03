@@ -332,4 +332,79 @@ function radarCrossSection(
     return RCSθsϕs, RCS_total, RCS_dB
 end
 
+# ─── Phase 17.4: SCFIE unified RCS ────────────────────────────────────────────
+
+"""
+    radarCrossSection(θs_obs, ϕs_obs, ICoeff, basis_surf, basis_vol, permittivities)
+
+SCFIE unified RCS: automatically splits the combined coefficient vector into
+surface (RWG) and volume (SWG/PWC/PWCHex/RBF) parts, computes each radiation
+integral, and returns the coherent superposition.
+
+The coefficient vector layout must be:
+  `ICoeff = [I_surf (1:n_surf); I_vol (n_surf+1:end)]`
+where `n_surf = num_basis(basis_surf)`.
+"""
+function radarCrossSection(
+    θs_obs::Vector{FT},
+    ϕs_obs::Vector{FT},
+    ICoeff::Vector{CT},
+    basis_surf::RWGBasis{IT,FT},
+    basis_vol::Union{SWGBasis{IT,FT},PWCBasis{IT,FT},PWCHexBasis{IT,FT},RBFBasis{IT,FT}},
+    permittivities::Vector{CT},
+) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
+
+    n_surf = num_basis(basis_surf)
+    n_vol  = num_basis(basis_vol)
+    @assert length(ICoeff) == n_surf + n_vol string(
+        "SCFIE RCS: ICoeff length $(length(ICoeff)) ≠ n_surf($n_surf) + n_vol($n_vol)")
+
+    I_surf = ICoeff[1:n_surf]
+    I_vol  = ICoeff[n_surf+1:end]
+
+    k0    = get_k0()
+    eta0  = get_eta0()
+    Nθ_obs = length(θs_obs)
+    Nϕ_obs = length(ϕs_obs)
+    nobs   = Nθ_obs * Nϕ_obs
+
+    θsobsInfo = [∠Info(θ) for θ in θs_obs]
+    ϕsobsInfo = [∠Info(ϕ) for ϕ in ϕs_obs]
+    r̂θsϕs    = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
+    r̂θsϕs_flat = vec(r̂θsϕs)
+
+    RCS_flat = zeros(FT, 2, nobs)
+
+    if basis_vol isa SWGBasis
+        _rad_vol = (r_info) -> radiation_integral_swg(r_info, basis_vol, I_vol, permittivities)
+    elseif basis_vol isa PWCBasis
+        _rad_vol = (r_info) -> radiation_integral_pwc(r_info, basis_vol, I_vol, permittivities)
+    elseif basis_vol isa PWCHexBasis
+        _rad_vol = (r_info) -> radiation_integral_pwc_hex(r_info, basis_vol, I_vol, permittivities)
+    else  # RBFBasis
+        _rad_vol = (r_info) -> radiation_integral_rbf(r_info, basis_vol, I_vol, permittivities)
+    end
+
+    @threads for ii = 1:nobs
+        r_info = r̂θsϕs_flat[ii]
+
+        Nθϕ_surf = radiation_integral_rwg(r_info, basis_surf, I_surf)
+        Nθϕ_vol  = _rad_vol(r_info)
+
+        # Coherent superposition of surface and volume contributions
+        Nθ = Nθϕ_surf[1] + Nθϕ_vol[1]
+        Nϕ = Nθϕ_surf[2] + Nθϕ_vol[2]
+
+        factor = (k0 * eta0)^2 / (4 * pi)
+        RCS_flat[1, ii] = factor * abs2(Nθ)
+        RCS_flat[2, ii] = factor * abs2(Nϕ)
+    end
+
+    RCSθsϕs = reshape(RCS_flat, 2, Nθ_obs, Nϕ_obs)
+    RCS_total = RCSθsϕs[1, :, :] + RCSθsϕs[2, :, :]
+    RCS_dB    = 10 .* log10.(RCS_total)
+
+    return RCSθsϕs, RCS_total, RCS_dB
+end
+
 end
