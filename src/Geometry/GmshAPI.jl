@@ -170,6 +170,8 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Set both max and min mesh size constraints.
+# MeshSizeMin = 0.3h prevents Gmsh from over-refining at geometric singularities
+# (e.g., sphere poles) while maintaining overall mesh smoothness.
 function _set_mesh_size!(gmsh, h::Float64)
     gmsh.option.setNumber("Mesh.MeshSizeMax", h)
     gmsh.option.setNumber("Mesh.MeshSizeMin", h * 0.3)
@@ -180,11 +182,43 @@ function _highest_dim_with_entities(gmsh)
     for d in (3, 2, 1)
         !isempty(gmsh.model.getEntities(d)) && return d
     end
-    return 2  # fallback
+    @warn "GmshAPI: model has no entities in dim 1–3; defaulting to dim=2"
+    return 2
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mesh element extraction
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Build (node_matrix, tag→index map) from a flat node_conn vector.
+# Queries Gmsh for all node coordinates in one bulk call.
+function _extract_nodes_for_elements(gmsh, node_conn::Vector, FT::Type{<:AbstractFloat})
+    unique_tags = unique(node_conn)
+    tag2idx     = Dict{Int,Int}(t => i for (i, t) in enumerate(unique_tags))
+    all_ntags, coord, _ = gmsh.model.mesh.getNodes()
+    tagpos      = Dict{Int,Int}(all_ntags[i] => i for i in eachindex(all_ntags))
+    Nv          = length(unique_tags)
+    node_mat    = Matrix{FT}(undef, 3, Nv)
+    for (i, t) in enumerate(unique_tags)
+        p = tagpos[t]
+        node_mat[1, i] = FT(coord[3*(p-1)+1])
+        node_mat[2, i] = FT(coord[3*(p-1)+2])
+        node_mat[3, i] = FT(coord[3*(p-1)+3])
+    end
+    return node_mat, tag2idx
+end
+
+# Build a (npe × n) Int32 connectivity matrix from a flat node_conn vector.
+function _build_connectivity(node_conn::Vector, tag2idx::Dict{Int,Int}, npe::Int, n::Int)
+    conn_mat = Matrix{Int32}(undef, npe, n)
+    @inbounds for t in 1:n, k in 1:npe
+        conn_mat[k, t] = tag2idx[node_conn[npe*(t-1)+k]]
+    end
+    return conn_mat
 end
 
 """
-    _extract_triangle_mesh(FT) → TriangleMesh
+    _extract_triangle_mesh(gmsh, FT) → TriangleMesh
 
 Extract all surface triangle elements (Gmsh element type 2) from the current
 Gmsh session and return a `TriangleMesh{Int32,FT}`.
@@ -194,60 +228,18 @@ Only the nodes referenced by triangle elements are included in the output mesh.
 function _extract_triangle_mesh(gmsh, FT::Type{<:AbstractFloat})
     elem_tags, node_conn = gmsh.model.mesh.getElementsByType(2)
     isempty(elem_tags) && error("GmshAPI: no triangle elements found in current mesh")
-
-    ntri        = length(elem_tags)
-    unique_tags = unique(node_conn)
-    tag2idx     = Dict{Int,Int}(t => i for (i, t) in enumerate(unique_tags))
-
-    all_ntags, coord, _ = gmsh.model.mesh.getNodes()
-    tagpos = Dict{Int,Int}(all_ntags[i] => i for i in eachindex(all_ntags))
-
-    Nv       = length(unique_tags)
-    node_mat = Matrix{FT}(undef, 3, Nv)
-    for (i, t) in enumerate(unique_tags)
-        p = tagpos[t]
-        node_mat[1, i] = FT(coord[3*(p-1)+1])
-        node_mat[2, i] = FT(coord[3*(p-1)+2])
-        node_mat[3, i] = FT(coord[3*(p-1)+3])
-    end
-
-    tri_mat = Matrix{Int32}(undef, 3, ntri)
-    for t in 1:ntri
-        tri_mat[1, t] = tag2idx[node_conn[3*(t-1)+1]]
-        tri_mat[2, t] = tag2idx[node_conn[3*(t-1)+2]]
-        tri_mat[3, t] = tag2idx[node_conn[3*(t-1)+3]]
-    end
-
-    return TriangleMesh(ntri, node_mat, tri_mat, ones(Int, ntri))
+    ntri     = length(elem_tags)
+    node_mat, tag2idx = _extract_nodes_for_elements(gmsh, node_conn, FT)
+    conn_mat = _build_connectivity(node_conn, tag2idx, 3, ntri)
+    return TriangleMesh(ntri, node_mat, conn_mat, ones(Int, ntri))
 end
 
 function _extract_tet_mesh(gmsh, FT::Type{<:AbstractFloat})
     elem_tags, node_conn = gmsh.model.mesh.getElementsByType(4)
-    isempty(elem_tags) && error("GmshAPI: no tetrahedral elements found; verify 3-D mesh was generated")
-
-    ntet        = length(elem_tags)
-    unique_tags = unique(node_conn)
-    tag2idx     = Dict{Int,Int}(t => i for (i, t) in enumerate(unique_tags))
-
-    all_ntags, coord, _ = gmsh.model.mesh.getNodes()
-    tagpos = Dict{Int,Int}(all_ntags[i] => i for i in eachindex(all_ntags))
-
-    Nv       = length(unique_tags)
-    node_mat = Matrix{FT}(undef, 3, Nv)
-    for (i, t) in enumerate(unique_tags)
-        p = tagpos[t]
-        node_mat[1, i] = FT(coord[3*(p-1)+1])
-        node_mat[2, i] = FT(coord[3*(p-1)+2])
-        node_mat[3, i] = FT(coord[3*(p-1)+3])
-    end
-
-    tet_mat = Matrix{Int32}(undef, 4, ntet)
-    for t in 1:ntet
-        tet_mat[1, t] = tag2idx[node_conn[4*(t-1)+1]]
-        tet_mat[2, t] = tag2idx[node_conn[4*(t-1)+2]]
-        tet_mat[3, t] = tag2idx[node_conn[4*(t-1)+3]]
-        tet_mat[4, t] = tag2idx[node_conn[4*(t-1)+4]]
-    end
-
-    return TetrahedraMesh(ntet, node_mat, tet_mat, ones(Int, ntet))
+    isempty(elem_tags) &&
+        error("GmshAPI: no tetrahedral elements found; verify 3-D mesh was generated")
+    ntet     = length(elem_tags)
+    node_mat, tag2idx = _extract_nodes_for_elements(gmsh, node_conn, FT)
+    conn_mat = _build_connectivity(node_conn, tag2idx, 4, ntet)
+    return TetrahedraMesh(ntet, node_mat, conn_mat, ones(Int, ntet))
 end

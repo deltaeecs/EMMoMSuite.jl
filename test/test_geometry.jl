@@ -1039,8 +1039,11 @@ end
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
+# GmshAPI 测试默认跳过；运行方式： EMSUITE_TEST_GMSH=1 julia test/test_geometry.jl
 @testset "GmshAPI" begin
-    using EMSuite: generate_gmsh_sphere, generate_gmsh_box, generate_gmsh_from_file
+    if get(ENV, "EMSUITE_TEST_GMSH", "0") != "1"
+        @test_skip "Gmsh tests skipped (set EMSUITE_TEST_GMSH=1 to enable)"
+    else
 
     # ── 1. 球面三角网格 ───────────────────────────────────────────────────────
     r     = 1.0
@@ -1103,8 +1106,9 @@ end
     # ── 6. 不存在的文件应抛出错误 ───────────────────────────────────────────
     @test_throws Exception generate_gmsh_from_file("nonexistent.geo"; mesh_size=0.1)
 
-    # ── 7. mesh_size 影响网格密度：更小的 mesh_size → 更多三角形 ─────────────
+        # ── 7. mesh_size 影响网格密度：更小的 mesh_size → 更多三角形 ─────────────
     coarse = generate_gmsh_sphere(1.0; mesh_size=0.5)
     fine   = generate_gmsh_sphere(1.0; mesh_size=0.2)
     @test fine.trinum > coarse.trinum
-end
+    end  # if EMSUITE_TEST_GMSH
+end  # @testset "GmshAPI"
