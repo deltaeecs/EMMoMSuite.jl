@@ -31,6 +31,10 @@ boundary-condition label of the BRepSolid face that triangle `t` belongs to.
 The lookup key is `mesh.tags[t]`, which `surface_mesh_gmsh` sets to the
 1-based BRepFace index (Phase 18.3).  Triangles on faces that have no entry
 in `solid.boundary_labels` receive an empty string `""`.
+
+!!! note
+    Requires `length(mesh.tags) == mesh.trinum`; passing a mesh whose `tags`
+    field was never populated will throw a `BoundsError`.
 """
 function mesh_face_labels(
     mesh::TriangleMesh,
@@ -86,16 +90,20 @@ function propagate_labels(
 ) where {FT<:AbstractFloat}
     new_labels = Dict{Int,String}()
 
+    # Pre-convert each source's vertices to FT once (avoid O(F_result) re-alloc).
+    src_verts_list = [_convert_vertices(FT, src.vertices) for src in sources]
+
     for (fi, rface) in enumerate(result.faces)
         rc         = _face_centroid(result.vertices, rface)
         best_dist  = Inf
         best_label = ""
 
-        for src in sources
+        for (k, src) in enumerate(sources)
+            src_verts = src_verts_list[k]
             for (si, sface) in enumerate(src.faces)
                 label = get(src.boundary_labels, si, "")
                 isempty(label) && continue
-                sc   = _face_centroid(_convert_vertices(FT, src.vertices), sface)
+                sc   = _face_centroid(src_verts, sface)
                 dist = norm(rc - sc)
                 if dist < best_dist
                     best_dist  = dist
@@ -130,8 +138,15 @@ function _face_centroid(
     return sum(vertices[i] for i in face.vertex_indices) / FT(n)
 end
 
-# Convert vertex array to a different float type (for mixed-type sources);
-# accepts any AbstractVector whose elements are convertible to SVector{3,FT}.
+# Convert vertex array to a different float type (for mixed-type sources).
+# Same-type specialisation: return verts unchanged (zero-copy).
+function _convert_vertices(
+    ::Type{FT},
+    verts::AbstractVector{SVector{3,FT}},
+) where {FT}
+    return verts
+end
+# General fallback: allocate a converted copy.
 function _convert_vertices(
     ::Type{FT},
     verts::AbstractVector,
