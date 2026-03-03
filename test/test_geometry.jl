@@ -634,4 +634,65 @@ CTETRA, 1, 200, 1, 2, 3, 4
         @test size(merged.node, 2) == size(t1.node, 2) + size(t2.node, 2)
         @test all(1 .≤ merged.tetras .≤ size(merged.node, 2))
     end
+
+    # ─── Phase 16.4: MeshQuality ─────────────────────────────────────────────
+
+    @testset "mesh_quality TriangleMesh" begin
+        m  = generate_sphere_mesh(1.0, 20, 40)
+        rpt = mesh_quality(m)
+
+        @test rpt isa MeshQualityReport
+        @test rpt.n_elements == m.trinum
+
+        # All triangles on unit sphere have positive area
+        @test rpt.area_min > 0
+        @test rpt.area_max ≥ rpt.area_min
+        @test rpt.area_mean > 0
+
+        # Aspect ratio ≥ 1
+        @test rpt.aspect_ratio_min ≥ 1.0 - 1e-10
+        @test rpt.aspect_ratio_mean ≥ 1.0 - 1e-10
+
+        # Skewness ∈ [0,1)
+        @test rpt.skewness_min ≥ 0.0
+        @test rpt.skewness_max < 1.0
+
+        # Total area ≈ 4π for unit sphere (rough check)
+        @test isapprox(rpt.area_mean * m.trinum, 4π; rtol=0.05)
+
+        @test rpt.n_degenerate == 0
+        @test rpt.n_inverted   == 0
+
+        # show produces a non-empty string
+        s = sprint(show, rpt)
+        @test !isempty(s)
+        @test occursin("MeshQualityReport", s)
+    end
+
+    @testset "mesh_quality TetrahedraMesh" begin
+        # Unit cube 2×2×2 grid → 48 tets, each vol = 1/48
+        m   = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+        rpt = mesh_quality(m)
+
+        @test rpt isa MeshQualityReport
+        @test rpt.n_elements == m.tetnum
+
+        # All volumes positive (Freudenthal → positive)
+        @test rpt.area_min > 0
+        @test rpt.n_inverted == 0
+        @test rpt.n_degenerate == 0
+
+        # Mean volume ≈ 1 / 48
+        @test isapprox(rpt.area_mean, 1.0 / m.tetnum; rtol=1e-8)
+
+        # Aspect ratio ≥ 1
+        @test rpt.aspect_ratio_min ≥ 1.0 - 1e-8
+
+        # Skewness ∈ [0,1)
+        @test rpt.skewness_min ≥ 0.0
+        @test rpt.skewness_max < 1.0
+
+        s = sprint(show, rpt)
+        @test !isempty(s)
+    end
 end
