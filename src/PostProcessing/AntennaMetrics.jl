@@ -1,6 +1,5 @@
 module AntennaMetrics
 
-using StaticArrays
 using LinearAlgebra
 
 using ...BasisFunctions
