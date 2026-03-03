@@ -696,3 +696,115 @@ CTETRA, 1, 200, 1, 2, 3, 4
         @test !isempty(s)
     end
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 16.5 — MeshRepair
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "MeshRepair" begin
+    using EMSuite.Geometry: remove_duplicate_nodes, fix_element_orientation, detect_degenerates
+
+    # ─── remove_duplicate_nodes ───────────────────────────────────────────────
+    @testset "remove_duplicate_nodes TriangleMesh" begin
+        # 2-triangle mesh with one duplicated node (nodes 3 and 4 are the same)
+        nodes = [0.0 1.0 0.5 0.5;
+                 0.0 0.0 1.0 1.0;
+                 0.0 0.0 0.0 0.0]      # 4 nodes, nodes 3 and 4 are duplicates
+        tris  = [1 2; 2 4; 3 3]        # 2 triangles (3×2); node cols
+        mesh  = TriangleMesh(2, nodes, tris, [1,1])
+
+        # With default tol, nodes 3 and 4 (identical) should merge
+        m2 = remove_duplicate_nodes(mesh; tol=1e-10)
+        @test m2 isa TriangleMesh
+        @test size(m2.node, 2) == 3    # 4 → 3 unique nodes
+        @test m2.trinum == 2           # element count unchanged
+        @test size(m2.triangles) == size(mesh.triangles)
+
+        # No merging when tol is very small and nodes are truly distinct
+        nodes2 = [0.0 1.0 0.5; 0.0 0.0 1.0; 0.0 0.0 0.0]
+        mesh2  = TriangleMesh(1, nodes2, reshape([1,2,3], 3, 1), [0])
+        m3 = remove_duplicate_nodes(mesh2; tol=1e-12)
+        @test size(m3.node, 2) == 3
+    end
+
+    @testset "remove_duplicate_nodes TetrahedraMesh" begin
+        # Box tet mesh with 2×2×2 grid — all nodes distinct
+        m   = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+        m2  = remove_duplicate_nodes(m; tol=1e-10)
+        @test size(m2.node, 2) == size(m.node, 2)  # no merging expected
+        @test m2.tetnum == m.tetnum
+
+        # Same total volume (using tet_volume on individual tets)
+        function tet_vol(nd, tets, t)
+            v1 = nd[:, tets[1,t]]; v2 = nd[:, tets[2,t]]
+            v3 = nd[:, tets[3,t]]; v4 = nd[:, tets[4,t]]
+            abs(tet_volume(v1, v2, v3, v4))
+        end
+        vol_orig = sum(tet_vol(m.node,  m.tetras, t) for t in 1:m.tetnum)
+        vol_new  = sum(tet_vol(m2.node, m2.tetras, t) for t in 1:m2.tetnum)
+        @test vol_orig ≈ vol_new atol=1e-12
+    end
+
+    # ─── detect_degenerates ───────────────────────────────────────────────────
+    @testset "detect_degenerates TriangleMesh" begin
+        # Good mesh: a unit triangle — no degenerates
+        nodes = [0.0 1.0 0.0; 0.0 0.0 1.0; 0.0 0.0 0.0]
+        mesh  = TriangleMesh(1, nodes, reshape([1,2,3], 3, 1), [0])
+        @test isempty(detect_degenerates(mesh))
+
+        # Collapsed triangle: all three vertices at the same point
+        bad_nodes = [0.0 0.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
+        bad_mesh  = TriangleMesh(1, bad_nodes, reshape([1,2,3], 3, 1), [0])
+        degs = detect_degenerates(bad_mesh)
+        @test length(degs) == 1
+        @test degs[1] == 1
+    end
+
+    @testset "detect_degenerates TetrahedraMesh" begin
+        # Normal box tet mesh — no degenerates
+        m    = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+        @test isempty(detect_degenerates(m))
+
+        # Collapsed tet: all 4 vertices at the same point
+        bad_nodes = [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0]
+        bad_mesh  = TetrahedraMesh(1, bad_nodes, reshape([1,2,3,4], 4, 1), [0])
+        degs = detect_degenerates(bad_mesh)
+        @test length(degs) == 1
+    end
+
+    # ─── fix_element_orientation ──────────────────────────────────────────────
+    @testset "fix_element_orientation" begin
+        # Two adjacent triangles with consistent orientation
+        #   tri 1: [v1,v2,v3] — CCW upward (normal +z)
+        #   tri 2: [v2,v4,v3] — CCW upward (normal +z) — consistent
+        nodes = [0.0 1.0 0.0 1.0;
+                 0.0 0.0 1.0 1.0;
+                 0.0 0.0 0.0 0.0]
+        # Consistent: shared edge v2→v3 in tri1 (CCW), v3→v2 in tri2
+        tris_ok = [1 2; 2 3; 3 4]       # col k: [v1,v2,v3] for tri k
+        mesh_ok = TriangleMesh(2, nodes, tris_ok, [0,0])
+
+        m_fixed = fix_element_orientation(mesh_ok)
+        @test m_fixed isa TriangleMesh
+        @test m_fixed.trinum == mesh_ok.trinum
+
+        # After fix, normals should point in the same half-space
+        function tri_normal(m, t)
+            v1 = m.node[:, m.triangles[1,t]]
+            v2 = m.node[:, m.triangles[2,t]]
+            v3 = m.node[:, m.triangles[3,t]]
+            return cross(v2-v1, v3-v1)
+        end
+        n1 = tri_normal(m_fixed, 1)
+        n2 = tri_normal(m_fixed, 2)
+        # dot product ≥ 0 means normals in the same half-space
+        @test dot(n1, n2) >= 0
+
+        # Inconsistent orientation test: flip tri 2 manually
+        tris_bad = [1 3; 2 2; 3 4]     # tri 2 vertex order flipped
+        mesh_bad = TriangleMesh(2, nodes, tris_bad, [0,0])
+        m_fixed2 = fix_element_orientation(mesh_bad)
+        n1b = tri_normal(m_fixed2, 1)
+        n2b = tri_normal(m_fixed2, 2)
+        @test dot(n1b, n2b) >= 0
+    end
+end
