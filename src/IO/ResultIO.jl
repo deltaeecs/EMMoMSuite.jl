@@ -3,6 +3,7 @@ module ResultIO
 using DelimitedFiles
 using HDF5
 using TOML
+using Printf
 using ...CoreModule: SimulationResult
 
 export save_RCS_txt, save_results_hdf5, save_result, save_RCS_csv
@@ -83,7 +84,7 @@ function save_RCS_csv(
                     c2 = 10 * log10(max(rcs_comp[2, iθ, 1], 1e-30))
                     ct = rcs_dB[iθ, 1]
                 end
-                write(io, string(round(θ_deg,digits=6), ",", round(c1,digits=6), ",", round(c2,digits=6), ",", round(ct,digits=6), "\n"))
+                @printf(io, "%.6f,%.6f,%.6f,%.6f\n", θ_deg, c1, c2, ct)
             end
         else
             # 2D grid: columns = theta_deg, phi_deg, θ-comp, φ-comp, total
@@ -104,7 +105,7 @@ function save_RCS_csv(
                     c2 = 10 * log10(max(rcs_comp[2, iθ, iϕ], 1e-30))
                     ct = rcs_dB[iθ, iϕ]
                 end
-                write(io, string(round(θ_deg,digits=6), ",", round(ϕ_deg,digits=6), ",", round(c1,digits=6), ",", round(c2,digits=6), ",", round(ct,digits=6), "\n"))
+                @printf(io, "%.6f,%.6f,%.6f,%.6f,%.6f\n", θ_deg, ϕ_deg, c1, c2, ct)
             end
         end
     end
