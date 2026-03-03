@@ -234,6 +234,12 @@ function _extract_triangle_mesh(gmsh, FT::Type{<:AbstractFloat})
     return TriangleMesh(ntri, node_mat, conn_mat, ones(Int, ntri))
 end
 
+"""
+    _extract_tet_mesh(gmsh, FT) → TetrahedraMesh
+
+Extract all tetrahedral elements (Gmsh element type 4) from the current
+Gmsh session and return a `TetrahedraMesh{Int32,FT}`.
+"""
 function _extract_tet_mesh(gmsh, FT::Type{<:AbstractFloat})
     elem_tags, node_conn = gmsh.model.mesh.getElementsByType(4)
     isempty(elem_tags) &&
