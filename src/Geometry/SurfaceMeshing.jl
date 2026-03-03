@@ -1,7 +1,7 @@
 """
     SurfaceMeshing.jl
 
-Phase 18.3 — Surface triangulation of BRepSolid using the Gmsh OCC kernel.
+Phase 18.3 — Surface triangulation of BRepSolid using the Gmsh geo (built-in) kernel.
 
 Exported functions:
   surface_mesh_gmsh   — BRepSolid → TriangleMesh via Gmsh (explicit mesh_size)
@@ -105,7 +105,7 @@ end
 
 Convenience wrapper around `surface_mesh_gmsh`.  `max_size` is passed as the
 target element size; `min_size` and `curvature_factor` are accepted for API
-compatibility but currently forwarded to Gmsh's global MeshSizeMin setting.
+compatibility and reserved for Phase 18.4 adaptive size-field support.
 """
 function surface_mesh(
     solid::BRepSolid;
