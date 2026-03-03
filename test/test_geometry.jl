@@ -1281,3 +1281,92 @@ end  # @testset "SurfaceMeshing"
     end  # EMSUITE_TEST_GMSH
 
 end  # @testset "LabelPropagation"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 19.1 — TetMeshing
+# ─────────────────────────────────────────────────────────────────────────────
+
+@testset "TetMeshing" begin
+
+    if get(ENV, "EMSUITE_TEST_GMSH", "") == "1"
+        # 1. box_solid → tet_mesh_gmsh returns TetrahedraMesh with elements
+        box  = box_solid(1.0, 1.0, 1.0)
+        mesh = tet_mesh_gmsh(box, 0.4)
+        @test mesh isa TetrahedraMesh
+        @test mesh.tetnum > 0
+        @test size(mesh.node, 2) > 4
+
+        # 2. Volume recovery: ΣV_tet ≈ 1.0 (< 2 % error: DoD criterion)
+        total_vol = sum(
+            abs(tet_volume(
+                mesh.node[:, mesh.tetras[1, k]],
+                mesh.node[:, mesh.tetras[2, k]],
+                mesh.node[:, mesh.tetras[3, k]],
+                mesh.node[:, mesh.tetras[4, k]],
+            ))
+            for k in 1:mesh.tetnum
+        )
+        @test total_vol ≈ 1.0 rtol=0.02
+
+        # 3. No inverted elements
+        qr = mesh_quality(mesh)
+        @test qr.n_inverted == 0
+        @test qr isa MeshQualityReport
+
+        # 4. tet_mesh convenience wrapper also works
+        mesh2 = tet_mesh(box; max_size=0.4)
+        @test mesh2 isa TetrahedraMesh
+        @test mesh2.tetnum > 0
+    else
+        @test_broken false   # skip when EMSUITE_TEST_GMSH not set
+    end
+
+end  # @testset "TetMeshing"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 19.5 — MeshMaterialBind
+# ─────────────────────────────────────────────────────────────────────────────
+
+@testset "MeshMaterialBind" begin
+
+    # Use generate_box_tet_mesh (structured, tags = all 0 by default)
+    mesh = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+    @test mesh isa TetrahedraMesh
+    @test mesh.tetnum > 0
+    @test all(==(0), mesh.tags)   # default: all zero tags
+
+    fr4 = Isotropic(4.4 * (1 - 0.02im), 1.0)
+
+    # 1. bind_materials returns BoundMesh
+    bm = bind_materials(mesh, Dict(0 => fr4))
+    @test bm isa BoundMesh
+
+    # 2. validate_bindings: all tets have tag 0 which is covered → true
+    @test validate_bindings(bm)
+
+    # 3. element_material retrieves correct model for element 1
+    mat = element_material(bm, 1)
+    @test mat isa Isotropic
+    @test real(mat.εr) ≈ 4.4 rtol=0.02
+
+    # 4. validate_bindings: binding for wrong tag → false (tags 0 ≠ 999)
+    bm_bad = bind_materials(mesh, Dict(999 => fr4))
+    @test !validate_bindings(bm_bad)
+
+    # 5. element_material: missing binding throws KeyError
+    @test_throws KeyError element_material(bm_bad, 1)
+
+    # 6. Multiple materials: assign different materials per region
+    #    Build a mesh with mixed tags manually
+    mixed_mesh = TetrahedraMesh(
+        mesh.tetnum, mesh.node, mesh.tetras,
+        vcat(fill(1, mesh.tetnum ÷ 2), fill(2, mesh.tetnum - mesh.tetnum ÷ 2)),
+    )
+    vac = Isotropic(1.0, 1.0)
+    bm2 = bind_materials(mixed_mesh, Dict(1 => fr4, 2 => vac))
+    @test validate_bindings(bm2)
+    @test element_material(bm2, 1).εr ≈ fr4.εr
+    @test element_material(bm2, mesh.tetnum).εr ≈ vac.εr
+
+end  # @testset "MeshMaterialBind"
+
