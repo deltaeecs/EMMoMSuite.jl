@@ -1167,3 +1167,117 @@ end  # @testset "GmshAPI"
         @test mesh_hi.trinum > 0
     end  # if EMSUITE_TEST_GMSH
 end  # @testset "SurfaceMeshing"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 18.4 — LabelPropagation
+# 非 Gmsh 测试无需 gate；Gmsh 相关测试仍用 EMSUITE_TEST_GMSH=1
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "LabelPropagation" begin
+    using EMSuite.Geometry: BRepSolid, BRepFace
+    using StaticArrays, LinearAlgebra
+
+    # ── 辅助：手工构造带 tags 的 TriangleMesh（不调 Gmsh）──────────────────
+    # 6 个三角形，tags = [1,1,2,2,3,3]（模拟 3 个面各 2 个三角形）
+    nodes_3f = Float64[0 1 0 0 1 0 0;
+                        0 0 1 0 0 1 0;
+                        0 0 0 1 0 0 1]
+    tris_3f  = Int32[1 2 3 1 4 5 1;
+                     2 3 4 4 5 6 6;
+                     3 4 5 5 6 7 7]
+    fake_mesh = TriangleMesh(7, nodes_3f, tris_3f, [1,1,2,2,3,3,3])
+
+    # 对应 BRepSolid（只需 boundary_labels 字段，其余可空）
+    fake_solid = BRepSolid{Float64}(
+        SVector{3,Float64}[],
+        Tuple{Int,Int}[],
+        BRepFace[],
+        "mat",
+        Dict(1 => "bottom", 2 => "side", 3 => "top"),
+    )
+
+    # ── 1. mesh_face_labels 基本功能 ────────────────────────────────────────
+    lbls = mesh_face_labels(fake_mesh, fake_solid)
+    @test length(lbls) == 7
+    @test all(==("bottom"), lbls[1:2])
+    @test all(==("side"),   lbls[3:4])
+    @test all(==("top"),    lbls[5:7])
+
+    # ── 2. mesh_face_labels 未标记的面 → "" ────────────────────────────────
+    sparse_solid = BRepSolid{Float64}(
+        SVector{3,Float64}[], Tuple{Int,Int}[], BRepFace[], "",
+        Dict(2 => "labeled"),
+    )
+    lbls2 = mesh_face_labels(fake_mesh, sparse_solid)
+    @test all(==(""),        lbls2[1:2])   # face 1 → no label
+    @test all(==("labeled"), lbls2[3:4])   # face 2 → labeled
+    @test all(==(""),        lbls2[5:7])   # face 3 → no label
+
+    # ── 3. label_mesh_tags：字符串标签 → 整数 ID ────────────────────────────
+    tagged = label_mesh_tags(fake_mesh, fake_solid)
+    @test tagged isa TriangleMesh
+    @test tagged.trinum == fake_mesh.trinum
+    # 标签按字典序：bottom→1, side→2, top→3
+    @test tagged.tags[1:2] == [1, 1]  # "bottom"
+    @test tagged.tags[3:4] == [2, 2]  # "side"
+    @test tagged.tags[5:7] == [3, 3, 3]  # "top"
+
+    # ── 4. label_mesh_tags：无标签面 → tag = 0 ──────────────────────────────
+    tagged2 = label_mesh_tags(fake_mesh, sparse_solid)
+    @test all(==(0),       tagged2.tags[1:2])
+    @test all(==(1),       tagged2.tags[3:4])  # only label → ID=1
+    @test all(==(0),       tagged2.tags[5:7])
+
+    # ── 5. label 一致性：unique(tags) 数 = boundary_labels 字符串数 ─────────
+    n_unique_ids    = length(filter(>(0), unique(tagged.tags)))
+    n_unique_labels = length(unique(values(fake_solid.boundary_labels)))
+    @test n_unique_ids == n_unique_labels
+
+    # ── 6. propagate_labels：相交结果继承最近源面标签 ───────────────────────
+    # 两个沿 x 偏移 0.5 的单位 Box，各有 boundary_labels
+    boxA_lab = box_solid(1.0, 1.0, 1.0;
+                         boundary_labels=Dict(1=>"A_bottom", 2=>"A_top",
+                                              3=>"A_left",   4=>"A_right",
+                                              5=>"A_front",  6=>"A_back"))
+    boxB_lab = box_solid(1.0, 1.0, 1.0;
+                         origin=SVector(0.5, 0.0, 0.0),
+                         boundary_labels=Dict(1=>"B_bottom", 2=>"B_top",
+                                              3=>"B_left",   4=>"B_right",
+                                              5=>"B_front",  6=>"B_back"))
+    result = intersect_solids(boxA_lab, boxB_lab)
+    propagated = propagate_labels(result, [boxA_lab, boxB_lab])
+
+    @test propagated isa BRepSolid
+    # result 应有面，每个面都拿到了标签
+    @test length(propagated.boundary_labels) == length(result.faces)
+    # 标签只来自源体标签集合
+    all_src_labels = union(
+        Set(values(boxA_lab.boundary_labels)),
+        Set(values(boxB_lab.boundary_labels)),
+    )
+    @test all(v ∈ all_src_labels for v in values(propagated.boundary_labels))
+
+    # ── 7. propagate_labels：源体无标签 → 结果无标签 ────────────────────────
+    boxUnlabeled = box_solid(1.0, 1.0, 1.0)  # boundary_labels = empty
+    result2 = intersect_solids(boxA_lab, boxUnlabeled)
+    propagated2 = propagate_labels(result2, [boxUnlabeled])
+    @test isempty(propagated2.boundary_labels)
+
+    # ── 8. Gmsh 集成：mesh_face_labels 与 surface_mesh_gmsh 联动 ─────────────
+    if get(ENV, "EMSUITE_TEST_GMSH", "0") == "1"
+        solid_lab = box_solid(1.0, 1.0, 1.0;
+                              boundary_labels=Dict(
+                                  1=>"face1", 2=>"face2", 3=>"face3",
+                                  4=>"face4", 5=>"face5", 6=>"face6"))
+        gmsh_mesh = surface_mesh_gmsh(solid_lab, 0.3)
+        gmsh_lbls = mesh_face_labels(gmsh_mesh, solid_lab)
+
+        @test length(gmsh_lbls) == gmsh_mesh.trinum
+        # 6 个面的标签全部出现
+        @test sort(unique(gmsh_lbls)) == ["face1","face2","face3","face4","face5","face6"]
+
+        # label_mesh_tags：整数 ID 应与 unique labels 数量一致
+        tagged_gmsh = label_mesh_tags(gmsh_mesh, solid_lab)
+        @test length(unique(tagged_gmsh.tags)) == 6
+    end  # EMSUITE_TEST_GMSH
+
+end  # @testset "LabelPropagation"
