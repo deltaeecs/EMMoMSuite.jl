@@ -12,9 +12,14 @@ All models implement `eval_permittivity(model, ω::Float64) → ComplexF64`
 and a vectorised overload `eval_permittivity(model, ωs::Vector{Float64})`.
 
 Sign convention: e^{-jωt} (standard CEM).  Under this convention a lossy
-medium has `imag(εr) > 0`, i.e. the imaginary part of the complex permittivity
-ε = ε' - jε'' is negative when written in the ε'' (positive) form.
+medium has `imag(εr) < 0`, i.e. the complex permittivity is written as
+ε = ε' - jε'' where ε'' > 0 represents the physical loss.  The sign follows
+naturally from the Debye / Drude / Lorentz formulae without any extra negation.
 """
+
+export DebyePole, LorentzPole
+export DebyeModel, DrudeModel, LorentzModel
+export eval_permittivity
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pole structs
@@ -160,6 +165,3 @@ function eval_permittivity(model::MaterialModel, ωs::Vector{Float64})
     return [eval_permittivity(model, ω) for ω in ωs]
 end
 
-export DebyePole, LorentzPole
-export DebyeModel, DrudeModel, LorentzModel
-export eval_permittivity

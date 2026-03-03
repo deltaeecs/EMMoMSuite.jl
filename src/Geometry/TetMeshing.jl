@@ -104,7 +104,7 @@ function tet_mesh_gmsh(
             _set_mesh_size!(gmsh, _ms)
 
             gmsh.model.mesh.generate(3)
-            optimize && gmsh.model.mesh.optimize("Netgen")
+            optimize && gmsh.model.mesh.optimize("Gmsh")   # "Gmsh" = Laplacian smoother, always available
 
             return _extract_tet_mesh(gmsh, FT)
         finally

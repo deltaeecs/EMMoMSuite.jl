@@ -80,16 +80,16 @@ function validate_mesh(mesh::AbstractMesh; tol::Float64 = 1e-14)
         ok = false
     end
 
-    # Quality check where available
-    try
+    # Quality check (only for mesh types that support mesh_quality)
+    if mesh isa TriangleMesh || mesh isa TetrahedraMesh
         qr = mesh_quality(mesh)
         if qr.n_inverted > 0
             @warn "validate_mesh: $(qr.n_inverted) inverted element(s) detected"
             ok = false
         end
-    catch
-        # mesh_quality may not be defined for all mesh types; skip silently
     end
+    # Note: HexahedraMesh quality check deferred until mesh_quality(::HexahedraMesh)
+    # is implemented.
 
     return ok
 end
