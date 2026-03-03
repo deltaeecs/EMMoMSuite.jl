@@ -11,6 +11,7 @@ include("MeshIO.jl")
 include("MeshGen.jl")
 include("MeshBoundary.jl")
 include("MeshTransforms.jl")
+include("MeshQuality.jl")
 include("GmshIO.jl")
 include("CoordinateTransforms.jl")
 include("GaussQuadrature.jl")
@@ -35,6 +36,7 @@ export read_nas_mesh,
     generate_box_tet_mesh,
     extract_surface
 export translate_mesh, scale_mesh, rotate_mesh, transform_mesh, merge_meshes
+export MeshQualityReport, mesh_quality
 export globalObs2LocalObs, localObs2GlobalObs
 export GaussQuadratureInfo, GaussQuadratureInfoStruct, get_global_quad_points
 export gaussQuadratureHexa, gaussQuadratureQuad, gaussQuadratureHexa1D
