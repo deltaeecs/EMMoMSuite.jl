@@ -147,11 +147,14 @@ function fix_element_orientation(mesh::TriangleMesh{IT,FT}) where {IT,FT}
 
     for start in 1:Nt
         visited[start] && continue
+        # Use an index-pointer BFS (O(N)) instead of popfirst! (O(N²))
         queue = [start]
+        head  = 1
         visited[start] = true
 
-        while !isempty(queue)
-            t = popfirst!(queue)
+        while head <= length(queue)
+            t = queue[head]
+            head += 1
 
             for k in 1:3
                 v_a = Int(new_tris[k,          t])
