@@ -238,21 +238,21 @@ function detect_degenerates(mesh::TetrahedraMesh{IT,FT}; tol::Real=1e-15) where 
     return bad
 end
 
-function detect_degenerates(mesh::HexahedraMesh; tol::Real=1e-15)
-    # Approximate volume via the sum of sub-tets; flag if total < tol
+function detect_degenerates(mesh::HexahedraMesh{IT,FT}; tol::Real=1e-15) where {IT,FT}
+    # Use exact hex_volume (5-tetrahedra decomposition) for reliable detection.
     bad = Int[]
     nodes = mesh.node
     for h in 1:mesh.hexnum
-        verts = [SVector{3,Float64}(nodes[:, mesh.hexes[i, h]]) for i in 1:8]
-        # Rough volume: use one diagonal of the bounding box
-        lo = SVector(minimum(getindex.(verts, 1)),
-                     minimum(getindex.(verts, 2)),
-                     minimum(getindex.(verts, 3)))
-        hi = SVector(maximum(getindex.(verts, 1)),
-                     maximum(getindex.(verts, 2)),
-                     maximum(getindex.(verts, 3)))
-        V_bb = prod(hi .- lo)
-        V_bb < tol && push!(bad, h)
+        v1 = SVector{3,FT}(nodes[:, mesh.hexes[1, h]])
+        v2 = SVector{3,FT}(nodes[:, mesh.hexes[2, h]])
+        v3 = SVector{3,FT}(nodes[:, mesh.hexes[3, h]])
+        v4 = SVector{3,FT}(nodes[:, mesh.hexes[4, h]])
+        v5 = SVector{3,FT}(nodes[:, mesh.hexes[5, h]])
+        v6 = SVector{3,FT}(nodes[:, mesh.hexes[6, h]])
+        v7 = SVector{3,FT}(nodes[:, mesh.hexes[7, h]])
+        v8 = SVector{3,FT}(nodes[:, mesh.hexes[8, h]])
+        V = abs(hex_volume(v1, v2, v3, v4, v5, v6, v7, v8))
+        V < tol && push!(bad, h)
     end
     return bad
 end
