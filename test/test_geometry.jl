@@ -538,4 +538,100 @@ CTETRA, 1, 200, 1, 2, 3, 4
         @test comp.volume   === tet
         @test dimension(comp) == 3
     end
+
+    # ─── Phase 16.2: MeshTransforms ───────────────────────────────────────────
+
+    @testset "translate_mesh" begin
+        m  = generate_box_tet_mesh(1.0, 1.0, 1.0, 1, 1, 1)
+        d  = [2.0, -3.0, 1.0]
+        m2 = translate_mesh(m, d)
+
+        @test m2 isa TetrahedraMesh
+        @test m2.tetnum == m.tetnum
+        @test m2.tetras == m.tetras          # connectivity unchanged
+
+        # Every node shifted by d
+        @test isapprox(m2.node, m.node .+ d; atol=1e-14)
+
+        # Works on TriangleMesh too
+        tri  = generate_sphere_mesh(1.0, 6, 12)
+        tri2 = translate_mesh(tri, d)
+        @test tri2 isa TriangleMesh
+        @test isapprox(tri2.node, tri.node .+ d; atol=1e-14)
+    end
+
+    @testset "scale_mesh isotropic" begin
+        m  = generate_sphere_mesh(1.0, 6, 12)
+        m2 = scale_mesh(m, 2.0)
+        @test m2 isa TriangleMesh
+        @test isapprox(m2.node, 2.0 .* m.node; atol=1e-14)
+        # Edge lengths double → sum area quadruples
+        area1 = sum(k -> begin
+            v1=m.node[:,m.triangles[1,k]]; v2=m.node[:,m.triangles[2,k]]; v3=m.node[:,m.triangles[3,k]]
+            norm(cross(v2-v1, v3-v1)) / 2
+        end, 1:m.trinum)
+        area2 = sum(k -> begin
+            v1=m2.node[:,m2.triangles[1,k]]; v2=m2.node[:,m2.triangles[2,k]]; v3=m2.node[:,m2.triangles[3,k]]
+            norm(cross(v2-v1, v3-v1)) / 2
+        end, 1:m2.trinum)
+        @test isapprox(area2, 4.0 * area1; rtol=1e-10)
+    end
+
+    @testset "scale_mesh anisotropic" begin
+        m  = generate_box_volume_mesh(1.0, 1.0, 1.0, 1, 1, 1)
+        sx, sy, sz = 2.0, 3.0, 0.5
+        m2 = scale_mesh(m, sx, sy, sz)
+        @test m2 isa HexahedraMesh
+        # Bounding box should be [sx, sy, sz]
+        @test isapprox(maximum(m2.node[1,:]) - minimum(m2.node[1,:]), sx; rtol=1e-10)
+        @test isapprox(maximum(m2.node[2,:]) - minimum(m2.node[2,:]), sy; rtol=1e-10)
+        @test isapprox(maximum(m2.node[3,:]) - minimum(m2.node[3,:]), sz; rtol=1e-10)
+    end
+
+    @testset "rotate_mesh 90° about z" begin
+        # A point at (1,0,0) should map to (0,1,0) under 90° CCW rotation about z
+        m  = generate_box_tet_mesh(1.0, 1.0, 1.0, 1, 1, 1)
+        m2 = rotate_mesh(m, [0.0, 0.0, 1.0], π/2)
+        @test m2 isa TetrahedraMesh
+        @test m2.tetnum == m.tetnum
+
+        # Apply same rotation to all nodes manually and compare
+        c, s = cos(π/2), sin(π/2)
+        R = [c -s 0.0; s c 0.0; 0.0 0.0 1.0]
+        expected = R * m.node
+        @test isapprox(m2.node, expected; atol=1e-12)
+    end
+
+    @testset "merge_meshes TriangleMesh" begin
+        m1 = generate_rectangle_mesh(1.0, 1.0, 2, 2)
+        m2 = translate_mesh(generate_rectangle_mesh(1.0, 1.0, 2, 2), [2.0, 0.0, 0.0])
+
+        merged = merge_meshes([m1, m2])
+        @test merged isa TriangleMesh
+        @test merged.trinum == m1.trinum + m2.trinum
+
+        nv1 = size(m1.node, 2)
+        nv2 = size(m2.node, 2)
+        @test size(merged.node, 2) == nv1 + nv2
+
+        # All connectivity indices valid
+        @test all(1 .≤ merged.triangles .≤ nv1 + nv2)
+
+        # Area preserved
+        area(m) = sum(k -> begin
+            v1=m.node[:,m.triangles[1,k]]; v2=m.node[:,m.triangles[2,k]]; v3=m.node[:,m.triangles[3,k]]
+            norm(cross(v2-v1, v3-v1))/2
+        end, 1:m.trinum)
+        @test isapprox(area(merged), area(m1) + area(m2); rtol=1e-12)
+    end
+
+    @testset "merge_meshes TetrahedraMesh" begin
+        t1 = generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2)
+        t2 = translate_mesh(generate_box_tet_mesh(1.0, 1.0, 1.0, 2, 2, 2), [2.0, 0.0, 0.0])
+        merged = merge_meshes([t1, t2])
+        @test merged isa TetrahedraMesh
+        @test merged.tetnum == t1.tetnum + t2.tetnum
+        @test size(merged.node, 2) == size(t1.node, 2) + size(t2.node, 2)
+        @test all(1 .≤ merged.tetras .≤ size(merged.node, 2))
+    end
 end
