@@ -5,7 +5,7 @@ using HDF5
 using TOML
 using ...CoreModule: SimulationResult
 
-export save_RCS_txt, save_results_hdf5, save_result
+export save_RCS_txt, save_results_hdf5, save_result, save_RCS_csv
 
 """
     save_RCS_txt(filename, theta, phi, rcs_data)
@@ -31,10 +31,87 @@ function save_RCS_txt(
 end
 
 """
-    save_results_hdf5(filename, data)
+    save_RCS_csv(filename, θs, ϕs, rcs_comp, rcs_total, rcs_dB; linear=false)
 
-Save results to an HDF5 file.
+Save RCS results to a CSV file suitable for comparison with CST, FEKO, etc.
+
+# Arguments
+- `filename`: Output file path (`.csv` extension appended if missing)
+- `θs`: Elevation angle vector (radians)
+- `ϕs`: Azimuth angle vector (radians)
+- `rcs_comp`: Component RCS array of size `(2, Nθ, Nϕ)` (linear m²)
+- `rcs_total`: Total RCS matrix `(Nθ, Nϕ)` (linear m²)
+- `rcs_dB`: Total RCS in dBsm `(Nθ, Nϕ)`
+- `linear=false`: When `false` (default) saves dBsm values; when `true` saves linear m²
+
+# Format (1D, Nϕ==1)
+`theta_deg, rcs_theta_dBsm, rcs_phi_dBsm, rcs_total_dBsm`
+
+# Format (2D, Nϕ>1)
+`theta_deg, phi_deg, rcs_theta_dBsm, rcs_phi_dBsm, rcs_total_dBsm`
 """
+function save_RCS_csv(
+    filename::String,
+    θs::AbstractVector{<:Real},
+    ϕs::AbstractVector{<:Real},
+    rcs_comp::AbstractArray{<:Real,3},
+    rcs_total::AbstractMatrix{<:Real},
+    rcs_dB::AbstractMatrix{<:Real};
+    linear::Bool = false,
+)
+    fn = endswith(filename, ".csv") ? filename : filename * ".csv"
+
+    Nθ = length(θs)
+    Nϕ = length(ϕs)
+
+    open(fn, "w") do io
+        if Nϕ == 1
+            # 1D sweep: columns = theta_deg, θ-comp, φ-comp, total
+            if linear
+                write(io, "theta_deg,rcs_theta_m2,rcs_phi_m2,rcs_total_m2\n")
+            else
+                write(io, "theta_deg,rcs_theta_dBsm,rcs_phi_dBsm,rcs_total_dBsm\n")
+            end
+            for iθ in 1:Nθ
+                θ_deg = rad2deg(θs[iθ])
+                if linear
+                    c1 = rcs_comp[1, iθ, 1]
+                    c2 = rcs_comp[2, iθ, 1]
+                    ct = rcs_total[iθ, 1]
+                else
+                    c1 = 10 * log10(max(rcs_comp[1, iθ, 1], 1e-30))
+                    c2 = 10 * log10(max(rcs_comp[2, iθ, 1], 1e-30))
+                    ct = rcs_dB[iθ, 1]
+                end
+                write(io, string(round(θ_deg,digits=6), ",", round(c1,digits=6), ",", round(c2,digits=6), ",", round(ct,digits=6), "\n"))
+            end
+        else
+            # 2D grid: columns = theta_deg, phi_deg, θ-comp, φ-comp, total
+            if linear
+                write(io, "theta_deg,phi_deg,rcs_theta_m2,rcs_phi_m2,rcs_total_m2\n")
+            else
+                write(io, "theta_deg,phi_deg,rcs_theta_dBsm,rcs_phi_dBsm,rcs_total_dBsm\n")
+            end
+            for iθ in 1:Nθ, iϕ in 1:Nϕ
+                θ_deg = rad2deg(θs[iθ])
+                ϕ_deg = rad2deg(ϕs[iϕ])
+                if linear
+                    c1 = rcs_comp[1, iθ, iϕ]
+                    c2 = rcs_comp[2, iθ, iϕ]
+                    ct = rcs_total[iθ, iϕ]
+                else
+                    c1 = 10 * log10(max(rcs_comp[1, iθ, iϕ], 1e-30))
+                    c2 = 10 * log10(max(rcs_comp[2, iθ, iϕ], 1e-30))
+                    ct = rcs_dB[iθ, iϕ]
+                end
+                write(io, string(round(θ_deg,digits=6), ",", round(ϕ_deg,digits=6), ",", round(c1,digits=6), ",", round(c2,digits=6), ",", round(ct,digits=6), "\n"))
+            end
+        end
+    end
+    return fn
+end
+
+
 function save_results_hdf5(filename::String, data::Dict)
     h5open(filename, "w") do file
         for (k, v) in data
