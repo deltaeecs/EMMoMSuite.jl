@@ -17,6 +17,10 @@ include("STLIO.jl")
 include("GmshIO.jl")
 include("CoordinateTransforms.jl")
 include("GaussQuadrature.jl")
+include("GeomKernel.jl")
+
+export BRepFace, BRepSolid, CSGNode
+export box_solid, solid_volume, solid_surface_area, check_manifold, convert_to_triangle_mesh
 
 export TriangleMesh, TetrahedraMesh, HexahedraMesh, TriangleInfo, TetrahedraInfo
 export HexahedraInfo, Quads4Hexa
