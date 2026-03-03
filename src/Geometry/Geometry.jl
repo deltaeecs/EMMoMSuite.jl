@@ -21,12 +21,14 @@ include("GeomKernel.jl")
 include("BooleanOps.jl")
 include("GmshAPI.jl")
 include("SurfaceMeshing.jl")
+include("LabelPropagation.jl")
 
 export BRepFace, BRepSolid, CSGNode
 export box_solid, solid_volume, solid_surface_area, check_manifold, convert_to_triangle_mesh
 export intersect_solids, union_solids, subtract_solid, csg_volume
 export generate_gmsh_sphere, generate_gmsh_box, generate_gmsh_from_file
 export surface_mesh_gmsh, surface_mesh
+export mesh_face_labels, label_mesh_tags, propagate_labels
 
 export TriangleMesh, TetrahedraMesh, HexahedraMesh, TriangleInfo, TetrahedraInfo
 export HexahedraInfo, Quads4Hexa

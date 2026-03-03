@@ -107,7 +107,8 @@ export TriangleMesh,
     box_solid, solid_volume, solid_surface_area, check_manifold, convert_to_triangle_mesh,
     intersect_solids, union_solids, subtract_solid, csg_volume,
     generate_gmsh_sphere, generate_gmsh_box, generate_gmsh_from_file,
-    surface_mesh_gmsh, surface_mesh
+    surface_mesh_gmsh, surface_mesh,
+    mesh_face_labels, label_mesh_tags, propagate_labels
 
 # Re-export PostProcessing symbols
 using .PostProcessing
