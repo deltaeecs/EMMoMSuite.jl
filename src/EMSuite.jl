@@ -56,6 +56,7 @@ export AbstractMesh, AbstractBasisFunction, AbstractIntegralOperator, AbstractSo
 include("Core/Core.jl")
 include("Utilities/Utilities.jl")
 include("Geometry/Geometry.jl")
+include("Materials/Materials.jl")
 include("BasisFunctions/BasisFunctions.jl")
 include("IntegralEquations/IntegralEquations.jl")
 include("Solvers/Solvers.jl")
@@ -108,7 +109,20 @@ export TriangleMesh,
     intersect_solids, union_solids, subtract_solid, csg_volume,
     generate_gmsh_sphere, generate_gmsh_box, generate_gmsh_from_file,
     surface_mesh_gmsh, surface_mesh,
-    mesh_face_labels, label_mesh_tags, propagate_labels
+    mesh_face_labels, label_mesh_tags, propagate_labels,
+    tet_mesh_gmsh, tet_mesh,
+    read_hex_mesh, validate_mesh,
+    BoundMesh, bind_materials, validate_bindings, element_material
+
+# Re-export Materials symbols
+using .MaterialsModule
+export MaterialModel, Isotropic, Anisotropic
+export MaterialEntry, MaterialLibrary
+export add_material!, get_material
+export save_library, load_library, load_builtin_library
+export DebyePole, LorentzPole
+export DebyeModel, DrudeModel, LorentzModel
+export eval_permittivity
 
 # Re-export PostProcessing symbols
 using .PostProcessing

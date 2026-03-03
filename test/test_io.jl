@@ -288,4 +288,64 @@ using StaticArrays
         rm(f3)
     end
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Phase 19.2 — HexMeshIO
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @testset "HexMeshIO" begin
+
+        fixture = joinpath(@__DIR__, "fixtures", "single_hex.msh")
+        @test isfile(fixture)
+
+        # 1. read_hex_mesh returns HexahedraMesh from .msh v4 fixture
+        hmesh = read_hex_mesh(fixture)
+        @test hmesh isa HexahedraMesh
+        @test hmesh.hexnum == 1
+        @test size(hmesh.node, 2) == 8         # 8 vertices of unit cube
+
+        # 2. Correct vertex coordinates (unit cube 0–1 in each axis)
+        vmin = minimum(hmesh.node, dims=2)
+        vmax = maximum(hmesh.node, dims=2)
+        @test all(vmin .≈ 0.0)
+        @test all(vmax .≈ 1.0)
+
+        # 3. validate_mesh accepts the clean unit-cube mesh
+        @test validate_mesh(hmesh)
+
+        # 4. read_hex_mesh errors on a triangle mesh (not hex)
+        tri_mesh_path = tempname() * ".msh"
+        try
+            # Write a minimal triangle .msh
+            open(tri_mesh_path, "w") do io
+                print(io, """\$MeshFormat
+4.1 0 8
+\$EndMeshFormat
+\$Nodes
+1 3 1 3
+2 1 0 3
+1
+2
+3
+0.0 0.0 0.0
+1.0 0.0 0.0
+0.0 1.0 0.0
+\$EndNodes
+\$Elements
+1 1 1 1
+2 1 2 1
+1 1 2 3
+\$EndElements
+""")
+            end
+            @test_throws ErrorException read_hex_mesh(tri_mesh_path)
+        finally
+            isfile(tri_mesh_path) && rm(tri_mesh_path)
+        end
+
+        # 5. unsupported format keyword throws
+        @test_throws ErrorException read_hex_mesh(fixture; format=:exodus)
+
+    end  # @testset "HexMeshIO"
+
 end
+
