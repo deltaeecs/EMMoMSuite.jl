@@ -932,9 +932,9 @@ end
     @test box_lab.boundary_labels[1] == "bottom"
     @test box_lab.boundary_labels[6] == "top"
 
-    # ── 7. 偏移原点 center 参数 ──────────────────────────────────────────────
+    # ── 7. 偏移原点 origin 参数 ──────────────────────────────────────────────
     origin = SVector(1.0, 2.0, 3.0)
-    box_off = box_solid(1.0, 1.0, 1.0; center=origin)
+    box_off = box_solid(1.0, 1.0, 1.0; origin=origin)
     min_v = reduce(
         (a, b) -> SVector(min(a[1],b[1]), min(a[2],b[2]), min(a[3],b[3])),
         box_off.vertices)
