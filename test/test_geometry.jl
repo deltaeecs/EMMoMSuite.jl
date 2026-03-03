@@ -353,4 +353,189 @@ CTETRA, 1, 200, 1, 2, 3, 4
         @test size(global_obs) == (1, 2)
         @test isapprox(global_obs[1,1].r̂, obs_mat[1,1].r̂; atol=1e-10)
     end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 16.1 — 新增表面网格生成器
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "generate_ellipsoid_mesh" begin
+        # a=b=c=1 → should be a sphere: same topology as generate_sphere_mesh
+        sphere  = generate_sphere_mesh(1.0, 10, 20)
+        ellips  = generate_ellipsoid_mesh(1.0, 1.0, 1.0, 10, 20)
+        @test ellips isa TriangleMesh
+        @test ellips.trinum == sphere.trinum
+        @test size(ellips.node) == size(sphere.node)
+        @test ellips.node ≈ sphere.node
+
+        # Stretched ellipsoid: bounding box must match (a,b,c)
+        a, b, c = 2.0, 3.0, 1.5
+        em = generate_ellipsoid_mesh(a, b, c, 12, 24)
+        @test maximum(abs, em.node[1,:]) ≈ a  atol=1e-10
+        @test maximum(abs, em.node[2,:]) ≈ b  atol=1e-10
+        @test maximum(abs, em.node[3,:]) ≈ c  atol=1e-10
+
+        # Approximate surface area: for sphere(r=1) ≈ 4π with fine enough mesh
+        sm = generate_ellipsoid_mesh(1.0, 1.0, 1.0, 50, 100)
+        area_sum = sum(1:sm.trinum) do k
+            v1 = sm.node[:, sm.triangles[1,k]]
+            v2 = sm.node[:, sm.triangles[2,k]]
+            v3 = sm.node[:, sm.triangles[3,k]]
+            norm(cross(v2 .- v1, v3 .- v1)) / 2
+        end
+        @test isapprox(area_sum, 4π; rtol=0.01)
+    end
+
+    @testset "generate_cone_mesh" begin
+        n_circ, n_h = 12, 3
+        radius, height = 1.0, 2.0
+
+        # open cone
+        m = generate_cone_mesh(radius, height, n_circ, n_h; closed=false)
+        @test m isa TriangleMesh
+        expected_elems = (n_h - 1) * 2 * n_circ + n_circ   # full bands + apex band
+        @test m.trinum == expected_elems
+
+        # apex is at height/2
+        @test maximum(m.node[3, :]) ≈ height / 2  atol=1e-12
+
+        # closed cone
+        mc = generate_cone_mesh(radius, height, n_circ, n_h; closed=true)
+        @test mc.trinum == expected_elems + n_circ
+
+        # single-band cone (n_height=1): only apex band + optional cap
+        m1 = generate_cone_mesh(1.0, 1.0, 8, 1; closed=false)
+        @test m1.trinum == 8
+
+        # no triangles have area ≤ 0
+        for k in 1:m1.trinum
+            v1 = m1.node[:, m1.triangles[1,k]]
+            v2 = m1.node[:, m1.triangles[2,k]]
+            v3 = m1.node[:, m1.triangles[3,k]]
+            @test norm(cross(v2 .- v1, v3 .- v1)) > 1e-14
+        end
+    end
+
+    @testset "generate_torus_mesh" begin
+        R, r = 3.0, 1.0
+        nm, nn = 20, 10
+        m = generate_torus_mesh(R, r, nm, nn)
+        @test m isa TriangleMesh
+        @test size(m.node, 2) == nm * nn
+        @test m.trinum == 2 * nm * nn
+
+        # All nodes are at distance ∈ [R-r, R+r] from z-axis
+        for k in 1:size(m.node, 2)
+            dist_z = sqrt(m.node[1,k]^2 + m.node[2,k]^2)
+            @test R - r - 1e-12 ≤ dist_z ≤ R + r + 1e-12
+        end
+
+        # No degenerate triangles
+        for k in 1:m.trinum
+            v1 = m.node[:, m.triangles[1,k]]
+            v2 = m.node[:, m.triangles[2,k]]
+            v3 = m.node[:, m.triangles[3,k]]
+            @test norm(cross(v2 .- v1, v3 .- v1)) > 1e-14
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 16.1 — 体网格生成器
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "generate_box_volume_mesh (HexahedraMesh)" begin
+        Lx, Ly, Lz = 2.0, 3.0, 1.0
+        nx, ny, nz = 3, 4, 2
+        m = generate_box_volume_mesh(Lx, Ly, Lz, nx, ny, nz)
+        @test m isa HexahedraMesh
+        @test m.hexnum == nx * ny * nz
+        @test size(m.node, 2) == (nx+1)*(ny+1)*(nz+1)
+
+        # Bounding box
+        @test minimum(m.node[1,:]) ≈ -Lx/2  atol=1e-12
+        @test maximum(m.node[1,:]) ≈  Lx/2  atol=1e-12
+        @test minimum(m.node[3,:]) ≈ -Lz/2  atol=1e-12
+        @test maximum(m.node[3,:]) ≈  Lz/2  atol=1e-12
+
+        # Each hex has 8 distinct nodes
+        for k in 1:m.hexnum
+            @test length(unique(m.hexes[:,k])) == 8
+        end
+
+        # Note: hex_volume() returns ~1/3 of actual volume (Legacy signed convention).
+        # Do not use it for total-volume verification here.
+    end
+
+    @testset "generate_box_tet_mesh (TetrahedraMesh)" begin
+        Lx, Ly, Lz = 1.0, 1.0, 1.0
+        nx, ny, nz = 2, 2, 2
+        m = generate_box_tet_mesh(Lx, Ly, Lz, nx, ny, nz)
+        @test m isa TetrahedraMesh
+        @test m.tetnum == 6 * nx * ny * nz
+        @test size(m.node, 2) == (nx+1)*(ny+1)*(nz+1)
+
+        # Total volume via tet_volume (Freudenthal decomposition → all vols positive)
+        vol_total = sum(1:m.tetnum) do k
+            v1 = m.node[:, m.tetras[1,k]]
+            v2 = m.node[:, m.tetras[2,k]]
+            v3 = m.node[:, m.tetras[3,k]]
+            v4 = m.node[:, m.tetras[4,k]]
+            tet_volume(v1, v2, v3, v4)
+        end
+        @test isapprox(vol_total, Lx*Ly*Lz; rtol=1e-10)
+
+        # All tet volumes positive (consistent orientation)
+        for k in 1:m.tetnum
+            v1 = m.node[:, m.tetras[1,k]]
+            v2 = m.node[:, m.tetras[2,k]]
+            v3 = m.node[:, m.tetras[3,k]]
+            v4 = m.node[:, m.tetras[4,k]]
+            @test tet_volume(v1, v2, v3, v4) > 0
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 16.3 — 边界提取与 CompositeMesh
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "extract_surface" begin
+        # Use a single-cube tet mesh (1×1×1, 1×1×1 grid → 6 tets)
+        Lx, Ly, Lz = 1.0, 1.0, 1.0
+        m = generate_box_tet_mesh(Lx, Ly, Lz, 1, 1, 1)
+        surf = extract_surface(m)
+
+        @test surf isa TriangleMesh
+        # A cube has 6 faces × 2 triangles = 12 boundary triangles
+        @test surf.trinum == 12
+
+        # Surface area of unit cube = 6
+        area_sum = sum(1:surf.trinum) do k
+            v1 = surf.node[:, surf.triangles[1,k]]
+            v2 = surf.node[:, surf.triangles[2,k]]
+            v3 = surf.node[:, surf.triangles[3,k]]
+            norm(cross(v2 .- v1, v3 .- v1)) / 2
+        end
+        @test isapprox(area_sum, 6.0; rtol=1e-10)
+
+        # Outward normals: for each triangle, normal should point outward
+        # (component along the dominant face direction should be positive)
+        centroid = sum(m.node; dims=2) ./ size(m.node, 2)
+        for k in 1:surf.trinum
+            v1 = surf.node[:, surf.triangles[1,k]]
+            v2 = surf.node[:, surf.triangles[2,k]]
+            v3 = surf.node[:, surf.triangles[3,k]]
+            n  = cross(v2 .- v1, v3 .- v1)
+            fc = (v1 .+ v2 .+ v3) ./ 3
+            @test dot(n, fc .- vec(centroid)) > 0
+        end
+    end
+
+    @testset "CompositeMesh" begin
+        tri  = generate_sphere_mesh(1.0, 6, 12)
+        tet  = generate_box_tet_mesh(2.0, 2.0, 2.0, 1, 1, 1)
+        comp = CompositeMesh(tri, tet)
+        @test comp isa CompositeMesh
+        @test comp.surface === tri
+        @test comp.volume   === tet
+        @test dimension(comp) == 3
+    end
 end
