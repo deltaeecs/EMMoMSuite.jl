@@ -15,8 +15,8 @@
 
 其中：
 - Z^EJ  = L(k₀, η₀) + L(k₁, η₁)    [因子 jkη/(16π)，等同于两个EFIE之和]
-- Z^EM  = K(k₀) + K(k₁)             [纯PV K算子，因子 1/(16π)，无质量矩阵项]
-- Z^HJ  = -(K(k₀) + K(k₁)) = -Z^EM  [K的负版本]
+- Z^EM  = K^PMCHW(k₀) + K^PMCHW(k₁)  [∫f_m·(∇G×f_n)，无 n̂× 测试，纯PV]
+- Z^HJ  = -(K^PMCHW(k₀) + K^PMCHW(k₁)) = -Z^EM  [K的负版本]
 - Z^HM  = Lₑ(k₀, η₀) + Lₑ(k₁, η₁) [因子 jk/(η·16π)，"inverted-η" EFIE]
 
 结构不变量：Z^EM + Z^HJ = 0（精确成立）。
@@ -35,14 +35,6 @@ using LinearAlgebra
 import ..CoreModule: assemble_impedance_matrix
 
 export PMCHW, assemble_impedance_matrix
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 常数
-# ─────────────────────────────────────────────────────────────────────────────
-const _C0    = 299792458.0   # 真空光速 (m/s)
-const _MU0   = 4π * 1e-7     # 真空磁导率 (H/m)
-const _EPS0  = 1.0 / (_C0^2 * _MU0)  # 真空介电常数 (F/m)
-const _ETA0  = sqrt(_MU0 / _EPS0)    # 自由空间波阻抗 (≈ 377 Ω)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 结构体
@@ -86,8 +78,8 @@ end
 """
 function PMCHW(freq::FT, eps_r_in, mu_r_in = 1.0) where {FT<:AbstractFloat}
     CT = Complex{FT}
-    k0   = FT(2π * freq / _C0)
-    eta0 = FT(_ETA0)
+    k0   = FT(2π * freq / Constants.c0)
+    eta0 = FT(Constants.eta0)
 
     eps_r = CT(eps_r_in)
     mu_r  = CT(mu_r_in)
@@ -307,7 +299,7 @@ Z = [Z^EJ   Z^EM ]
 
 - Z^EJ [1:N,   1:N  ]:  jωμ₀ L(k₀) + jωμ₁ L(k₁)
 - Z^EM [1:N,   N+1:2N]: K^PMCHW(k₀) + K^PMCHW(k₁)  [纯 PV K，无质量矩阵，无 n̂×]
-- Z^HJ [N+1:2N, 1:N ]: -K(k₀) − K(k₁) = −Z^EM
+- Z^HJ [N+1:2N, 1:N ]: -K^PMCHW(k₀) − K^PMCHW(k₁) = −Z^EM
 - Z^HM [N+1:2N, N+1:2N]: jωε₀ L(k₀) + jωε₁ L(k₁)
 
 # 精度说明
