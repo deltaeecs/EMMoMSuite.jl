@@ -139,7 +139,9 @@ function input_impedance(
     I_in = zero(ComplexF64)
     for idx in source.edge_indices
         if 1 <= idx <= N
-            I_in += ICoeff[idx]
+            # Weight by edge length to get physically correct current in A
+            # (RWG coefficient I[n] has units A·m; multiply by l_n to sum properly)
+            I_in += ICoeff[idx] * basis.functions[idx].edge_length
         else
             @warn "DeltaGapSource edge index $idx out of bounds (1:$N); skipped"
         end
