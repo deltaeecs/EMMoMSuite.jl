@@ -240,3 +240,13 @@ function RWGBasis(mesh::TriangleMesh{IT,FT}) where {IT,FT}
 
     return RWGBasis(mesh, functions, basis_map)
 end
+
+"""
+    RWGBasis(comp::CompositeMesh)
+
+Construct an `RWGBasis` from a `CompositeMesh` by delegating to the embedded
+surface (`comp.surface`).  This allows SCFIE workflows to pass a single
+`CompositeMesh` (which carries both surface and volume information) without
+manually extracting the surface first.
+"""
+RWGBasis(comp::CompositeMesh) = RWGBasis(comp.surface)

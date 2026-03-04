@@ -86,6 +86,7 @@ using .Geometry
 export TriangleMesh,
     TetrahedraMesh,
     HexahedraMesh,
+    CompositeMesh,
     TriangleInfo,
     read_nas_mesh,
     read_mixed_nas_mesh,
