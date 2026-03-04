@@ -200,6 +200,15 @@ export assemble_impedance_matrix_parallel
 export mpi_gmres!, mpi_gmres
 export MPIMatrix
 
+# Re-export Accuracy
+include("Accuracy/Accuracy.jl")
+using .Accuracy
+export read_feko_rcs, split_phi_cuts
+export mie_pec_rcs_dBsm, mie_dielectric_rcs_dBsm
+export dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic, dipole_halfwave_farfield_analytic
+export AccuracyResult, AntennaAccuracyResult
+export compute_rcs_accuracy, compute_antenna_accuracy, print_accuracy_report
+
 # Re-export Driver
 include("Driver.jl")
 using .Driver
