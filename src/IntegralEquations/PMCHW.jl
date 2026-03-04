@@ -337,12 +337,13 @@ function assemble_impedance_matrix(pmchw::PMCHW{FT,CT}, basis::RWGBasis{IT,FT}) 
 
     # ── Z^EM = K^PMCHW(k₀) + K^PMCHW(k₁)，Z^HJ = -Z^EM ────────────────────
     # 使用 PMCHW 专用 K 算子（无 n̂× 测试，区别于 MFIE K）
+    # 就地累加到 K0，避免分配第三个 N×N 临时矩阵
     K0 = assemble_K_pmchw_offdiag(basis, k0)
     K1 = assemble_K_pmchw_offdiag(basis, k1_r)  # lossless approx for Green kernel
-    K_total = K0 + K1
+    K0 .+= K1
 
-    Z[1:N,   N+1:2N] .=  K_total
-    Z[N+1:2N, 1:N]   .= -K_total
+    Z[1:N,   N+1:2N] .=  K0
+    Z[N+1:2N, 1:N]   .= -K0
 
     return Z
 end
