@@ -29,4 +29,5 @@ using Test
     include("test_ports.jl")
     include("test_postprocessing_advanced.jl")
     include("test_feko_reader.jl")
+    include("test_accuracy_metrics.jl")
 end
