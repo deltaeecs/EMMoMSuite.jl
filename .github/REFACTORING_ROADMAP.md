@@ -426,7 +426,7 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 | 用例 | 方程 | 参考基准 | 门限 |
 |------|------|---------|------|
 | B1 PMCHW Direct | PMCHW (εᵣ=4) | 物理自洽 + εᵣ→1 极限 | Re(Z_in) > 0，εᵣ→1 误差 <10% |
-| B2 PMCHW MLFMA | PMCHW (N点八叉树+J/M两遍聚合) | B1 Direct | ΔZ_in: Re<5%, Im<20Ω |
+| B2 PMCHW MLFMA | PMCHW (双八叉树+四遍远场) | B1 Direct | ΔZ_in: Re<5%, Im<20Ω |
 | B3 VS-EFIE Direct | SCFIE (α=0) | EFIE-only 当 εᵣ→1 | Z_in Re 误差 <10% |
 | B4 VS-CFIE Direct | SCFIE (α=0.5) | B3 (α=0) | ΔZ_in <5Ω |
 | B5 VS-CFIE MLFMA | SCFIE (α=0.5) | B4 Direct | ΔZ_in Re<5%, Im<20Ω |

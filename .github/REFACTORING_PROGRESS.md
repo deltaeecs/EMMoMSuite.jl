@@ -93,7 +93,7 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 | ID | 方程 | 馈电 | 求解 | 参考 |
 |----|------|-----|------|-----|
 | B1 | PMCHW (εᵣ=4) | DeltaGap (球面) | Direct | 物理自洽 + εᵣ→1 极限 |
-| B2 | PMCHW | DeltaGap | MLFMA (N 点八叉树+两遍聚合) | B1 Direct |
+| B2 | PMCHW | DeltaGap | MLFMA (双八叉树+四遍远场) | B1 Direct |
 | B3 | VS-EFIE (α=0) | DeltaGap (金属面) | Direct | EFIE-only εᵣ→1 |
 | B4 | VS-CFIE (α=0.5) | DeltaGap | Direct | B3 |
 | B5 | VS-CFIE (α=0.5) | DeltaGap | MLFMA | B4 Direct |
