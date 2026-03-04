@@ -444,8 +444,8 @@ function radarCrossSection(
     N = num_basis(basis)
     @assert length(ICoeff) == 2N "PMCHWT: ICoeff 长度应为 2N=$(2N)，实际为 $(length(ICoeff))"
 
-    I_J = @view ICoeff[1:N]
-    I_M = @view ICoeff[N+1:2N]
+    I_J = ICoeff[1:N]
+    I_M = ICoeff[N+1:2N]
 
     Nθ_obs = length(θs_obs)
     Nϕ_obs = length(ϕs_obs)
