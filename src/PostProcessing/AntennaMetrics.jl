@@ -6,6 +6,7 @@ using ...BasisFunctions
 using ...CoreModule
 using ...Utilities.Parameters
 using ..FarField: farField
+using ...IntegralEquations.PMCHWModule: PMCHW
 
 export antenna_directivity, input_impedance, beam_metrics
 
@@ -147,6 +148,39 @@ function input_impedance(
         end
     end
     iszero(I_in) && error("input_impedance: total feed current is zero — check DeltaGapSource.edge_indices")
+    return ComplexF64(source.voltage) / ComplexF64(I_in)
+end
+
+"""
+    input_impedance(op::PMCHW, source::DeltaGapSource, I_2N, basis::RWGBasis) → ComplexF64
+
+PMCHW 系统的输入阻抗计算。
+
+PMCHW 解向量 `I_2N` 长度为 2N，其中：
+  - 前 N 个系数 → J（电流），对应 E 方程
+  - 后 N 个系数 → M（等效磁流），对应 H 方程
+
+馈电电流只取 **J 部分**（前 N 个系数），M 部分被忽略：
+```
+I_in = Σ I_J[n] * ℓₙ,  n ∈ source.edge_indices, 1 ≤ n ≤ N
+Z_in = V_applied / I_in
+```
+"""
+function input_impedance(op::PMCHW, source::DeltaGapSource,
+                         I_2N::AbstractVector{<:Complex}, basis::RWGBasis)
+    N = num_basis(basis)
+    I_in = zero(ComplexF64)
+    for idx in source.edge_indices
+        if 1 <= idx <= N
+            I_in += I_2N[idx] * basis.functions[idx].edge_length
+        else
+            @warn "PMCHW input_impedance: edge index $idx out of bounds (1:$N); skipped"
+        end
+    end
+    iszero(I_in) && error(
+        "input_impedance(PMCHW): J-part feed current is zero — " *
+        "check DeltaGapSource.edge_indices and that I_2N[1:N] is non-zero at the feed edge"
+    )
     return ComplexF64(source.voltage) / ComplexF64(I_in)
 end
 
