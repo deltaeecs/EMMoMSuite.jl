@@ -243,7 +243,7 @@ vol_basis = SWGBasis(dielectric_mesh)
 
 > **第三次修订（依据 Gibson《MoM》Ch.11 Algorithm 14）**  
 > 前两版设计（独立算子包装 / MagneticRWGBasis 标签）均被放弃。  
-> 正确方案：**单个 N 点八叉树 + J/M 两遍分离聚合 + 四种解聚核函数**。  
+> 正确方案：**两个 N 点八叉树（k0/k1 各一套）+ J/M 两遍 × k0/k1 两遍 = 四遍远场 + 四种解聚核函数**。  
 > 本节是面向"无 CEM 背景的软件工程师"的完整实现规格。
 
 ### 5.0 核心设计原则（依据 Gibson Algorithm 14）
@@ -330,9 +330,9 @@ function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64)
 
     # ① 分别建立 k0 和 k1 各自的八叉树
     #    两套树从相同 N 个 RWG 中心点建立，但 Lebedev 极点密度由各自 k 决定。
-    c0 = 299792458.0 / pmchw.freq
-    λ0 = c0 / real(pmchw.k0) * 2π   # k0 → λ0（外部介质波长）
-    λ1 = c0 / real(pmchw.k1) * 2π   # k1 → λ1（内部介质波长）
+    #    波长公式: λ = 2π / |k|（k 是角频率波数，单位 rad/m）
+    λ0 = 2π / real(pmchw.k0)   # 外部介质波长（k0 可能为复数，取实部）
+    λ1 = 2π / real(pmchw.k1)   # 内部介质波长
 
     octree0, sorted_ids0 = build_octree(centers, leaf_size; λ = λ0)
     octree1, sorted_ids1 = build_octree(centers, leaf_size; λ = λ1)
@@ -643,7 +643,7 @@ end
 | **15.12** | 更新 `generate_report.jl` 加入 B1–B5 | 15.6 | P2 🟡 |
 | **15.13** | 检视迭代 × 2 轮 | 所有 | P2 🟡 |
 
-### 两遍聚合设计亮点（与旧方案对比）
+### 双八叉树 + 四遍远场设计亮点（与旧方案对比）
 
 | 旧方案（已废弃） | 新方案（Gibson Algorithm 14） |
 |----------------|------------------------------|
@@ -679,12 +679,12 @@ end
 | 风险 | 概率 | 缓解措施 |
 |------|------|---------|
 | PMCHW delta-gap 符号/因子错误 | 中 | TDD: 先验证 ε→1 极限等于 EFIE，再跑实际介质 |
-| `disaggregate_leaf_pmchw!` 的 EJ/EM/HJ/HM 因子搞错符号或 η | 高 | 单独验证每块：用 Z_near（直接法等效）与 Direct 矩阵元素逐项对比 |
-| `MagneticRWGBasis` 在 `aggregate_leaf!` 中被遗漏（error 分支） | 低 | 扩展 `aggregate_leaf!` 前先写单元测试，确认 `basis isa MagneticRWGBasis` 被识别 |
-| 两趟聚合重置 `aggS` 不彻底（第2趟叠加第1趟残留） | 中 | 在 `aggregate!` 入口处显式 `fill!(level.aggS, 0)` |
+| `disaggregate_leaf_pmchw_j/m!` 的 EJ/EM/HJ/HM 因子搞错符号或 η | 高 | 单独验证每块：用 Z_near（直接法等效）与 Direct 矩阵元素逐项对比 |
+| 四遍远场 aggS 清零遗漏（前一遍残留污染后一遍） | 中 | 在每遍聚合前显式 `fill!(lv.aggS, 0)`；单元测试：零输入 → 零输出 |
+| octree0 和 octree1 的叶结构不一致（Lebedev 阶数不同）导致近邻对不匹配 | 低 | `assemble_near_field_pmchw` 只用 octree0 的近邻对；两树几何相同，near-pair 一致 |
 | 介质天线无解析参考值 | 高 | 使用自洽检查（Re>0、freq sweep 趋势、ε→1 极限）代替绝对精度 |
-| k1 复数时 Lebedev 展开阶数不足 | 中 | 以 max(|k0|, |k1|) 选展开阶数；先用无损介质验证 |
-| `assemble_near_field` PMCHW K 块因子 | 中 | 与 `PMCHW.jl` 里的 `pmchw_em_interaction!` 函数返回值对比校验 |
+| k1 复数时 Lebedev 展开阶数不足 | 中 | octree1 用 `λ1 = 2π/|k1|` 自动选极点阶数；先用无损介质验证 |
+| `assemble_near_field_pmchw` K 块因子 | 中 | 与 `PMCHW.jl` 里的 K 块近场计算逐项对比校验 |
 
 ---
 
