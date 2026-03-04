@@ -125,7 +125,7 @@ end
 # 增益
 # ─────────────────────────────────────────────────────────────────────────────
 
-"""
+"""  
     gain(ff::FarFieldPattern; freq_idx=1) → Matrix{Float64}
 
 计算增益方向图（dBi），返回 `(Nθ, Nφ)` 矩阵。
@@ -135,6 +135,9 @@ end
 - P_rad = ∫∫ U sinθ dθ dφ（梯形法）
 - D(θ,φ) = 4π U / P_rad（方向性系数，线性量）
 - gain_dBi = 10·log10(D)
+
+**前置条件**: `ff.theta` 与 `ff.phi` 均需至少 2 个点，否则梯形积分退化为零，
+导致 P_rad=0 → D=0 → 全场增益 ≈ -1530 dBi（数值下限）。
 """
 function gain(ff::FarFieldPattern; freq_idx::Int=1)
     1 <= freq_idx <= length(ff.freqs) ||
@@ -278,13 +281,15 @@ end
 
 计算极化椭圆轴比（dB），返回 `(Nθ, Nφ)` 矩阵。
 
-**公式**（IEEE Std 149-1979, Eq. A-5）:
+**公式**（IEEE Std 149-1979, Eq. A-5；参见 Ludwig 1973, Appendix）:
 - E_R = (E_θ - j·E_φ) / √2   （右旋圆极化分量）
 - E_L = (E_θ + j·E_φ) / √2   （左旋圆极化分量）
 - AR  = (|E_R| + |E_L|) / ||E_R| - |E_L||
-- AR_dB = 20 · log10(AR)
+- AR_dB = 20 · log10(AR)，钳制在 `[-60, 60]` dB 范围内
 
-当 |E_R| = |E_L| 时（线极化） AR→∞；当两者之一为零时（圆极化）AR = 0 dB。
+**特殊值**:
+- 圆极化（|E_R|=0 或 |E_L|=0）：AR = 0 dB
+- 线极化（|E_R|=|E_L|）：AR → +∞，输出 `60 dB`（工程上限）
 """
 function axial_ratio(ff::FarFieldPattern; freq_idx::Int=1)
     Eθ = ff.E_theta[freq_idx, :, :]
@@ -300,14 +305,10 @@ function axial_ratio(ff::FarFieldPattern; freq_idx::Int=1)
     @inbounds for idx in eachindex(aR)
         num = aR[idx] + aL[idx]
         den = abs(aR[idx] - aL[idx])
-        if den < 1e-12 * num
-            AR[idx] = Inf   # 线极化
-        else
-            AR[idx] = num / den
-        end
+        ar_lin = den < 1e-12 * num ? Inf : num / den
+        AR[idx] = clamp(20 * log10(max(ar_lin, eps(Float64))), -60.0, 60.0)
     end
-
-    return @. 20 * log10(max(AR, eps(Float64)))
+    return AR
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -320,7 +321,8 @@ end
 
 Ludwig 第三定义的主极化/交叉极化分解，返回 `(Nθ, Nφ)` 复数矩阵对。
 
-**Ludwig III**（IEEE Std 1720-2012 定义）:
+**Ludwig III**（A. Ludwig, "The Definition of Cross Polarization,"
+IEEE Trans. Antennas Propagat., vol. 21, no. 1, Jan 1973, pp. 116–119）:
 对每个观测方向 (θ, φ)：
 - E_co    = E_θ · cos(φ) - E_φ · sin(φ)   [垂直/V 极化主分量]
 - E_cross = E_θ · sin(φ) + E_φ · cos(φ)   [水平/H 极化交叉分量]

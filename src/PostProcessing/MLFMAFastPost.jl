@@ -108,6 +108,9 @@ end
 - `cache.is_valid` 必须为 `true`
 - `|cache.freq - freq| / cache.freq < 1e-10`（相对误差）
 
+**注意**: `cache.freq` 应为正数（由构造函数保证），  
+若为零（异常情况），相对误差为 NaN，函数返回 `false`（安全退化）。
+
 当频率不匹配时，本函数**不**自动重建缓存，调用方应手动重建。
 """
 function validate_cache(cache::MLFMACache, freq::Real)
