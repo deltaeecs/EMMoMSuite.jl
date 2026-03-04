@@ -143,6 +143,155 @@ function _k_real(k_c::CT) where {CT<:Complex}
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PMCHW 专用 K 算子（理论正确：无 n̂× 测试函数）
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    calc_k_pmchw_term!(Z_local, op, tri_test, tri_src, r_test, r_src)
+
+计算 K^PMCHW 的 3×3 局部贡献矩阵。
+
+PMCHW 的 K 算子（用于 Z^EM、Z^HJ 块）：
+    K^PMCHW_mn = ∫∫ f_m(r) · (∇G(r,r') × f_n(r')) dS dS'
+
+与 MFIE 的 K 算子的区别：
+- MFIE K：∫∫ (n̂(r) × f_m(r)) · (∇G × f_n) dS dS' （测试函数有 n̂× 旋转）
+- PMCHW K：∫∫ f_m(r) · (∇G × f_n) dS dS'           （测试函数无 n̂×）
+
+推导（设 ∇G = -temp × rvec，rvec = r_test - r_src）：
+    f_m · (∇G × f_n) = -temp × f_m · (rvec × f_n) = -temp × rho_m · (rvec × rho_n)
+
+最终 kernel：Z_local[m,n] += -dot(rho_m, cross(rvec, rho_n)) × temp
+
+无 n̂_test 参与，与 MFIE K 使用完全不同的积分核。
+"""
+function calc_k_pmchw_term!(
+    Z_local,
+    mfie,
+    tri_test,
+    tri_src,
+    r_test,  # SVector{N_pts, SVector{3,FT}} — 测试点集
+    r_src,   # SVector{N_pts, SVector{3,FT}} — 源点集
+)
+    gq    = mfie.gq_info
+    w     = gq.weight
+    n_pts = length(w)
+
+    JK_0         = im * mfie.k
+    FT           = eltype(mfie.k)
+    eta_div_16pi = mfie.eta / (16 * FT(π))
+
+    v_test = SVector{3}(
+        SVector{3,FT}(tri_test.vertices[:, 1]),
+        SVector{3,FT}(tri_test.vertices[:, 2]),
+        SVector{3,FT}(tri_test.vertices[:, 3]),
+    )
+    v_src = SVector{3}(
+        SVector{3,FT}(tri_src.vertices[:, 1]),
+        SVector{3,FT}(tri_src.vertices[:, 2]),
+        SVector{3,FT}(tri_src.vertices[:, 3]),
+    )
+
+    @inbounds for j = 1:n_pts
+        rgj   = r_src[j]
+        wj    = w[j]
+        rho_n1 = rgj - v_src[1]
+        rho_n2 = rgj - v_src[2]
+        rho_n3 = rgj - v_src[3]
+
+        for i = 1:n_pts
+            rgi  = r_test[i]
+            wi   = w[i]
+
+            rvec = rgi - rgj
+            R    = norm(rvec)
+            R < FT(1e-12) && continue
+            divr = one(FT) / R
+
+            # Green 函数及梯度因子：∇G = -temp × rvec
+            G_over_R = exp(-JK_0 * R) * divr
+            gw_ij    = G_over_R * divr * wi * wj
+            temp     = (JK_0 + divr) * gw_ij   # (jk + 1/R) × exp(-jkR)/R² × wi × wj
+
+            rho_m1 = rgi - v_test[1]
+            rho_m2 = rgi - v_test[2]
+            rho_m3 = rgi - v_test[3]
+
+            # K^PMCHW 核：f_m · (∇G × f_n) ∝ -temp × rho_m · (rvec × rho_n)
+            # 无 n̂_test 叉积（区别于 MFIE K 核）
+            for (ni, rho_n) in ((1, rho_n1), (2, rho_n2), (3, rho_n3))
+                crvn = cross(rvec, rho_n)   # rvec × rho_n
+                for (mi, rho_m) in ((1, rho_m1), (2, rho_m2), (3, rho_m3))
+                    Z_local[mi, ni] += (-dot(rho_m, crvn)) * temp
+                end
+            end
+        end
+    end
+
+    # 应用边长缩放和常数因子（与 MFIE K 相同：lm × ln × 1/(16π)）
+    @inbounds for n = 1:3
+        ln = tri_src.edgel[n]
+        for m = 1:3
+            lm = tri_test.edgel[m]
+            Z_local[m, n] *= lm * ln * eta_div_16pi
+        end
+    end
+    return nothing
+end
+
+"""
+    assemble_K_pmchw_offdiag(basis, k) → Matrix{Complex}
+
+装配 PMCHW 专用 K 算子（无质量矩阵对角项）。
+
+公式：K^PMCHW_mn = ∫∫ f_m(r) · (∇G(r,r') × f_n(r')) dS dS' × 1/(16π)
+
+与 `assemble_K_offdiag`（MFIE K，有 n̂× 测试）的区别：
+PMCHW K 使用 f_m 直接测试，无 n̂_test × 旋转。
+
+# 参数
+- `basis`: RWG basis（闭合三角面网格）
+- `k`:     传播介质波数（实数）
+"""
+function assemble_K_pmchw_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
+    CT = Complex{FT}
+    gq    = GaussQuadratureInfo(:Triangle, 4, FT)
+    # eta=1 → eta_div_16pi = 1/(16π)，与 assemble_K_offdiag 一致
+    mfie_k = MFIE{FT,CT}(zero(FT), k, one(FT), gq)
+
+    mesh     = basis.mesh
+    nt       = num_elements(mesh)
+    N_points = length(gq.weight)
+
+    # 预计算每个三角形的高斯点（与 assemble_K_offdiag 相同）
+    quad_points = Vector{SVector{N_points,SVector{3,FT}}}(undef, nt)
+    Threads.@threads for t in 1:nt
+        v_idx = mesh.triangles[:, t]
+        v1 = SVector{3,FT}(mesh.node[:, v_idx[1]])
+        v2 = SVector{3,FT}(mesh.node[:, v_idx[2]])
+        v3 = SVector{3,FT}(mesh.node[:, v_idx[3]])
+        quad_points[t] = SVector{N_points,SVector{3,FT}}(
+            v1 * gq.coordinate[1, i] + v2 * gq.coordinate[2, i] + v3 * gq.coordinate[3, i]
+            for i in 1:N_points
+        )
+    end
+
+    # 跳过自对角块（与 assemble_K_offdiag 一致）
+    function k_pmchw_interaction!(Z_local, op, t_test, t_src, qpts)
+        if t_test.triID == t_src.triID
+            return nothing
+        end
+        r_test = qpts[t_test.triID]
+        r_src  = qpts[t_src.triID]
+        calc_k_pmchw_term!(Z_local, op, t_test, t_src, r_test, r_src)
+        return nothing
+    end
+
+    wrapper = (Z, op, t1, t2) -> k_pmchw_interaction!(Z, op, t1, t2, quad_points)
+    return assemble_generic(mfie_k, basis, wrapper, symmetric = false)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 矩阵装配
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,7 +306,7 @@ Z = [Z^EJ   Z^EM ]
 ```
 
 - Z^EJ [1:N,   1:N  ]:  jωμ₀ L(k₀) + jωμ₁ L(k₁)
-- Z^EM [1:N,   N+1:2N]: K(k₀) + K(k₁)      [纯 PV K，无质量矩阵]
+- Z^EM [1:N,   N+1:2N]: K^PMCHW(k₀) + K^PMCHW(k₁)  [纯 PV K，无质量矩阵，无 n̂×]
 - Z^HJ [N+1:2N, 1:N ]: -K(k₀) − K(k₁) = −Z^EM
 - Z^HM [N+1:2N, N+1:2N]: jωε₀ L(k₀) + jωε₁ L(k₁)
 
@@ -194,9 +343,10 @@ function assemble_impedance_matrix(pmchw::PMCHW{FT,CT}, basis::RWGBasis{IT,FT}) 
     Z[N+1:2N, N+1:2N] .+= assemble_impedance_matrix(efie_hm0, basis)
     Z[N+1:2N, N+1:2N] .+= assemble_impedance_matrix(efie_hm1, basis)
 
-    # ── Z^EM = K(k₀) + K(k₁)，Z^HJ = -Z^EM ─────────────────────────────────
-    K0 = assemble_K_offdiag(basis, k0)
-    K1 = assemble_K_offdiag(basis, k1_r)  # lossless approx for Green kernel
+    # ── Z^EM = K^PMCHW(k₀) + K^PMCHW(k₁)，Z^HJ = -Z^EM ────────────────────
+    # 使用 PMCHW 专用 K 算子（无 n̂× 测试，区别于 MFIE K）
+    K0 = assemble_K_pmchw_offdiag(basis, k0)
+    K1 = assemble_K_pmchw_offdiag(basis, k1_r)  # lossless approx for Green kernel
     K_total = K0 + K1
 
     Z[1:N,   N+1:2N] .=  K_total
