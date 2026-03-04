@@ -30,9 +30,9 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 # EMSuite 閲嶆瀯杩涘害
 
 > 鏈€鍚庢洿鏂? 2026-03-06
-## 当前阶段: Phase 14 全量精度测试与对比报告 — **计划中**
+## 当前阶段: Phase 14 全量精度测试与对比报告 — **进行中 🔄**
 
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-07
 
 ### Phase 14 计划概述
 
@@ -49,18 +49,50 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 **精度门限**: Direct ≤ 2 dB RMSE，MLFMA ≤ 3 dB RMSE (vs Feko/Mie)
 
 **待完成子任务**:
-- [ ] 14.0 Feko CSV 解析器 + TDD 测试
-- [ ] 14.1 参考基准生成器（Mie PEC/介质 + 偶极子解析）
-- [ ] 14.2 `AccuracyResult` + `AntennaAccuracyResult` 指标函数
-- [ ] 14.3 Jet 仿真 (F1–F4)
-- [ ] 14.4 Sphere 仿真 (F5–F6)
-- [ ] 14.5 Plate 仿真 (F7–F9)
-- [ ] 14.6 PMCHW Direct 仿真 (P1, P3) vs Mie 介质级数
+- [x] 14.0 Feko CSV 解析器 + TDD 测试 ✅ b416090 (39/39)
+- [x] 14.1 参考基准生成器（Mie PEC/介质 + 偶极子解析）✅
+- [x] 14.2 `AccuracyResult` + `AntennaAccuracyResult` 指标函数 ✅ 65b4297 (25/25)
+- [x] 14.3 F1–F4 Jet 仿真脚本 ✅ b2efd57
+- [x] 14.4 F5–F6 Sphere 仿真脚本 ✅
+- [x] 14.5 F7–F9 Plate 仿真脚本 ✅ (F8 跳过-无曲面网格)
+- [x] 14.6 P1, P3 PMCHW Direct 脚本 ✅ (P2 跳过-待实现 PMCHWMLFMAOperator)
 - [ ] 14.7 `PMCHWMLFMAOperator` 实现 (2×2 块 MLFMA)
-- [ ] 14.8 PMCHW MLFMA 验证 (P2)
-- [ ] 14.9 偶极子天线 + LumpedPort 验证 (A1–A4)
-- [ ] 14.10 汇总报告生成
+- [ ] 14.8 P2 PMCHW MLFMA 验证
+- [x] 14.9 A1–A4 偶极子天线 DeltaGap 基准脚本 ✅ 3039d32
+- [ ] 14.10 实际运行仿真 → CSV → ACCURACY_REPORT.md
 - [ ] 14.11 检视迭代 × 2 轮
+
+---
+
+## Phase 15: 介质与金属-介质混合天线 + PMCHWMLFMAOperator — **计划中 📋**
+
+> 最后更新: 2026-03-07  
+> 计划文档: [PHASE_15_DIELECTRIC_ANTENNA_PLAN.md](PHASE_15_DIELECTRIC_ANTENNA_PLAN.md)
+
+**目标**: 扩展天线测试至介质（PMCHW）和金属-介质混合（VS-EFIE/VS-CFIE）类型，同步实现 PMCHWMLFMAOperator。
+
+**新增 API**:
+- `excitation_vector(op::PMCHW, source::DeltaGapSource, basis::RWGBasis)` → 2N 激励向量（E-行 delta-gap）
+- `input_impedance(op::PMCHW, source, I_2N, basis)` → PMCHW J-部分输入阻抗
+- `excitation_vector(op::SCFIE, source::DeltaGapSource, surf_basis, vol_basis)` → 表面 + 零体积激励
+
+**测试场景**:
+| ID | 方程 | 馈电 | 求解 | 参考 |
+|----|------|-----|------|-----|
+| B1 | PMCHW (εᵣ=4) | DeltaGap (球面) | Direct | 物理自洽 + εᵣ→1 极限 |
+| B2 | PMCHW | DeltaGap | MLFMA | B1 Direct |
+| B3 | VS-EFIE (α=0) | DeltaGap (金属面) | Direct | EFIE-only εᵣ→1 |
+| B4 | VS-CFIE (α=0.5) | DeltaGap | Direct | B3 |
+| B5 | VS-CFIE (α=0.5) | DeltaGap | MLFMA | B4 Direct |
+
+**子任务**:
+- [ ] 15.1 TDD: `test_pmchw_excitation.jl`
+- [ ] 15.2–15.3 PMCHW DeltaGap 激励 + input_impedance API
+- [ ] 15.4–15.5 SCFIE DeltaGap 激励 API
+- [ ] 15.6 基准脚本 `run_B1_B5_antenna.jl`
+- [ ] 15.7–15.8 PMCHWMLFMAOperator 阶段 1（仅近场）
+- [ ] 15.9 PMCHWMLFMAOperator 阶段 2（完整 Z_far）
+- [ ] 15.10–15.11 报告更新 + 检视迭代
 
 ---
 ## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?

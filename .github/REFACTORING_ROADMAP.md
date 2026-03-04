@@ -363,17 +363,17 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 
 ### 子任务
 
-- [ ] 14.0 Feko CSV 数据解析器 (`feko_reader.jl`) + TDD 测试
-- [ ] 14.1 参考基准生成器：`reference_data.jl`（Mie PEC + Mie 介质 + 偶极子解析）
-- [ ] 14.2 精度指标函数 `AccuracyResult` + `AntennaAccuracyResult` (`accuracy_metrics.jl`)
-- [ ] 14.3 F1–F4: Jet 100MHz 仿真 (S-EFIE/S-CFIE Direct+MLFMA vs Feko)
-- [ ] 14.4 F5–F6: Sphere 600MHz 仿真 (S-CFIE Direct+MLFMA vs Feko+Mie)
-- [ ] 14.5 F7–F9: Plate 1.2GHz 仿真 (V-EFIE/SCFIE Direct vs Feko)
-- [ ] 14.6 P1–P3: PMCHW 介质球 Direct vs Mie 介质级数
+- [x] 14.0 Feko CSV 数据解析器 (`FekoReader.jl`) + TDD 测试 ✅ commit b416090
+- [x] 14.1 参考基准生成器：`ReferenceData.jl`（Mie PEC + Mie 介质 + 偶极子解析）✅
+- [x] 14.2 精度指标函数 `AccuracyResult` + `AntennaAccuracyResult` ✅ commit 65b4297 (25/25 通过)
+- [x] 14.3 F1–F4: Jet 100MHz 仿真脚本 (`run_F1_F4_jet.jl`) ✅ commit b2efd57
+- [x] 14.4 F5–F6: Sphere 600MHz 仿真脚本 (`run_F5_F6_sphere.jl`) ✅
+- [x] 14.5 F7–F9: Plate 1.2GHz 仿真脚本 (`run_F7_F9_plate.jl`) ✅
+- [x] 14.6 P1–P3: PMCHW 介质球 Direct 脚本 (`run_P1_P3_pmchw.jl`) ✅
 - [ ] 14.7 `PMCHWMLFMAOperator` 实现 (2×2 块 MLFMA) + 单元测试
 - [ ] 14.8 P2: PMCHW 介质球 MLFMA 验证
-- [ ] 14.9 A1–A4: 半波偶极子 + LumpedPort 天线输入阻抗/方向图验证
-- [ ] 14.10 汇总报告生成 → `test_results/accuracy/ACCURACY_REPORT.md`
+- [x] 14.9 A1–A4: 偶极子天线 DeltaGap 基准脚本 (`run_A1_A4_antenna.jl`) ✅ commit 3039d32
+- [ ] 14.10 实际运行仿真 → CSV → `generate_report.jl` → ACCURACY_REPORT.md
 - [ ] 14.11 检视迭代 (≥ 2 轮 clean)
 
 ### 精度验收门限
@@ -396,7 +396,41 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 - `plate_metal_1dot2GHzRCS.csv` — 介质+金属板, 1.2 GHz
 
 ---
-## 鍏抽敭鍙傝€?
+
+## Phase 15: 介质与金属-介质混合天线精度测试 + PMCHWMLFMAOperator（计划中）
+
+> 详见 [PHASE_15_DIELECTRIC_ANTENNA_PLAN.md](PHASE_15_DIELECTRIC_ANTENNA_PLAN.md)
+
+### 目标
+
+在 Phase 14 天线测试（A1–A4 纯金属偶极子）基础上扩展：介质天线（PMCHW）和金属-介质混合天线（VS-EFIE/VS-CFIE）的输入阻抗验证，以及 PMCHWMLFMAOperator 实现。
+
+### 子任务
+
+- [ ] 15.1 TDD: `test_pmchw_excitation.jl`（PMCHW DeltaGap 激励 + input_impedance）
+- [ ] 15.2 实现 `excitation_vector(PMCHW, DeltaGapSource, RWGBasis)` → 2N 向量
+- [ ] 15.3 实现 `input_impedance(op::PMCHW, source, I_2N, basis)` → J 部分阻抗
+- [ ] 15.4 TDD: `test_scfie_delta_gap.jl`（SCFIE DeltaGap 激励）
+- [ ] 15.5 实现 `excitation_vector(SCFIE, DeltaGapSource, rwg, swg)` → (N_S+N_V) 向量
+- [ ] 15.6 基准脚本 `benchmark/accuracy/run_B1_B5_antenna.jl`（B1–B5 用例）
+- [ ] 15.7 TDD: `test_pmchw_mlfma_operator.jl`
+- [ ] 15.8 `PMCHWMLFMAOperator` 阶段 1（仅近场 + GMRES 接口）
+- [ ] 15.9 `PMCHWMLFMAOperator` 阶段 2（完整 Z_far 的 4 块 MLFMA）
+- [ ] 15.10 更新 `generate_report.jl` 加入 B1–B5
+- [ ] 15.11 检视迭代 (≥ 2 轮 clean)
+
+### 精度验收门限
+
+| 用例 | 方程 | 参考基准 | 门限 |
+|------|------|---------|------|
+| B1 PMCHW Direct | PMCHW (εᵣ=4) | 物理自洽 + εᵣ→1 极限 | Re(Z_in) > 0，εᵣ→1 误差 <10% |
+| B2 PMCHW MLFMA (阶段1) | PMCHW | B1 Direct | ΔZ_in: Re<5%, Im<20Ω |
+| B3 VS-EFIE Direct | SCFIE (α=0) | EFIE-only 当 εᵣ→1 | Z_in Re 误差 <10% |
+| B4 VS-CFIE Direct | SCFIE (α=0.5) | B3 (α=0) | ΔZ_in <5Ω |
+| B5 VS-CFIE MLFMA | SCFIE (α=0.5) | B4 Direct | ΔZ_in Re<5%, Im<20Ω |
+
+---
+## 关键参考
 
 - **Legacy 浠ｇ爜**: `MoM_Basics/`, `MoM_Kernels/`, `MoM_AllinOne/`
 - **楠岃瘉鑴氭湰**: `EMSuite/benchmark/verify_*.jl`, `EMSuite/scripts/verification/`
