@@ -38,8 +38,8 @@ const ETA0_FP = 376.730313461  # 自由空间波阻抗 Ω
 - `phi`         : 方位角向量 (rad)，长度 Nφ
 - `E_theta`     : θ 分量，形状 `(Nf, Nθ, Nφ)`
 - `E_phi`       : φ 分量，形状 `(Nf, Nθ, Nφ)`
-- `_gain`       : 懒惰缓存（增益 dBi）；初始 `nothing`
-- `_axial_ratio`: 懒惰缓存（轴比 dB）；初始 `nothing`
+- `_gain`        : 懒惰缓存（增益 dBi）；**当前常为 `nothing`**，预留供未来懒加载优化
+    - `_axial_ratio`  : 懒惰缓存（轴比 dB）；**当前常为 `nothing`**，预留供未来懒加载优化
 
 # 构造
 ```julia
@@ -65,6 +65,7 @@ mutable struct FarFieldPattern
         Nf = length(freqs)
         Nθ = length(theta)
         Nφ = length(phi)
+        Nf > 0 || throw(ArgumentError("freqs must be non-empty"))
         size(E_theta) == (Nf, Nθ, Nφ) ||
             throw(ArgumentError(
                 "E_theta size $(size(E_theta)) ≠ (Nf=$Nf, Nθ=$Nθ, Nφ=$Nφ)"))
@@ -143,6 +144,9 @@ function gain(ff::FarFieldPattern; freq_idx::Int=1)
     1 <= freq_idx <= length(ff.freqs) ||
         throw(ArgumentError("freq_idx=$freq_idx out of range [1,$(length(ff.freqs))]"))
 
+    length(ff.theta) >= 2 && length(ff.phi) >= 2 ||
+        @warn "gain: theta or phi has < 2 points; trapezoidal integration degenerates to P_rad=0 → D=0 → gain≈-1530 dBi"
+
     Eθ = ff.E_theta[freq_idx, :, :]   # Nθ × Nφ
     Eφ = ff.E_phi[freq_idx, :, :]
 
@@ -203,7 +207,8 @@ function hpbw(ff::FarFieldPattern; plane::Symbol=:E, freq_idx::Int=1)
         peak_val = pattern[peak_idx]
         half_pow = peak_val - 3.0
 
-        # 从峰值向两侧找 3dB 点
+        # 从峰値向两侧找 3dB 点
+        # 注意：若峰値在边界（peak_idx=1 或 n）， HPBW 可能做不准
         left_idx  = peak_idx
         right_idx = peak_idx
         for i in (peak_idx-1):-1:1
