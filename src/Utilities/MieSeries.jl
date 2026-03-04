@@ -6,7 +6,8 @@ module MieSeries
 using SpecialFunctions
 using LinearAlgebra
 
-export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere
+export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere,
+       calculate_mie_rcs_pec_sphere_fullpol
 
 """
     calculate_mie_rcs_pec_sphere(radius, freq, theta_range) -> rcs_E
@@ -51,6 +52,60 @@ function calculate_mie_rcs_pec_sphere(radius, freq, theta_range)
         rcs[i] = 4π / k^2 * abs2(S2)
     end
     return rcs
+end
+
+"""
+    calculate_mie_rcs_pec_sphere_fullpol(radius, freq, theta_range)
+    -> (rcs_S2, rcs_S1)
+
+PEC sphere Mie RCS: both S₂-based (theta component, E-plane) and S₁-based
+(phi component, H-plane), so the full bistatic sphere can be reconstructed as:
+
+    σ_θθ(θ, φ) = rcs_S2[i] * cos²(φ)
+    σ_φφ(θ, φ) = rcs_S1[i] * sin²(φ)
+    σ_tot(θ, φ) = σ_θθ + σ_φφ
+
+Convention: +z propagation, x-polarized incident wave.
+"""
+function calculate_mie_rcs_pec_sphere_fullpol(radius, freq, theta_range)
+    c0 = 299792458.0
+    k  = 2π * freq / c0
+    x  = k * radius
+    n_max = ceil(Int, x + 4 * x^(1/3) + 2)
+
+    a_n = zeros(ComplexF64, n_max)
+    b_n = zeros(ComplexF64, n_max)
+    for n = 1:n_max
+        jn   = sphericalbesselj(n,   x)
+        jnm1 = sphericalbesselj(n-1, x)
+        hn2   = jn   - im*sphericalbessely(n,   x)
+        hn2m1 = jnm1 - im*sphericalbessely(n-1, x)
+        ψn  = x * jn;   ψn′  = x * jnm1 - n * jn
+        ζn  = x * hn2;  ζn′  = x * hn2m1 - n * hn2
+        a_n[n] = -ψn′ / ζn′
+        b_n[n] = -ψn  / ζn
+    end
+
+    factor  = 4π / k^2
+    rcs_S2  = zeros(Float64, length(theta_range))
+    rcs_S1  = zeros(Float64, length(theta_range))
+    for (i, θ) in enumerate(theta_range)
+        μ  = cos(θ)
+        S1 = zero(ComplexF64)
+        S2 = zero(ComplexF64)
+        p0 = 0.0;  p1 = 1.0
+        for n = 1:n_max
+            τn = n*μ*p1 - (n+1)*p0
+            c  = (2n+1) / (n*(n+1))
+            S1 += c * (a_n[n]*p1  + b_n[n]*τn)   # S1: a*π + b*τ
+            S2 += c * (a_n[n]*τn  + b_n[n]*p1)   # S2: a*τ + b*π
+            pn = ((2n+1)*μ*p1 - (n+1)*p0) / n
+            p0 = p1;  p1 = pn
+        end
+        rcs_S2[i] = factor * abs2(S2)
+        rcs_S1[i] = factor * abs2(S1)
+    end
+    return rcs_S2, rcs_S1
 end
 
 """
