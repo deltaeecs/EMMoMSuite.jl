@@ -178,15 +178,15 @@ function calc_k_pmchw_term!(
     n_pts = length(w)
 
     JK_0         = im * mfie.k
-    FT           = eltype(mfie.k)
+    FT           = typeof(mfie.k)
     eta_div_16pi = mfie.eta / (16 * FT(π))
 
-    v_test = SVector{3}(
+    v_test = SVector{3, SVector{3,FT}}(
         SVector{3,FT}(tri_test.vertices[:, 1]),
         SVector{3,FT}(tri_test.vertices[:, 2]),
         SVector{3,FT}(tri_test.vertices[:, 3]),
     )
-    v_src = SVector{3}(
+    v_src = SVector{3, SVector{3,FT}}(
         SVector{3,FT}(tri_src.vertices[:, 1]),
         SVector{3,FT}(tri_src.vertices[:, 2]),
         SVector{3,FT}(tri_src.vertices[:, 3]),
