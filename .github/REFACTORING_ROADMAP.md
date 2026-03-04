@@ -364,20 +364,28 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 ### 子任务
 
 - [ ] 14.0 Feko CSV 数据解析器 (`feko_reader.jl`) + TDD 测试
-- [ ] 14.1 Mie 解析解参考生成器 (`mie_reference.jl`)
-- [ ] 14.2 精度指标函数 `AccuracyResult` (`accuracy_metrics.jl`)
+- [ ] 14.1 参考基准生成器：`reference_data.jl`（Mie PEC + Mie 介质 + 偶极子解析）
+- [ ] 14.2 精度指标函数 `AccuracyResult` + `AntennaAccuracyResult` (`accuracy_metrics.jl`)
 - [ ] 14.3 F1–F4: Jet 100MHz 仿真 (S-EFIE/S-CFIE Direct+MLFMA vs Feko)
 - [ ] 14.4 F5–F6: Sphere 600MHz 仿真 (S-CFIE Direct+MLFMA vs Feko+Mie)
 - [ ] 14.5 F7–F9: Plate 1.2GHz 仿真 (V-EFIE/SCFIE Direct vs Feko)
-- [ ] 14.6 汇总报告生成 → `test_results/accuracy/ACCURACY_REPORT.md`
-- [ ] 14.7 检视迭代 (≥ 2 轮 clean)
+- [ ] 14.6 P1–P3: PMCHW 介质球 Direct vs Mie 介质级数
+- [ ] 14.7 `PMCHWMLFMAOperator` 实现 (2×2 块 MLFMA) + 单元测试
+- [ ] 14.8 P2: PMCHW 介质球 MLFMA 验证
+- [ ] 14.9 A1–A4: 半波偶极子 + LumpedPort 天线输入阻抗/方向图验证
+- [ ] 14.10 汇总报告生成 → `test_results/accuracy/ACCURACY_REPORT.md`
+- [ ] 14.11 检视迭代 (≥ 2 轮 clean)
 
 ### 精度验收门限
 
 | 求解路径 | 方程类型 | Feko/Mie RMSE 门限 |
 |---------|---------|-------------------|
 | Direct | S-EFIE, S-CFIE, V-EFIE, SCFIE | ≤ 2.0 dB |
+| Direct | PMCHW 介质球 | ≤ 2.5 dB |
 | MLFMA+GMRES | S-EFIE, S-CFIE | ≤ 3.0 dB |
+| MLFMA+GMRES | PMCHW（PMCHWMLFMAOperator） | ≤ 3.0 dB |
+| 天线端口 | 输入阻抗误差 | < 5% |
+| 天线端口 | 最大方向性误差 | < 1.0 dBi |
 
 ### Feko 基线来源
 

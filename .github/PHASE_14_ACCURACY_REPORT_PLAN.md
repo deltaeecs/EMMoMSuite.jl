@@ -32,6 +32,20 @@
 
 ---
 
+## 1b. 新增范围（本次更新）
+
+除原 RCS 散射用例外，新增：
+
+| 类别 | 测试 | 参考基准 | MLFMA | 说明 |
+|------|------|---------|-------|------|
+| **PMCHW** | 介质球散射 RCS | Mie 介质级数（已实现） | 需新实现 | P1–P2 |
+| **天线（集总端口）** | 半波偶极子辐射方向图、输入阻抗 | 解析公式 | 需新实现 | A1–A2 |
+| **天线（差分/同轴端口）** | 完整 S 参数 | 解析公式 | 可选 | A3–A4 |
+
+> **MLFMA PMCHW 与天线 MLFMA** 是新功能实现任务，在 Phase 14 测试框架搭建后作为子任务完成（见第 4.6 节）。
+
+---
+
 ## 2. Legacy 对齐基准（数据来源）
 
 ### 2.1 Feko 基线文件
@@ -61,9 +75,27 @@
 
 ### 2.2 Mie 解析解（球体）
 
-- EMSuite 已有 `Utilities/MieSeries.jl`（实现了 `mie_rcs_sphere`）
-- 用于 PEC 球 600 MHz 的独立精度核查（补充 Feko 对比）
-- 球半径从网格文件 `sphere_600MHz.nas` 自动提取
+`Utilities/MieSeries.jl` 已实现两类：
+
+| 函数 | 用途 |
+|------|------|
+| `calculate_mie_rcs_pec_sphere(radius, freq, theta)` | PEC 球 RCS → 用于 F5/F6/X1 |
+| `calculate_mie_rcs_dielectric_sphere(radius, freq, theta, eps_r, mu_r)` | 介质球 RCS → 用于 P1/P2（PMCHW 验证） |
+
+球半径从网格文件坐标节点到原点距离计算。
+
+### 2.3 天线解析参考基准
+
+天线问题**不存在 Feko 基线**，使用经典理论解析值作为精度门限：
+
+| 天线类型 | 频率 | 解析参考 | 精度指标 |
+|---------|------|---------|--------|
+| 半波偶极子（0.5λ, PEC, 自由空间） | 300 MHz (λ=1m, L=0.5m) | 输入阻抗 Z_in = 73.1 + j42.5 Ω | `\|Z_in_EMSuite - Z_in_analytic\|/\|Z_in_analytic\|` < 5% |
+| 半波偶极子 | 同上 | 最大方向性 D_max = 1.64 (2.15 dBi) | < 1 dBi 误差 |
+| 半波偶极子 | 同上 | 辐射方向图 E 面 RMSE vs 解析 sinc | < 1 dB |
+| 谐振偶极子（0.47λ，无虚部阻抗） | 318 MHz (L=0.47m) | Im(Z_in) ≈ 0，Re(Z_in) ≈ 73 Ω | Im(Z_in) < 5 Ω |
+
+> 注：半波偶极子 Z_in 的解析值来自 Balanis《Antenna Theory》表 8.1。
 
 ### 2.3 网格文件路径
 
@@ -79,7 +111,7 @@ C:\Users\12253\OneDrive\MoM\MoM_AllinOne\meshfiles\
 
 ## 3. 测试矩阵
 
-### 3.1 主测试用例
+### 3.1 散射问题（RCS 精度，vs Feko/Mie PEC）
 
 | ID | 几何体 | 频率 | 方程 | 基函数 | 求解路径 | 基准 | 阈值 |
 |----|--------|------|------|--------|----------|------|------|
@@ -87,19 +119,40 @@ C:\Users\12253\OneDrive\MoM\MoM_AllinOne\meshfiles\
 | **F2** | Jet (PEC) | 100 MHz | S-CFIE (α=0.5) | RWG | Direct (LU) | Feko | RMSE < 2 dB |
 | **F3** | Jet (PEC) | 100 MHz | S-EFIE | RWG | MLFMA+GMRES | Feko | RMSE < 3 dB |
 | **F4** | Jet (PEC) | 100 MHz | S-CFIE (α=0.5) | RWG | MLFMA+GMRES | Feko | RMSE < 3 dB |
-| **F5** | Sphere (PEC) | 600 MHz | S-CFIE (α=0.5) | RWG | Direct (LU) | Feko + Mie | RMSE < 2 dB |
-| **F6** | Sphere (PEC) | 600 MHz | S-CFIE (α=0.5) | RWG | MLFMA+GMRES | Feko + Mie | RMSE < 3 dB |
+| **F5** | Sphere (PEC) | 600 MHz | S-CFIE (α=0.5) | RWG | Direct (LU) | Feko + Mie PEC | RMSE < 2 dB |
+| **F6** | Sphere (PEC) | 600 MHz | S-CFIE (α=0.5) | RWG | MLFMA+GMRES | Feko + Mie PEC | RMSE < 3 dB |
 | **F7** | Plate (介质) | 1.2 GHz | V-EFIE | SWG | Direct (LU) | Feko | RMSE < 2 dB |
 | **F8** | Plate (介质) | 1.2 GHz | VS-EFIE (SCFIE) | RWG+SWG | Direct (LU) | Feko | RMSE < 2 dB |
 | **F9** | Plate+Metal | 1.2 GHz | VS-EFIE (SCFIE) | RWG+SWG | Direct (LU) | Feko | RMSE < 2 dB |
 
-### 3.2 补充测试用例（可选，若时间允许）
+### 3.2 PMCHW 均匀介质体散射（vs Mie 介质级数）
 
-| ID | 几何体 | 方程 | 基函数 | 基准 | 说明 |
-|----|--------|------|--------|------|------|
-| **X1** | Sphere | S-EFIE | RWG | Mie | 单独验证 EFIE 精度 |
-| **X2** | Plate (介质) | V-EFIE | PWC | Feko | 与 F7 对比 SWG vs PWC 精度 |
-| **X3** | Plate (介质) | VS-EFIE | RWG+PWC | Feko | 与 F8 对比 |
+| ID | 几何体 | 频率 | 方程 | 基函数 | 求解路径 | 基准 | 阈值 |
+|----|--------|------|------|--------|----------|------|------|
+| **P1** | 介质球 (εᵣ=4, 无损, r=0.15m) | 600 MHz | PMCHW | RWG (2N DOF) | Direct (LU) | Mie 介质级数 | RMSE < 2 dB |
+| **P2** | 介质球 (εᵣ=4, 无损, r=0.15m) | 600 MHz | PMCHW | RWG (2N DOF) | MLFMA+GMRES | Mie 介质级数 | RMSE < 3 dB |
+| **P3** | 介质球 (εᵣ=2.2-j0.1，有损) | 300 MHz | PMCHW | RWG | Direct (LU) | Mie 介质级数 | RMSE < 2 dB |
+
+> **P2 前置条件**: 需先实现 PMCHW 的 MLFMA 算子（2×2 块结构，见 4.6 节）。
+
+### 3.3 天线端口辐射（vs 解析公式）
+
+| ID | 几何体 | 频率 | 方程 | 端口类型 | 求解路径 | 基准 | 阈值 |
+|----|--------|------|------|---------|----------|------|------|
+| **A1** | 半波偶极子 (L=0.5m, PEC) | 300 MHz | S-EFIE | LumpedPort（delta-gap，单边） | Direct (LU) | 解析 Z_in/方向图 | \|ΔZ_in\|/\|Z_in\| < 5%，D_max 误差 < 1 dBi |
+| **A2** | 半波偶极子 (L=0.5m, PEC) | 300 MHz | S-EFIE | LumpedPort | MLFMA+GMRES | vs A1 结果 | RMSE < 0.5 dB |
+| **A3** | 谐振偶极子 (L=0.47m，无虚部) | 319 MHz | S-EFIE | LumpedPort | Direct (LU) | Im(Z_in) ≈ 0 | \|Im(Z_in)\| < 5 Ω |
+| **A4** | 半波偶极子 + 50Ω 匹配 | 300 MHz | S-EFIE | LumpedPort (负载端口) | Direct (LU) | S11 解析值 | \|S11_dB\| < 0.5 dB误差 |
+
+> **网格**: 偶极子需从 Gmsh 或 Nastran 生成细长线段三角面（模拟导线表面），或使用已有线天线网格。
+
+### 3.4 补充测试（可选）
+
+| ID | 几何体 | 方程 | 基准 | 说明 |
+|----|--------|------|------|------|
+| **X1** | Sphere (PEC) | S-EFIE Direct | Mie PEC | 单独验证 EFIE |
+| **X2** | Plate (介质) | V-EFIE, PWC | Feko | SWG vs PWC 精度对比 |
+| **X3** | 介质球 | PMCHW, εᵣ=10 | Mie 介质 | 高对比度介质测试 |
 
 ---
 
@@ -115,11 +168,6 @@ C:\Users\12253\OneDrive\MoM\MoM_AllinOne\meshfiles\
     read_feko_rcs(filepath) -> (theta_deg, phi_deg, rcs_sqm, rcs_dBsm)
 
 解析 MoM_AllinOne `compare_feko/*.csv` 格式的 Feko 输出文件。
-返回:
-- theta_deg  :: Vector{Float64}  # θ 角度，单位度
-- phi_deg    :: Vector{Float64}  # φ 角度，单位度
-- rcs_sqm    :: Vector{Float64}  # RCS，单位 m²
-- rcs_dBsm   :: Vector{Float64}  # RCS，单位 dBsm = 10*log10(rcs_sqm)
 """
 function read_feko_rcs(filepath::String)
 ```
@@ -129,121 +177,152 @@ function read_feko_rcs(filepath::String)
 - 按固定宽度或空格分割，取 col[1]=θ, col[2]=φ, col[7]=RCS(m²)
 - 返回完整数组（包含所有 φ 切面的点）
 
-**分离 φ 切面**:
-```julia
-"""
-    split_phi_cuts(theta, phi, rcs_dBsm) -> Dict{Float64, NamedTuple}
-
-按 φ 值分组，返回 φ→(theta, rcs) 的字典。
-"""
-```
-
-**TDD**: 先在 `test/test_feko_reader.jl` 写测试，验证：
+**TDD**: 先写 `test/test_feko_reader.jl`，验证：
 - 文件行数 = 1441（4 个文件一致）
 - θ 范围 [-180, 180]，步长 0.5°
-- RCS(m²) > 0（物理约束）
+- RCS(m²) > 0
 - dBsm = 10*log10(sqm) 转换正确
 
-### 4.2 F1 — Mie 解析解参考生成器
+### 4.2 F1 — 参考基准生成器
 
-**位置**: `benchmark/accuracy/mie_reference.jl`
+**位置**: `benchmark/accuracy/reference_data.jl`
 
-**接口**:
 ```julia
-"""
-    generate_mie_rcs_dBsm(mesh_file, freq_hz, theta_deg_vec) -> (rcs_phi0, rcs_phi90)
+# Mie PEC 球
+function mie_pec_rcs_dBsm(mesh_file, freq_hz, theta_deg_vec)
 
-从网格文件提取球半径，计算 Mie 解析解 RCS。
-对 PEC 球，RCS 不依赖 φ（轴对称），两切面相同。
-"""
-function generate_mie_rcs_dBsm(mesh_file::String, freq_hz::Real, theta_deg_vec::Vector)
+# Mie 介质球（用于 PMCHW）
+function mie_dielectric_rcs_dBsm(radius_m, freq_hz, eps_r, mu_r, theta_deg_vec)
+
+# 半波偶极子解析输入阻抗
+function dipole_halfwave_Zin_analytic()  # → 73.1 + j42.5 Ω (精确半波)
+function dipole_resonant_Zin_analytic()  # → ~73.0 + j0 Ω (0.47λ)
+
+# 半波偶极子解析方向图（E面，sin(θ)加权）
+function dipole_halfwave_farfield_analytic(theta_vec)  # → E_theta(θ)，归一化
 ```
-
-**实现**:
-- 从 Nastran `.nas` 文件提取节点坐标，计算球半径（节点到原点平均距离）
-- 调用现有 `EMSuite.Utilities.mie_rcs_sphere(a, k, theta_vec)`
 
 ### 4.3 F2 — 精度指标计算
 
 **位置**: `benchmark/accuracy/accuracy_metrics.jl`
 
-**指标集**:
 ```julia
 struct AccuracyResult
-    label     :: String
-    n_points  :: Int
-    rmse_dB   :: Float64      # √(mean((A-B)²)) in dB
-    max_err_dB :: Float64     # max(|A-B|) in dB
-    mean_bias_dB :: Float64   # mean(A-B) in dB
-    backscatter_err_dB :: Float64  # θ=180° 处的单点误差
-    pass      :: Bool         # rmse_dB < threshold
-    threshold_dB :: Float64
+    label          :: String
+    n_points       :: Int
+    rmse_dB        :: Float64
+    max_err_dB     :: Float64
+    mean_bias_dB   :: Float64
+    backscatter_err_dB :: Float64
+    pass           :: Bool
+    threshold_dB   :: Float64
+end
+
+struct AntennaAccuracyResult
+    label              :: String
+    Zin_rel_err        :: Float64    # |ΔZ|/|Z_ref|
+    D_max_err_dBi      :: Float64    # |D_max_EMSuite - D_max_analytic| in dBi
+    pattern_rmse_dB    :: Float64    # 方向图 RMSE (dB)
+    S11_err_dB         :: Float64    # |S11_EMSuite - S11_analytic| in dB
+    Im_Zin             :: Float64    # Im(Z_in)，用于谐振测试
+    pass               :: Bool
 end
 ```
 
-```julia
-function compute_accuracy(rcs_emsuite_dBsm, rcs_ref_dBsm, label; threshold=2.0)
-```
-
-### 4.4 F3 — 各用例仿真脚本
+### 4.4 F3 — 仿真脚本
 
 **位置**: `benchmark/accuracy/`
 
-| 脚本 | 覆盖测试 ID |
-|------|------------|
-| `run_F1_F4_jet.jl` | F1, F2, F3, F4 |
-| `run_F5_F6_sphere.jl` | F5, F6 (含 Mie 对比) |
-| `run_F7_F9_plate.jl` | F7, F8, F9 |
+| 脚本 | 覆盖 ID |
+|------|--------|
+| `run_F1_F4_jet.jl` | F1–F4（Jet S-EFIE/S-CFIE） |
+| `run_F5_F6_sphere.jl` | F5–F6（Sphere S-CFIE + Mie PEC） |
+| `run_F7_F9_plate.jl` | F7–F9（Plate V-EFIE/SCFIE） |
+| `run_P1_P3_pmchw.jl` | P1–P3（PMCHW 介质球 + Mie 介质） |
+| `run_A1_A4_antenna.jl` | A1–A4（半波偶极子 + LumpedPort） |
 
-**每个脚本结构**:
+**天线仿真流程**（`run_A1_A4_antenna.jl`）：
 ```julia
-# 1. 加载网格
-# 2. 组装阻抗矩阵 / 构建 MLFMAOperator
-# 3. 计算激励向量 (平面波入射，θ_inc=0, φ_inc=0)
-# 4. 求解
-# 5. 计算 RCS（全球面角度扫描，与 Feko 相同采样点）
-# 6. 读取 Feko 参考
-# 7. 计算 AccuracyResult
-# 8. 输出 CSV + 打印摘要
+# 1. 生成偶极子网格（Gmsh API 或程序生成）：
+#    L = 0.5m，直径 d = 0.01m，沿 z 轴，表面三角剖分
+#    f = 300 MHz → λ = 1m，单元尺寸 ≈ λ/20 = 0.05m
+# 2. 找到中央边作为 delta-gap 端口边
+# 3. 构造 LumpedPort(id=1, edge_idx=central_edge, impedance=50Ω, type=:voltage_source, voltage=1V)
+# 4. 装配 EFIE 阻抗矩阵
+# 5. 添加集总端口阻抗贡献: assemble_lumped_port_impedance!(Z, port)
+# 6. 构造激励向量: add_port_excitation!(V, port)
+# 7. 求解: I = Z \ V
+# 8. 计算输入阻抗: Z_in = port_voltage(I, port) / port_current(I, port)
+# 9. 计算方向图: antenna_directivity(θs, ϕs, I, basis)
+# 10. 与解析值对比
 ```
 
-**RCS 计算角度**: 与 Feko 保持一致
-- θ ∈ [-180°, 180°]，步长 0.5°（721 点）
-- φ 切面: φ=0° 和 φ=90°
+**PMCHW 仿真流程**（`run_P1_P3_pmchw.jl`）：
+```julia
+# 1. 加载球面网格（sphere_600MHz.nas，r=0.15m，重用或生成新网格）
+# 2. 构造 PMCHW(freq, eps_r=4.0, mu_r=1.0)
+# 3. 装配 2N×2N 阻抗矩阵
+# 4. 构造平面波激励（Excitation 模块的 PMCHW 变体）
+# 5. 求解 2N×2N 系统
+# 6. 后处理：从 J（前 N）+ M（后 N）计算散射场/RCS
+# 7. 与 Mie 介质球对比
+```
 
 ### 4.5 F4 — 报告生成器
 
 **位置**: `benchmark/accuracy/generate_report.jl`
 
-**输入**: 各用例仿真脚本产生的 CSV 文件（位于 `test_results/accuracy/`）
+**输出目录**: `test_results/accuracy/`
 
-**输出**:
-- `test_results/accuracy/ACCURACY_REPORT.md` — Markdown 汇总表
-- `test_results/accuracy/<ID>_rcs_phi0.csv` — 各用例 φ=0° 切面数据
-- `test_results/accuracy/<ID>_rcs_phi90.csv` — 各用例 φ=90° 切面数据
-- `test_results/accuracy/<ID>_summary.txt` — 单用例指标摘要
+**报告结构**（`ACCURACY_REPORT.md`）：
+```
+# EMSuite 精度对比报告 (vs Feko / Mie / 解析解)
+生成时间 / 版本 / commit
 
-**报告格式**（`ACCURACY_REPORT.md`）:
-```markdown
-# EMSuite 精度对比报告 (vs Feko / Mie 解析解)
+## Part I: RCS 散射精度 (F1–F9, vs Feko)
+| ID | 几何 | 方程 | 求解器 | RMSE | Max Err | Bias | 后向散射误差 | PASS? |
 
-生成时间: 2026-XX-XX  
-EMSuite 版本: vX.X.X (commit: xxxxxxx)
+## Part II: PMCHW 介质体散射 (P1–P3, vs Mie 介质级数)
+| ID | 几何 | ε_r | 求解器 | RMSE | Max Err | PASS? |
 
-## 汇总
-
-| ID | 几何 | 方程 | 求解器 | 基准 | RMSE (dB) | Max Err (dB) | Bias (dB) | 后向散射误差 (dB) | PASS? |
-|----|------|------|--------|------|-----------|-------------|-----------|------------------|-------|
-| F1 | Jet 100MHz | S-EFIE | Direct | Feko | X.XX | X.XX | ±X.XX | X.XX | ✓/✗ |
-...
+## Part III: 天线辐射（A1–A4, vs 解析）
+| ID | 几何 | 端口 | 求解器 | ΔZ_in (%) | D_max 误差 (dBi) | Pattern RMSE | PASS? |
 
 ## 结论
-
-- 通过/失败用例数: X/9
-- 最大误差用例: FX (X.XX dB RMSE)
-- 所有 Direct 求解路径 RMSE < 2 dB: ✓/✗
-- 所有 MLFMA 求解路径 RMSE < 3 dB: ✓/✗
+通过/失败统计, 最大误差用例
 ```
+
+### 4.6 MLFMA PMCHW 实现（新功能，Phase 14 核心任务）
+
+**当前状态**: `PMCHW.jl` 仅支持 Direct (LU)。  
+**目标**: 为 PMCHW 的 2N×2N 系统构造 `MLFMAOperator` 或 2×2 块 MLFMA 结构。
+
+**实现方案**：
+
+```
+PMCHW MLFMA 算子结构：
+              
+  [EFIE_far(k0) + EFIE_far(k1)        K_far(k0) + K_far(k1)      ]   [J]
+  [-(K_far(k0) + K_far(k1))           EFIE_far_inv(k0) + EFIE_far_inv(k1)]   [M]
+```
+
+**Block MLFMA 设计**：
+- 每个媒质 (k0, k1) 独立构建 MLFMA 树（共用几何，但波数不同）
+- `mul!(y, op::PMCHWMLFMAOperator, x)` 接受长度 2N 向量，拆分为 J/M 两部分，分别调用各子算子
+- 近场 Z_near 仍用 Dense 直接计算（2N×2N 子块）
+- 预条件器：2×2 Block-Jacobi，子块分别为 Z_EJ_near 和 Z_HM_near
+
+**实施步骤**：
+1. 定义 `PMCHWMLFMAOperator` 结构体（包含 2 个 EFIE MLFMAOperator + 2 个 K 远场算子）
+2. 实现 `build_pmchw_mlfma_operator(pmchw, basis, ...)`
+3. 实现 `LinearAlgebra.mul!(y, op, x)` — 4 个远场 mul 的线性组合
+4. 加入 GMRES 迭代求解路径
+5. 实现 P2 测试用例验证
+
+**天线 MLFMA**（A2）：
+- 标准 S-EFIE MLFMAOperator（已有），直接复用
+- LumpedPort 作为激励向量修正，不影响 MLFMA 算子本身
+- 仅需在 GMRES 迭代路径中正确处理 Z_port 的近场贡献
 
 ---
 
@@ -293,24 +372,45 @@ test_results/
 | 步骤 | 工作内容 | 预估工时 |
 |------|---------|---------|
 | **Step 1** | F0: Feko 解析器 + TDD 测试 | 0.5 天 |
-| **Step 2** | F1: Mie 参考生成器 | 0.5 天 |
-| **Step 3** | F2: AccuracyResult 指标 | 0.5 天 |
-| **Step 4** | F3a: run_F1_F4_jet.jl 运行 + 调试 | 1 天 |
-| **Step 5** | F3b: run_F5_F6_sphere.jl 运行 + 调试 | 1 天 |
-| **Step 6** | F3c: run_F7_F9_plate.jl 运行 + 调试 | 1 天 |
-| **Step 7** | F4: 报告生成器 + ACCURACY_REPORT.md | 0.5 天 |
-| **Step 8** | 检视迭代 (≥ 2 轮) | 1 天 |
-| **合计** | | ~6 天 |
+| **Step 2** | F1: 参考基准生成器（Mie PEC/介质 + 偶极子解析） | 0.5 天 |
+| **Step 3** | F2: `AccuracyResult` + `AntennaAccuracyResult` | 0.5 天 |
+| **Step 4** | F3a-c: Jet/Sphere/Plate 用例运行 + 调试 | 2 天 |
+| **Step 5** | F3d: PMCHW Direct 用例 + Mie 介质对比 (P1, P3) | 1 天 |
+| **Step 6** | `PMCHWMLFMAOperator` 实现 + 单元测试 | 2 天 |
+| **Step 7** | P2: PMCHW MLFMA 验证 | 0.5 天 |
+| **Step 8** | F3e: 偶极子天线 + LumpedPort 用例 (A1–A4) | 1.5 天 |
+| **Step 9** | F4: 报告生成器 + `ACCURACY_REPORT.md` | 0.5 天 |
+| **Step 10** | 检视迭代 (≥ 2 轮) | 1 天 |
+| **合计** | | **~10 天** |
 
 ---
 
 ## 8. DoD（完成定义）
 
+**基础设施**:
 - [ ] `test/test_feko_reader.jl` 全部测试通过
+- [ ] `benchmark/accuracy/` 目录结构完整（包括 reference_data.jl）
+
+**F1–F9 散射精度**:
 - [ ] F1–F9 全部用例仿真运行无报错
-- [ ] F1–F9 中至少 7/9 通过精度门限
-- [ ] `ACCURACY_REPORT.md` 已生成，包含所有 9 个用例的指标表
-- [ ] 所有 CSV 数据文件已保存到 `test_results/accuracy/`
+- [ ] F1–F9 至少 7/9 通过精度门限
+
+**PMCHW 介质精度**:
+- [ ] P1、P3 Direct 仿真完成，与 Mie 介质 RMSE < 2.5 dB
+- [ ] `PMCHWMLFMAOperator` 实现，单元测试通过
+- [ ] P2 MLFMA 验证，与 P1 Direct RMSE < 1 dB（一致性）
+
+**天线端口**:
+- [ ] 偶极子网格已生成 (Gmsh 或程序自动)
+- [ ] A1 输入阻抗 \|ΔZ_in\|/\|Z_analytic\| < 5%
+- [ ] A1 最大方向性 D_max 误差 < 1 dBi
+- [ ] A3 调振 Im(Z_in) < 5 Ω
+
+**报告**:
+- [ ] `ACCURACY_REPORT.md` 已生成，包含 F/P/A 三类用例指标表
+- [ ] 所有 CSV 数据文件保存到 `test_results/accuracy/`
+
+**质量门控**:
 - [ ] 检视迭代 ≥ 2 轮 clean（无新问题）
 - [ ] `REFACTORING_ROADMAP.md` 中 Phase 14 全部子项勾选
 - [ ] `REFACTORING_PROGRESS.md` 更新日志追加 Phase 14 完成记录
@@ -322,11 +422,13 @@ test_results/
 Phase 14 完成仿真后，必须进行 ≥ 2 轮检视：
 
 **检视重点**：
-1. **算法**: Feko 激励方向是否与 EMSuite 一致（平面波入射角、极化）？
-2. **数据对齐**: φ 切面 0° 对应 Legacy 的哪一个切面？角度偏移？
-3. **RCS 公式**: EMSuite 的 RCS 定义 (σ = 4π|F|²) 是否与 Feko 一致（面积归一化/距离归一化）？
-4. **报告完整性**: 是否覆盖所有基函数（SWG/RWG/PWC/RBF）？
-5. **软件工程**: 解析器是否有充分的错误处理？文件路径是否可配置？
+1. **激励对齐**: Feko 平面波入射方向是否与 EMSuite 一致（入射角、极化）？
+2. **数据对齐**: φ 切面 0° 对应 Feko 哪一个切面？角度偏移？
+3. **RCS 公式**: EMSuite 的 RCS 定义 (σ = 4π|F|²) 是否与 Feko 一致？
+4. **PMCHW 验证**: J/M 向量分割正确？散射场 RCS 后处理公式是否包含 J 和 M 两者贡献？
+5. **天线验证**: delta-gap 端口边索引是否正确？端口电压/电流提取方式？
+6. **PMCHW MLFMA**: 2x2 块结构的近场节点占位是否正确？预条件器是否覆盖 J/M 全部分量？
+7. **软件工程**: 解析器是否有充分错误处理？文件路径是否可配置？
 
 ---
 

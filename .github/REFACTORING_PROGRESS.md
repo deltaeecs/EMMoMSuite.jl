@@ -50,13 +50,17 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 
 **待完成子任务**:
 - [ ] 14.0 Feko CSV 解析器 + TDD 测试
-- [ ] 14.1 Mie 参考生成器
-- [ ] 14.2 AccuracyResult 指标函数
+- [ ] 14.1 参考基准生成器（Mie PEC/介质 + 偶极子解析）
+- [ ] 14.2 `AccuracyResult` + `AntennaAccuracyResult` 指标函数
 - [ ] 14.3 Jet 仿真 (F1–F4)
 - [ ] 14.4 Sphere 仿真 (F5–F6)
 - [ ] 14.5 Plate 仿真 (F7–F9)
-- [ ] 14.6 汇总报告生成
-- [ ] 14.7 检视迭代 × 2 轮
+- [ ] 14.6 PMCHW Direct 仿真 (P1, P3) vs Mie 介质级数
+- [ ] 14.7 `PMCHWMLFMAOperator` 实现 (2×2 块 MLFMA)
+- [ ] 14.8 PMCHW MLFMA 验证 (P2)
+- [ ] 14.9 偶极子天线 + LumpedPort 验证 (A1–A4)
+- [ ] 14.10 汇总报告生成
+- [ ] 14.11 检视迭代 × 2 轮
 
 ---
 ## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?
