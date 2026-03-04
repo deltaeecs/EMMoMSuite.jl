@@ -6,6 +6,6 @@ include("Lebedev/Lebedev.jl")
 using .MLFMA
 using .Lebedev
 
-export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals
+export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals, PMCHWMLFMAOperator, assemble_near_field_pmchw
 
 end
