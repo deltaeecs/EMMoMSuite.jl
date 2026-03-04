@@ -14,6 +14,7 @@ export save_sparse_matrix, load_sparse_matrix
 
 include("MieSeries.jl")
 using .MieSeries
-export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere
+export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere,
+       calculate_mie_rcs_pec_sphere_fullpol
 
 end
