@@ -49,7 +49,10 @@ struct NearFieldGrid
         size(H) == (Nu, Nv) ||
             throw(ArgumentError(
                 "H_field size $(size(H)) does not match (Nu=$Nu, Nv=$Nv)"))
-        return new(cu, cv, E, H, Float64(freq), meta)
+        return new(
+            Float64.(cu), Float64.(cv),   # 强制转换为 Float64
+            E, H, Float64(freq), meta
+        )
     end
 end
 
@@ -87,7 +90,7 @@ struct NearFieldLine
             "E_field length $(length(E)) ≠ arc_length length $N"))
         length(H) == N || throw(ArgumentError(
             "H_field length $(length(H)) ≠ arc_length length $N"))
-        return new(arc, pts, E, H, Float64(freq))
+        return new(Float64.(arc), pts, E, H, Float64(freq))  # arc 强制转换
     end
 end
 
