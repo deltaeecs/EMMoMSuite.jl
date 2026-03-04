@@ -148,11 +148,15 @@ function rcs_angular_pattern(
         throw(ArgumentError("freq_idx=$freq_idx out of range 1:$Nf"))
 
     if cut_plane === :E
-        # E-plane: 沿 θ，phi_idx = 1
+        # E-plane: 沿 θ 切面，固定第一个 φ 角（phi_inc[1]）
+        # 注意：这是简化实现，默认主辐射方向在 phi_inc[1] 处，
+        # 如需特定 phi 角切面，请直接索引 result.rcs_** 数组
         rcs_lin = arr[freq_idx, :, 1]     # Nθ
         angles  = result.theta_inc
     elseif cut_plane === :H
-        # H-plane: 沿 φ，theta_idx = 1
+        # H-plane: 沿 φ 切面，固定第一个 θ 角（theta_inc[1]）
+        # 注意：这是简化实现，通常 H-plane 对应最大方向，
+        # 如主波束不在 theta_inc[1] 处，请手动选择正确的 theta_idx
         rcs_lin = arr[freq_idx, 1, :]     # Nφ
         angles  = result.phi_inc
     else
