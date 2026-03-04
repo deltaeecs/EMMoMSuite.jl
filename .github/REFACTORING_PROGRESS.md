@@ -107,7 +107,7 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 - [ ] 15.8 实现 `assemble_near_field_pmchw`（2N×2N，4 块，无 MagneticRWGBasis）
 - [ ] 15.9 实现 `aggregate_leaf_pmchw!`（x_range 参数区分 J/M）
 - [ ] 15.10 实现 `disaggregate_leaf_pmchw_j!` + `_m!`（四种接收核函数）
-- [ ] 15.11 组装 `PMCHWMLFMAOperator` struct + 构造函数 + `mul!`（N 点八叉树，两遍聚合）
+- [ ] 15.11 组装 `PMCHWMLFMAOperator` struct + 构造函数 + `mul!`（两棵 N 点八叉树 octree0/k0+octree1/k1，四遍远场）
 - [ ] 15.12–15.13 报告更新 + 检视迭代（≥ 2 轮 clean）
 
 ---
