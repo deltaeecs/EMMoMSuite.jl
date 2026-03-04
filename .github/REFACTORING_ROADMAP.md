@@ -414,10 +414,10 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 - [ ] 15.5 实现 `excitation_vector(SCFIE, DeltaGapSource, rwg, swg)` → (N_S+N_V) 向量
 - [ ] 15.6 基准脚本 `benchmark/accuracy/run_B1_B5_antenna.jl`（B1–B5 用例）
 - [ ] 15.7 TDD: `test_pmchw_mlfma_operator.jl`
-- [ ] 15.8 新建 `MagneticRWGBasis` 标签类型（`src/BasisFunctions/MagneticRWG.jl`）
-- [ ] 15.9 扩展 `aggregate_leaf!`：支持 `MagneticRWGBasis`（复用 RWG 辐射花样）
-- [ ] 15.10 新建 `PMCHWMLFMAOperator` + `disaggregate_leaf_pmchw!`（4 块测试：EJ/EM/HJ/HM）
-- [ ] 15.11 扩展 `assemble_near_field`：PMCHW 的 4 种交叉块近场（K 核 + Lη 核）
+- [ ] 15.8 实现 `assemble_near_field_pmchw`（2N×2N 稀疏，4 块：EJ/EM/HJ/HM，无需 MagneticRWGBasis）
+- [ ] 15.9 实现 `aggregate_leaf_pmchw!`（单函数，x_range 参数区分 J/M 系数）
+- [ ] 15.10 实现 `disaggregate_leaf_pmchw_j!` + `_m!`（四块接收核函数，依据 Gibson Algorithm 14 两遍设计）
+- [ ] 15.11 组装 `PMCHWMLFMAOperator` struct + 构造函数 + `mul!`（N 点八叉树，J/M 两遍独立聚合）
 - [ ] 15.12 更新 `generate_report.jl` 加入 B1–B5
 - [ ] 15.13 检视迭代 (≥ 2 轮 clean)
 
@@ -426,7 +426,7 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 | 用例 | 方程 | 参考基准 | 门限 |
 |------|------|---------|------|
 | B1 PMCHW Direct | PMCHW (εᵣ=4) | 物理自洽 + εᵣ→1 极限 | Re(Z_in) > 0，εᵣ→1 误差 <10% |
-| B2 PMCHW MLFMA | PMCHW (MagneticRWGBasis+双趟聚合) | B1 Direct | ΔZ_in: Re<5%, Im<20Ω |
+| B2 PMCHW MLFMA | PMCHW (N点八叉树+J/M两遍聚合) | B1 Direct | ΔZ_in: Re<5%, Im<20Ω |
 | B3 VS-EFIE Direct | SCFIE (α=0) | EFIE-only 当 εᵣ→1 | Z_in Re 误差 <10% |
 | B4 VS-CFIE Direct | SCFIE (α=0.5) | B3 (α=0) | ΔZ_in <5Ω |
 | B5 VS-CFIE MLFMA | SCFIE (α=0.5) | B4 Direct | ΔZ_in Re<5%, Im<20Ω |
