@@ -227,3 +227,30 @@ end
     # Area of face (unit square) = 1
     @test isapprox(rbf.area, 1.0)
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 16.3 DoD — SCFIE 端到端：RWGBasis 接受 CompositeMesh 单参数传入
+# ─────────────────────────────────────────────────────────────────────────────
+@testset "RWGBasis from CompositeMesh (Phase 16 DoD)" begin
+    # Build a simple tet mesh (1×1×1 box, 1 cell → 6 tets)
+    tet  = generate_box_tet_mesh(1.0, 1.0, 1.0, 1, 1, 1)
+    surf = extract_surface(tet)
+    comp = CompositeMesh(surf, tet)
+
+    # RWGBasis should accept CompositeMesh and delegate to comp.surface
+    basis_from_comp = RWGBasis(comp)
+    basis_from_surf = RWGBasis(surf)
+
+    # Equivalence: same number of basis functions
+    @test num_basis(basis_from_comp) == num_basis(basis_from_surf)
+
+    # Mesh stored inside is identical
+    @test basis_from_comp.mesh.trinum == basis_from_surf.mesh.trinum
+    @test size(basis_from_comp.mesh.node) == size(basis_from_surf.mesh.node)
+
+    # Type check
+    @test basis_from_comp isa RWGBasis
+
+    # num_basis > 0  (non-degenerate surface mesh)
+    @test num_basis(basis_from_comp) > 0
+end
