@@ -44,7 +44,7 @@ println("\n[1] 生成细线偶极子网格 ...")
 mesh  = generate_cylinder_mesh(a_wire, L_dip, Nphi, Nz)
 basis = RWGBasis(mesh)
 N     = num_basis(basis)
-@printf "  节点数=%d  三角形数=%d  RWG基函数数=%d\n" mesh.nodenum mesh.trinum N
+@printf "  节点数=%d  三角形数=%d  RWG基函数数=%d\n" size(mesh.node, 2) mesh.trinum N
 
 # ─────────────────────────────────────────────────────────────────
 # 2. 查找中心 feed 边 (z ≈ 0)
@@ -82,7 +82,8 @@ Z_in = input_impedance(src, I, basis)
 S11  = (Z_in - Z0) / (Z_in + Z0)
 S11_dB = 20 * log10(abs(S11))
 # P_in = 0.5 * Re(V · I_feed*)  (V=1, 馈电电流 I_feed = V/Z_in)
-I_feed = sum(I[n] for n in feed_edges)
+# I_feed = sum of (I[n] * edge_length) for feed edges (physical current in A)
+I_feed = sum(I[n] * basis.functions[n].edge_length for n in feed_edges)
 P_in   = 0.5 * real(conj(I_feed))   # = 0.5 Re(V · I_feed*), V=1
 @printf "\n  Z_in = %.2f + j%.2f Ω\n" real(Z_in) imag(Z_in)
 @printf "  S11  = %.2f dB (Z0=%g Ω)\n" S11_dB Z0
@@ -153,6 +154,6 @@ annotate!(p2, 90, -12,
          "S11=$(@sprintf("%.1f",S11_dB)) dB", 9, :gray))
 
 combined = plot(p1, p2, layout = (1, 2), size = (1100, 470), dpi = 120)
-out = joinpath(@__DIR__, "dipole_pattern.png")
+out = joinpath(dirname(@__DIR__), "docs", "images", "dipole_pattern.png")
 savefig(combined, out)
 println("\n图像已保存: $out")

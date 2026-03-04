@@ -169,6 +169,6 @@ scatter!(p3, [Γre[idx_res]], [Γim[idx_res]];
 # 保存
 # ─────────────────────────────────────────────────────────────────
 combined = plot(p1, p2, p3, layout = (1, 3), size = (1500, 470), dpi = 110)
-out = joinpath(@__DIR__, "dipole_s11_sweep.png")
+out = joinpath(dirname(@__DIR__), "docs", "images", "dipole_s11_sweep.png")
 savefig(combined, out)
 println("\n图像已保存: $out")

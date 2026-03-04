@@ -42,8 +42,7 @@ V_pec      = excitation_vector(efie, pw_pec, basis_pec)
 I_pec      = Z_pec \ V_pec
 
 set_frequency!(freq)
-rcs_pec, _, rcs_pec_db = radarCrossSection(theta_v, [0.0], I_pec, basis_pec,
-                                           efie.k0, efie.eta0)
+rcs_pec, _, rcs_pec_db = radarCrossSection(theta_v, [0.0], I_pec, basis_pec)
 rcs_pec_Eplane = 10 .* log10.(rcs_pec[1, :, 1] .+ 1e-30)
 
 mie_pec     = calculate_mie_rcs_pec_sphere(radius, freq, theta_v)
@@ -126,6 +125,6 @@ annotate!(p2, 90, -27, text("E面RMS=$(@sprintf("%.2f",err_E)) dB  H面RMS=$(@sp
 # 合并保存
 # ─────────────────────────────────────────────────────────────────
 combined = plot(p1, p2, layout = (1, 2), size = (1100, 450), dpi = 120)
-out_path = joinpath(@__DIR__, "rcs_sphere_comparison.png")
+out_path = joinpath(dirname(@__DIR__), "docs", "images", "rcs_sphere_comparison.png")
 savefig(combined, out_path)
 println("\n图像已保存: $out_path")
