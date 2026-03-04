@@ -230,14 +230,14 @@ function _pmchw_excitation_H(source::PlaneWave, basis::RWGBasis{IT,FT}, eta0::FT
         bf  = basis.functions[n]
         val = zero(CT)
 
-        for k = 1:2
-            tri_idx = bf.support[k]
+        for s = 1:2
+            tri_idx = bf.support[s]
             if tri_idx == 0
                 continue
             end
 
-            sign       = bf.signs[k]
-            local_edge = bf.local_edge_idx[k]
+            sign       = bf.signs[s]
+            local_edge = bf.local_edge_idx[s]
 
             v_indices = elems[:, tri_idx]
             r1 = verts[:, v_indices[1]]
