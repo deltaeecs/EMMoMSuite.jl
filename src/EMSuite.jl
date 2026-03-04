@@ -190,7 +190,7 @@ export DiagonalPreconditioner,
 # Re-export FastAlgorithms symbols
 include("FastAlgorithms/FastAlgorithms.jl")
 using .FastAlgorithms
-export FastAlgorithms, MLFMA, MLFMAOperator, get_leaf_intervals, MLFMAOperatorMPI
+export FastAlgorithms, MLFMA, MLFMAOperator, get_leaf_intervals, MLFMAOperatorMPI, PMCHWMLFMAOperator, assemble_near_field_pmchw
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")
