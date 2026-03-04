@@ -33,45 +33,48 @@ Z0      = 50.0            # reference impedance
 set_frequency!(freq)
 
 println("=" ^ 60)
-@printf "半波偶极子天线  f=%.0f MHz  L=λ/2=%.3f m\n" freq/1e6 L_dip
+@printf "Half-wave Dipole Antenna  f=%.0f MHz  L=lambda/2=%.3f m\n" freq/1e6 L_dip
 println("=" ^ 60)
 
 # ─────────────────────────────────────────────────────────────────
 # 1. 生成圆柱形细线网格（模拟偶极子）
 # ─────────────────────────────────────────────────────────────────
-println("\n[1] 生成细线偶极子网格 ...")
+println("\n[1] Generating wire dipole mesh ...")
 mesh  = generate_cylinder_mesh(a_wire, L_dip, Nphi, Nz)
 basis = RWGBasis(mesh)
 N     = num_basis(basis)
-@printf "  节点数=%d  三角形数=%d  RWG基函数数=%d\n" size(mesh.node, 2) mesh.trinum N
+@printf "  nodes=%d  triangles=%d  RWG basis=%d\n" size(mesh.node, 2) mesh.trinum N
 
 # ─────────────────────────────────────────────────────────────────
 # 2. 查找中心 feed 边 (z ≈ 0)
 #    利用 RWG.center z 坐标最小的若干条边作为馈电边
 # ─────────────────────────────────────────────────────────────────
-println("\n[2] 定位馈电边 ...")
+println("\n[2] Locating feed edges ...")
 feed_edges = Int[]
-z_min_tol  = L_dip * 0.02   # within 1% of total length from center (tight feed)
+# One circumferential ring at z=0: tol must be < half segment height
+# so we only get horizontal edges at z=0, not diagonals (center_z ≈ ±seg_h/2)
+seg_h     = L_dip / Nz
+z_min_tol = 0.4 * seg_h      # catches |z| < half-segment-height diagonal center
 for n in 1:N
     rwg = basis.functions[n]
     if abs(rwg.center[3]) < z_min_tol
         push!(feed_edges, n)
     end
 end
-@printf "  找到 %d 条馈电边\n" length(feed_edges)
-isempty(feed_edges) && error("未找到馈电边，请调整 Nz/Nphi")
+@printf "  Found %d feed edges (expected ~%d for Nphi=%d)\n" length(feed_edges) Nphi Nphi
+isempty(feed_edges) && error("No feed edges found, reduce Nz or check mesh")
 
 # ─────────────────────────────────────────────────────────────────
 # 3. 组装 EFIE 矩阵 + DeltaGap 激励
 # ─────────────────────────────────────────────────────────────────
-println("\n[3] 组装阻抗矩阵 ...")
+println("\n[3] Assembling impedance matrix ...")
 efie = EFIE(freq)
 Z    = assemble_impedance_matrix(efie, basis)
 
 src  = DeltaGapSource(freq, feed_edges, 1.0 + 0.0im)   # V = 1 V
 V    = excitation_vector(src, basis)
 
-println("\n[4] 直接求解 ...")
+println("\n[4] Direct solve ...")
 I = Z \ V
 
 # Input impedance + S11
@@ -94,9 +97,9 @@ D_dBi  = 10 .* log10.(result.D .+ 1e-30)
 # E 平面 (phi=0): 取 phi 索引最近 0 的列
 D_Eplane = D_dBi[:, 1]
 
-@printf "\n  最大方向性 = %.2f dBi\n" maximum(D_dBi)
-@printf "  辐射功率   = %.4e W\n" result.P_rad
-@printf "  辐射效率   = %.2f %%\n" result.η_eff * 100
+@printf "\n  Max directivity = %.2f dBi\n" maximum(D_dBi)
+@printf "  Radiated power  = %.4e W\n" result.P_rad
+@printf "  Radiation eff.  = %.2f %%\n" result.η_eff * 100
 
 # ─────────────────────────────────────────────────────────────────
 # 解析方向图: F(θ) = [cos(π/2·cosθ)/sinθ]²  (半波偶极子)
@@ -143,8 +146,8 @@ plot!(p2, rad2deg.(theta_a), D_theory_dBi;
     lc = :black, lw = 1.5, ls = :dash,
 )
 annotate!(p2, 90, -12,
-    text("Z_in=$(@sprintf(\"%.0f\",real(Z_in)))+j$(@sprintf(\"%.0f\",imag(Z_in))) Ohm  " *
-         "S11=$(@sprintf(\"%.1f\",S11_dB)) dB", 9, :gray))
+    text("Z_in=$(round(Int,real(Z_in)))+j$(round(Int,imag(Z_in))) Ohm  " *
+         "S11=$(round(S11_dB,digits=1)) dB", 9, :gray))
 
 combined = plot(p1, p2, layout = (1, 2), size = (1100, 470), dpi = 120)
 out = joinpath(dirname(@__DIR__), "docs", "images", "dipole_pattern.png")

@@ -35,28 +35,30 @@ f_res_theory = c0 / (2 * L_dip)   # 理论谐振频率
 freqs_sweep  = LinRange(200e6, 500e6, 31)
 
 println("=" ^ 60)
-@printf "偶极子 S11 频率扫描  L=%.3f m  f_res(theory)=%.0f MHz\n" L_dip f_res_theory/1e6
+@printf "Dipole S11 Frequency Sweep  L=%.3f m  f_res(theory)=%.0f MHz\n" L_dip f_res_theory/1e6
 println("=" ^ 60)
 
 # ─────────────────────────────────────────────────────────────────
 # 1. 建立固定网格（频率不影响网格拓扑）
 # ─────────────────────────────────────────────────────────────────
-println("\n[1] 生成偶极子网格 ...")
+println("\n[1] Generating dipole mesh ...")
 mesh  = generate_cylinder_mesh(a_wire, L_dip, Nphi, Nz)
 basis = RWGBasis(mesh)
 N     = num_basis(basis)
-@printf "  RWG基函数数=%d\n" N
+@printf "  RWG basis=%d\n" N
 
-# 找中心馈电边
-z_tol = L_dip * 0.02   # tighter tolerance: +/-1% length from center
+# find center feed edges near z=0: ONE circumferential ring only
+# tol = 0.4 × segment_height so diagonals (center ≈ ±seg_h/2) are excluded
+seg_h = L_dip / Nz
+z_tol = 0.4 * seg_h
 feed_edges = [n for n in 1:N if abs(basis.functions[n].center[3]) < z_tol]
-@printf "  馈电边: %d 条\n" length(feed_edges)
-isempty(feed_edges) && error("未找到馈电边")
+@printf "  Feed edges: %d (expected ~%d for Nphi=%d)\n" length(feed_edges) Nphi Nphi
+isempty(feed_edges) && error("No feed edges found")
 
 # ─────────────────────────────────────────────────────────────────
 # 2. 频率扫描
 # ─────────────────────────────────────────────────────────────────
-println("\n[2] 频率扫描 ($(length(freqs_sweep)) 点) ...")
+println("\n[2] Frequency sweep ($(length(freqs_sweep)) points) ...")
 Z_in_vec = ComplexF64[]
 S11_vec  = Float64[]
 
@@ -85,8 +87,8 @@ Xin_vec    = imag.(Z_in_vec)
 
 # 找仿真谐振频率 (|S11| 最小)
 idx_res = argmin(S11_vec)
-@printf "\n  仿真谐振: f=%.1f MHz  Z_in=%.1f+j%.1f Ω  S11=%.1f dB\n" freqs_MHz[idx_res] Rin_vec[idx_res] Xin_vec[idx_res] S11_vec[idx_res]
-@printf "  理论谐振: f=%.1f MHz (λ/2)\n" f_res_theory/1e6
+@printf "\n  Sim. resonance: f=%.1f MHz  Z_in=%.1f+j%.1f Ohm  S11=%.1f dB\n" freqs_MHz[idx_res] Rin_vec[idx_res] Xin_vec[idx_res] S11_vec[idx_res]
+@printf "  Half-wave freq: f=%.1f MHz (c/2L);  self-resonance typically ~4%% lower\n" f_res_theory/1e6
 
 # ─────────────────────────────────────────────────────────────────
 # 图 1: S11 vs 频率
@@ -101,12 +103,12 @@ p1 = plot(freqs_MHz, S11_vec;
     ylims  = (-40, 2),
 )
 vline!(p1, [f_res_theory/1e6];
-    label = "Theory resonance $(round(Int, f_res_theory/1e6)) MHz",
+    label = "Half-wave freq. $(round(Int, f_res_theory/1e6)) MHz (c/2L)",
     lc = :red, ls = :dash, lw = 1.5,
 )
 hline!(p1, [-10.0]; label = "-10 dB reference", lc = :gray, ls = :dot)
 scatter!(p1, [freqs_MHz[idx_res]], [S11_vec[idx_res]];
-    label = "Sim. min $(@sprintf(\"%.1f\",S11_vec[idx_res])) dB @ $(@sprintf(\"%.0f\",freqs_MHz[idx_res])) MHz",
+    label = "Sim. min $(round(S11_vec[idx_res],digits=1)) dB @ $(round(Int,freqs_MHz[idx_res])) MHz",
     mc = :red, ms = 6, msw = 0
 )
 

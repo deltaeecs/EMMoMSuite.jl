@@ -168,7 +168,7 @@ p11 = plot(theta_d, E_mie_pec;
     label = "Mie E-plane", lw = 2, lc = :black, ls = :dash,
     xlabel = "Theta (deg)", ylabel = "RCS (dBsm)",
     title  = "PEC Sphere RCS (EFIE vs Mie)\nr=0.5m, f=300MHz",
-    legend = :bottomright, xticks = 0:30:180, ylims = (-30, 5))
+    legend = :bottomright, xticks = 0:30:180, ylims = (-30, 10))
 plot!(p11, theta_d, H_mie_pec;
     label = "Mie H-plane", lw = 2, lc = :gray, ls = :dash)
 plot!(p11, theta_d, E_mom_pec;
@@ -196,7 +196,7 @@ p21 = plot(theta_d, E_mie_die;
     label = "Mie E-plane", lw = 2, lc = :black, ls = :dash,
     xlabel = "Theta (deg)", ylabel = "RCS (dBsm)",
     title  = "Dielectric Sphere RCS (PMCHW vs Mie)\nr=0.5m, f=300MHz, eps_r=4",
-    legend = :bottomright, xticks = 0:30:180, ylims = (-30, 5))
+    legend = :bottomright, xticks = 0:30:180, ylims = (-30, 10))
 plot!(p21, theta_d, H_mie_die;
     label = "Mie H-plane", lw = 2, lc = :gray, ls = :dash)
 plot!(p21, theta_d, E_mom_die;

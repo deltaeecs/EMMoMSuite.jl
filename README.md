@@ -309,13 +309,14 @@ julia --project scripts/plot_rcs_sphere.jl
 # 输出: docs/images/rcs_sphere_comparison.png
 ```
 
-生成双图对比：PEC 球 EFIE vs Mie（左）与均匀介质球 PMCHW vs Mie E/H 面（右）。
+生成 2×2 四图联：PEC/PMCHW 球体 E/H 面曲线（左列）与全球面误差热图（右列），覆盖 37×73 = 2701 个观察点。
 
 ![RCS 球体双站 RCS 对比](docs/images/rcs_sphere_comparison.png)
 
-| 子图 | PMCHW E 面 RMS 误差 | PMCHW H 面 RMS 误差 |
-|------|---------------------|---------------------|
-| 右图 | 0.22 dB | 0.37 dB |
+| 算法 | 全球面加权 RMS 误差 | 全球面最大误差 |
+|------|---------------------|----------------|
+| PEC EFIE  | **0.10 dB** | 0.27 dB |
+| PMCHW | **0.24 dB** | 1.03 dB |
 
 关键代码片段：
 
@@ -325,7 +326,7 @@ using EMSuite, Plots
 # PEC 球 EFIE（使用 4-arg dispatch）
 mesh = generate_sphere_mesh(0.5, 16, 32);  basis = RWGBasis(mesh)
 efie = EFIE(300e6);  Z = assemble_impedance_matrix(efie, basis)
-I = Z \ excitation_vector(efie, PlaneWave(300e6, π/2, π, [0,0,1.0]), basis)
+I = Z \ excitation_vector(efie, PlaneWave(300e6, 0.0, 0.0, [1,0,0.0]), basis)  # +z inc., x-pol
 set_frequency!(300e6)
 rcs, _, _ = radarCrossSection(theta_v, [0.0], I, basis)   # 4-arg EFIE dispatch
 rcs_dB = 10 .* log10.(rcs[1,:,1])
@@ -357,8 +358,9 @@ julia --project scripts/plot_dipole_pattern.jl
 ![半波偶极子远场方向图](docs/images/dipole_pattern.png)
 
 ```
-最大方向性 = 2.18 dBi   （理论 2.15 dBi，误差 < 0.03 dB）
-辐射效率   = 99.97 %     （PEC 天线，无欧姆损耗）
+Max directivity = 2.18 dBi   (theory 2.15 dBi, error < 0.03 dBi)
+Radiation eff.  = 100.00 %    (PEC, no ohmic loss)
+Z_in @ 300 MHz  = 86.6+j48.8 Ohm  (theory 73+j42.5 for ideal thin wire)
 ```
 
 关键代码片段：
@@ -366,23 +368,24 @@ julia --project scripts/plot_dipole_pattern.jl
 ```julia
 using EMSuite
 
-mesh   = generate_cylinder_mesh(0.001, 0.5, 6, 20)   # 细线偶极子 λ/2 (半径,长,周向段,轴向段)
+mesh   = generate_cylinder_mesh(0.001, 0.5, 8, 60)   # thin-wire dipole (radius,length,Nphi,Nz)
 basis  = RWGBasis(mesh)
 efie   = EFIE(300e6)
 Z      = assemble_impedance_matrix(efie, basis)
 
-# DeltaGap 馈电: 找轴向中心 RWG 边
-feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.03]
+# DeltaGap feed: ONE circumferential ring at z=0 (Nphi edges)
+seg_h  = 0.5 / 60
+feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.4*seg_h]
 src    = DeltaGapSource(300e6, feed, 1.0 + 0im)
 I      = Z \ excitation_vector(src, basis)
 
-# 方向图
+# Pattern
 θs, ϕs = collect(range(1e-3, π-1e-3, 181)), collect(range(0, 2π, 73))
 I_feed = sum(I[n] * basis.functions[n].edge_length for n in feed)
 result = antenna_directivity(θs, ϕs, I, basis; P_input=0.5real(I_feed))
 D_dBi  = 10 .* log10.(result.D .+ 1e-30)
 
-# 解析参考: F(θ) = [cos(π/2·cosθ)/sinθ]²
+# Analytical reference: F(θ) = [cos(π/2·cosθ)/sinθ]²
 F_theory = [abs(cos(π/2*cos(t))/sin(t))^2 for t in θs]
 ```
 
@@ -399,20 +402,25 @@ julia --project scripts/plot_s11_dipole_sweep.jl
 
 ![偶极子 S11 频率扫描](docs/images/dipole_s11_sweep.png)
 
-| 子图 | 内容 |
-|------|------|
-| 左图 | S11 (dB) vs 频率，标注 -10 dB 带宽和理论谐振点 |
-| 中图 | 输入阻抗 R_in、X_in vs 频率 |
-| 右图 | Smith 圆图（阻抗轨迹随频率着色） |
+| 指标 | 仿真结果 | 说明 |
+|------|----------|------|
+| 上升谐振频率 | **280 MHz** | 表面网格模型的自谐振频率 |
+| 半波频率 | 300 MHz | c₀/(2L)，此时 X=42.5 Ω（非自谐振） |
+| 谓振偏差 | ~20 MHz | 端效应+表面网格 vs 细线模型，属正常误差范围 |
+| Z_in @ 谓振 | 67.8−j15.9 Ω | 约为秘 → X≈0 |
+
+> **注**：偶极子自谗振频率不等于半波频率。L/a=500 时端效应使有效长增加≈4%，理论自谓振频率≈8 MHz≥288 MHz。仿真给出 280 MHz，剩余 8 MHz 偏差(≈2.8%)来自圆柱表面网格 vs 理想细线的模型差异，属正常数値误差范围。
 
 关键代码片段：
 
 ```julia
 using EMSuite
 
-mesh   = generate_cylinder_mesh(0.001, 0.5, 6, 20)   # (半径, 长度, 周向段, 轴向段)
+mesh   = generate_cylinder_mesh(0.001, 0.5, 8, 60)   # (radius, length, Nphi, Nz)
 basis  = RWGBasis(mesh)
-feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.03]
+# Feed: ONE circumferential ring at z=0 only
+seg_h  = 0.5 / 60
+feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.4*seg_h]
 
 Z_in_sweep = ComplexF64[]
 for freq in LinRange(200e6, 500e6, 31)
