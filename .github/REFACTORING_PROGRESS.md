@@ -30,7 +30,35 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 # EMSuite 閲嶆瀯杩涘害
 
 > 鏈€鍚庢洿鏂? 2026-03-06
+## 当前阶段: Phase 14 全量精度测试与对比报告 — **计划中**
 
+> 最后更新: 2026-03-04
+
+### Phase 14 计划概述
+
+**目标**: 对 EMSuite 所有主要积分方程 × 求解路径，与 Feko 商业软件结果或 Mie 解析解进行系统对比，生成独立精度报告（不再对比 Legacy 代码）。
+
+**计划文档**: [PHASE_14_ACCURACY_REPORT_PLAN.md](PHASE_14_ACCURACY_REPORT_PLAN.md)
+
+**基准来源**:
+- Feko 基线: `MoM_AllinOne/deps/compare_feko/` (Jet 100MHz, Sphere 600MHz, Plate 1.2GHz, Plate+Metal 1.2GHz)
+- Mie 解析解: EMSuite 内置 `Utilities/MieSeries.jl`（用于 PEC 球独立校验）
+
+**测试用例**: F1–F9 (9 个用例，覆盖 S-EFIE/S-CFIE/V-EFIE/SCFIE × Direct/MLFMA)
+
+**精度门限**: Direct ≤ 2 dB RMSE，MLFMA ≤ 3 dB RMSE (vs Feko/Mie)
+
+**待完成子任务**:
+- [ ] 14.0 Feko CSV 解析器 + TDD 测试
+- [ ] 14.1 Mie 参考生成器
+- [ ] 14.2 AccuracyResult 指标函数
+- [ ] 14.3 Jet 仿真 (F1–F4)
+- [ ] 14.4 Sphere 仿真 (F5–F6)
+- [ ] 14.5 Plate 仿真 (F7–F9)
+- [ ] 14.6 汇总报告生成
+- [ ] 14.7 检视迭代 × 2 轮
+
+---
 ## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?
 
 **鏈€鏂版垚鏋?(2026-03-06)**:

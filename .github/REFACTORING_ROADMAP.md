@@ -353,7 +353,41 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 | RBF | 鍏潰浣?(Volume) | 1/闈?(鍚竟鐣? | VEFIE, SCFIE(V) | 鉁?Phase 12 |
 
 ---
+## Phase 14: 全量精度测试与对比报告（计划中）
 
+> 详见 [PHASE_14_ACCURACY_REPORT_PLAN.md](PHASE_14_ACCURACY_REPORT_PLAN.md)
+
+### 目标
+
+对所有主要积分方程 × 求解路径，与 **Feko 商业软件结果** 或 **Mie 解析解** 进行系统对比，生成独立精度报告。
+
+### 子任务
+
+- [ ] 14.0 Feko CSV 数据解析器 (`feko_reader.jl`) + TDD 测试
+- [ ] 14.1 Mie 解析解参考生成器 (`mie_reference.jl`)
+- [ ] 14.2 精度指标函数 `AccuracyResult` (`accuracy_metrics.jl`)
+- [ ] 14.3 F1–F4: Jet 100MHz 仿真 (S-EFIE/S-CFIE Direct+MLFMA vs Feko)
+- [ ] 14.4 F5–F6: Sphere 600MHz 仿真 (S-CFIE Direct+MLFMA vs Feko+Mie)
+- [ ] 14.5 F7–F9: Plate 1.2GHz 仿真 (V-EFIE/SCFIE Direct vs Feko)
+- [ ] 14.6 汇总报告生成 → `test_results/accuracy/ACCURACY_REPORT.md`
+- [ ] 14.7 检视迭代 (≥ 2 轮 clean)
+
+### 精度验收门限
+
+| 求解路径 | 方程类型 | Feko/Mie RMSE 门限 |
+|---------|---------|-------------------|
+| Direct | S-EFIE, S-CFIE, V-EFIE, SCFIE | ≤ 2.0 dB |
+| MLFMA+GMRES | S-EFIE, S-CFIE | ≤ 3.0 dB |
+
+### Feko 基线来源
+
+`C:\Users\12253\OneDrive\MoM\MoM_AllinOne\deps\compare_feko\`
+- `jet_100MHzRCS.csv` — Jet PEC, 100 MHz
+- `sphere_600MHzRCS.csv` — PEC 球, 600 MHz
+- `plate_1dot2GHzRCS.csv` — 介质板, 1.2 GHz
+- `plate_metal_1dot2GHzRCS.csv` — 介质+金属板, 1.2 GHz
+
+---
 ## 鍏抽敭鍙傝€?
 
 - **Legacy 浠ｇ爜**: `MoM_Basics/`, `MoM_Kernels/`, `MoM_AllinOne/`
