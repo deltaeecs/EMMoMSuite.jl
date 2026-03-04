@@ -116,6 +116,9 @@ port_voltage(::WavePort, ::AbstractVector) =
 # 支持格式
 - `:TE10` → (:TE, 1, 0)
 - `:TM21` → (:TM, 2, 1)
+
+**限制**：仅支持单位数指数（m, n ∈ 0–9）。
+对于 TE110 等双位数指数模式，需扩展解析逻辑。
 """
 function _parse_mode_indices(mode::Symbol)
     s = string(mode)
