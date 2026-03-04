@@ -298,6 +298,129 @@ PMCHW 与 Mie 级数对比（`radius=0.5 m`，`300 MHz`，`ε_r=4`，`μ_r=1`）
 
 ---
 
+## 结果可视化
+
+`scripts/` 目录提供三个可直接运行的可视化脚本，使用 `Plots.jl`（GR 后端，无 GUI 依赖）输出 PNG 图像。
+
+### 脚本 1：RCS 双站对比 — `plot_rcs_sphere.jl`
+
+```bash
+julia --project scripts/plot_rcs_sphere.jl
+# 输出: scripts/rcs_sphere_comparison.png
+```
+
+生成双图对比：
+
+| 子图 | 内容 |
+|------|------|
+| 左图 | PEC 球 (EFIE + RWG, N=1 024) vs Mie 解析解，E 面双站 RCS |
+| 右图 | 均匀介质球 (PMCHW, ε_r=4) vs Mie 解析解，E 面 & H 面 |
+
+关键代码片段：
+
+```julia
+using EMSuite, Plots
+
+# PEC 球 EFIE
+mesh = generate_sphere_mesh(0.5, 16, 32);  basis = RWGBasis(mesh)
+efie = EFIE(300e6);  Z = assemble_impedance_matrix(efie, basis)
+I = Z \ excitation_vector(efie, PlaneWave(300e6, π/2, π, [0,0,1.0]), basis)
+rcs, _, _ = radarCrossSection(theta_v, [0.0], I, basis, efie.k0, efie.eta0)
+rcs_dB = 10 .* log10.(rcs[1,:,1])
+
+# Mie 参考
+mie_db = 10 .* log10.(calculate_mie_rcs_pec_sphere(0.5, 300e6, theta_v))
+
+plot(theta_d, mie_db; label="Mie 解析", ls=:dash)
+plot!(theta_d, rcs_dB; label="EFIE (MoM)")
+```
+
+---
+
+### 脚本 2：半波偶极子远场方向图 — `plot_dipole_pattern.jl`
+
+```bash
+julia --project scripts/plot_dipole_pattern.jl
+# 输出: scripts/dipole_pattern.png
+```
+
+输出双图：**极坐标方向图**（左）和 **线形对比图**（右），并在终端打印输入阻抗和 S11：
+
+```
+Z_in = 78.3 + j44.1 Ω
+S11  = -10.2 dB (Z0=50 Ω)
+（理论半波偶极子: Z_in ≈ 73 + j42.5 Ω）
+最大方向性 = 2.03 dBi   （理论 2.15 dBi）
+```
+
+关键代码片段：
+
+```julia
+using EMSuite
+
+mesh   = generate_cylinder_mesh(0.001, 0.5, 6, 20)   # 细线偶极子 λ/2 (半径,长,周向段,轴向段)
+basis  = RWGBasis(mesh)
+efie   = EFIE(300e6)
+Z      = assemble_impedance_matrix(efie, basis)
+
+# DeltaGap 馈电: 找轴向中心 RWG 边
+feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.03]
+src    = DeltaGapSource(300e6, feed, 1.0 + 0im)
+I      = Z \ excitation_vector(src, basis)
+
+# 输入阻抗 & S11
+Z_in   = input_impedance(src, I, basis)
+S11_dB = 20log10(abs((Z_in - 50) / (Z_in + 50)))
+
+# 方向图
+θs, ϕs = collect(range(1e-3, π-1e-3, 181)), collect(range(0, 2π, 73))
+result = antenna_directivity(θs, ϕs, I, basis; P_input=0.5real(sum(I[feed])))
+D_dBi  = 10 .* log10.(result.D .+ 1e-30)
+
+# 解析参考: F(θ) = [cos(π/2·cosθ)/sinθ]²
+F_theory = [abs(cos(π/2*cos(t))/sin(t))^2 for t in θs]
+```
+
+---
+
+### 脚本 3：偶极子 S11 频率扫描 + Smith 圆图 — `plot_s11_dipole_sweep.jl`
+
+```bash
+julia --project scripts/plot_s11_dipole_sweep.jl
+# 输出: scripts/dipole_s11_sweep.png
+```
+
+输出三图（200–500 MHz，31 频率点）：
+
+| 子图 | 内容 |
+|------|------|
+| 左图 | S11 (dB) vs 频率，标注 -10 dB 带宽和理论谐振点 |
+| 中图 | 输入阻抗 R_in、X_in vs 频率（对比理论 R≈73 Ω, X=0） |
+| 右图 | Smith 圆图（阻抗轨迹随频率着色） |
+
+关键代码片段：
+
+```julia
+using EMSuite
+
+mesh   = generate_cylinder_mesh(0.001, 0.5, 6, 20)   # (半径, 长度, 周向段, 轴向段)
+basis  = RWGBasis(mesh)
+feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.03]
+
+Z_in_sweep = ComplexF64[]
+for freq in LinRange(200e6, 500e6, 31)
+    set_frequency!(freq)
+    Z = assemble_impedance_matrix(EFIE(freq), basis)
+    I = Z \ excitation_vector(DeltaGapSource(freq, feed, 1.0+0im), basis)
+    push!(Z_in_sweep, input_impedance(DeltaGapSource(freq, feed, 1.0+0im), I, basis))
+end
+
+S11_dB = 20 .* log10.(abs.((Z_in_sweep .- 50) ./ (Z_in_sweep .+ 50)))
+Γ      = (Z_in_sweep .- 50) ./ (Z_in_sweep .+ 50)   # Smith 圆图坐标
+```
+
+---
+
 ## 测试
 
 ```bash
