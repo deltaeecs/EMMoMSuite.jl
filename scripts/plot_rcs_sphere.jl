@@ -1,43 +1,43 @@
 """
-plot_rcs_sphere.jl — 球体双站 RCS 可视化
+plot_rcs_sphere.jl — Sphere Bistatic RCS Visualization
 
-对比：
-  - PEC 球 (EFIE + RWG) vs Mie 解析解
-  - 均匀介质球 (PMCHW + RWG) vs Mie 解析解 (E 面 & H 面)
+Comparison:
+  - PEC sphere (EFIE + RWG) vs Mie analytical solution
+  - Homogeneous dielectric sphere (PMCHW + RWG) vs Mie (E-plane & H-plane)
 
-输出：
-  - 图1: PEC 球 RCS (E 面, theta = 0→180°)
-  - 图2: 介质球 PMCHW RCS (E 面 & H 面)
+Outputs:
+  - Plot 1: PEC sphere RCS (E-plane, theta = 0->180 deg)
+  - Plot 2: Dielectric sphere PMCHW RCS (E-plane & H-plane)
 
-用法:
+Usage:
   julia --project scripts/plot_rcs_sphere.jl
 """
 
 using EMSuite
 using Plots
-using LinearAlgebra, Statistics, Printf
+using LinearAlgebra, Statistics, Printf, DelimitedFiles
 
-gr()   # GR 后端，无需 GUI，可输出 PNG
+gr()   # GR backend: no GUI needed, outputs PNG
 
 # ─────────────────────────────────────────────────────────────────
-# 公共参数
+# Common Parameters
 # ─────────────────────────────────────────────────────────────────
-radius  = 0.5          # m  (电尺寸 ka ≈ π)
+radius  = 0.5          # m  (electrical size ka ~= pi)
 freq    = 300e6        # Hz
-theta_v = collect(range(0.0, π, 181))   # 0°→180°
+theta_v = collect(range(0.0, π, 181))   # 0->180 deg
 theta_d = rad2deg.(theta_v)
 
 # ─────────────────────────────────────────────────────────────────
-# 图 1: PEC 球 — EFIE vs Mie
+# Plot 1: PEC Sphere — EFIE vs Mie
 # ─────────────────────────────────────────────────────────────────
 println("=" ^ 60)
-println("图 1: PEC 球 EFIE vs Mie")
+println("Plot 1: PEC Sphere EFIE vs Mie")
 
 mesh_pec   = generate_sphere_mesh(radius, 16, 32)
 basis_pec  = RWGBasis(mesh_pec)
 efie       = EFIE(freq)
 Z_pec      = assemble_impedance_matrix(efie, basis_pec)
-pw_pec     = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])   # +x 入射, z 极化
+pw_pec     = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])   # +z propagation, x-polarized (matches Mie convention)
 V_pec      = excitation_vector(efie, pw_pec, basis_pec)
 I_pec      = Z_pec \ V_pec
 
@@ -49,14 +49,29 @@ mie_pec     = calculate_mie_rcs_pec_sphere(radius, freq, theta_v)
 mie_pec_db  = 10 .* log10.(mie_pec .+ 1e-30)
 
 err_rms = sqrt(mean((rcs_pec_Eplane .- mie_pec_db).^2))
-@printf "  EFIE N=%d  RMS误差=%.2f dB\n" num_basis(basis_pec) err_rms
+@printf "  EFIE N=%d  RMS error=%.2f dB\n" num_basis(basis_pec) err_rms
+
+# Load Legacy EFIE reference data (allinone_rcs.txt: theta [deg], RCS [dBsm])
+legacy_rcs_path = joinpath(@__DIR__, "..", "..", "..", "LegacyBenchmark", "allinone_rcs.txt")
+legacy_data = nothing
+legacy_theta_d = nothing
+legacy_rcs_db  = nothing
+if isfile(legacy_rcs_path)
+    raw = readdlm(legacy_rcs_path)
+    legacy_theta_d = raw[:, 1]   # degrees
+    legacy_rcs_db  = raw[:, 2]   # dBsm
+    err_legacy = sqrt(mean((rcs_pec_Eplane .- legacy_rcs_db[1:length(rcs_pec_Eplane)]).^2))
+    @printf "  vs Legacy (allinone_rcs)  RMS=%.2f dB\n" err_legacy
+else
+    println("  [INFO] Legacy reference file not found, skipping overlay")
+end
 
 p1 = plot(theta_d, mie_pec_db,
-    label = "Mie 解析解",
+    label = "Mie (analytical)",
     lw = 2, lc = :black, ls = :dash,
-    xlabel = "观测角 θ (°)",
+    xlabel = "Observation Angle theta (deg)",
     ylabel = "RCS (dBsm)",
-    title  = "PEC 球双站 RCS (EFIE vs Mie)\nradius=0.5 m, f=300 MHz",
+    title  = "PEC Sphere Bistatic RCS (EFIE vs Mie)\nradius=0.5 m, f=300 MHz",
     legend = :bottomright,
     xticks = 0:30:180,
     ylims  = (-30, 5),
@@ -65,13 +80,19 @@ plot!(p1, theta_d, rcs_pec_Eplane,
     label = "EFIE (N=$(num_basis(basis_pec)))",
     lw = 1.5, lc = :steelblue,
 )
-annotate!(p1, 90, -27, text("RMS 误差 = $(@sprintf("%.2f", err_rms)) dB", 9, :gray))
+if !isnothing(legacy_theta_d)
+    plot!(p1, legacy_theta_d, legacy_rcs_db,
+        label = "Legacy EFIE (MoM_AllinOne)",
+        lw = 1.5, lc = :darkorange, ls = :dot,
+    )
+end
+annotate!(p1, 90, -27, text("RMS vs Mie = $(@sprintf(\"%.2f\", err_rms)) dB", 9, :gray))
 
 # ─────────────────────────────────────────────────────────────────
-# 图 2: 介质球 — PMCHW vs Mie (E 面 & H 面)
+# Plot 2: Dielectric Sphere — PMCHW vs Mie (E-plane & H-plane)
 # ─────────────────────────────────────────────────────────────────
 println("=" ^ 60)
-println("图 2: 介质球 PMCHW vs Mie (E 面 & H 面)")
+println("Plot 2: Dielectric Sphere PMCHW vs Mie (E-plane & H-plane)")
 
 eps_r = 4.0;  mu_r = 1.0
 mesh_die  = generate_sphere_mesh(radius, 16, 32)
@@ -95,36 +116,36 @@ mie_Hdb = 10 .* log10.(mie_H .+ 1e-30)
 
 err_E = sqrt(mean((mom_Eplane .- mie_Edb).^2))
 err_H = sqrt(mean((mom_Hplane .- mie_Hdb).^2))
-@printf "  PMCHW N=%d  E面RMS=%.2f dB  H面RMS=%.2f dB\n" num_basis(basis_die) err_E err_H
+@printf "  PMCHW N=%d  E-plane RMS=%.2f dB  H-plane RMS=%.2f dB\n" num_basis(basis_die) err_E err_H
 
 p2 = plot(theta_d, mie_Edb,
-    label = "Mie E面",
+    label = "Mie E-plane",
     lw = 2, lc = :black, ls = :dash,
-    xlabel = "观测角 θ (°)",
+    xlabel = "Observation Angle theta (deg)",
     ylabel = "RCS (dBsm)",
-    title  = "均匀介质球双站 RCS (PMCHW vs Mie)\nradius=0.5 m, f=300 MHz, ε_r=4",
+    title  = "Dielectric Sphere Bistatic RCS (PMCHW vs Mie)\nradius=0.5 m, f=300 MHz, eps_r=4",
     legend = :bottomright,
     xticks = 0:30:180,
     ylims  = (-30, 5),
 )
 plot!(p2, theta_d, mie_Hdb,
-    label = "Mie H面",
+    label = "Mie H-plane",
     lw = 2, lc = :gray, ls = :dash,
 )
 plot!(p2, theta_d, mom_Eplane,
-    label = "PMCHW E面 (N=$(num_basis(basis_die)))",
+    label = "PMCHW E-plane (N=$(num_basis(basis_die)))",
     lw = 1.5, lc = :steelblue,
 )
 plot!(p2, theta_d, mom_Hplane,
-    label = "PMCHW H面",
+    label = "PMCHW H-plane",
     lw = 1.5, lc = :tomato,
 )
-annotate!(p2, 90, -27, text("E面RMS=$(@sprintf("%.2f",err_E)) dB  H面RMS=$(@sprintf("%.2f",err_H)) dB", 9, :gray))
+annotate!(p2, 90, -27, text("E-plane RMS=$(@sprintf(\"%.2f\",err_E)) dB  H-plane RMS=$(@sprintf(\"%.2f\",err_H)) dB", 9, :gray))
 
 # ─────────────────────────────────────────────────────────────────
-# 合并保存
+# Combine and Save
 # ─────────────────────────────────────────────────────────────────
 combined = plot(p1, p2, layout = (1, 2), size = (1100, 450), dpi = 120)
 out_path = joinpath(dirname(@__DIR__), "docs", "images", "rcs_sphere_comparison.png")
 savefig(combined, out_path)
-println("\n图像已保存: $out_path")
+println("\nImage saved: $out_path")

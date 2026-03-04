@@ -1,16 +1,16 @@
 """
-plot_dipole_pattern.jl — 半波偶极子天线远场方向图
+plot_dipole_pattern.jl — Half-wave Dipole Antenna Far-field Pattern
 
-对比：
-  - MoM (EFIE + RWG + DeltaGapSource) 仿真结果
-  - 解析公式: D(θ) = [cos(π/2 · cosθ)/sinθ]²  (归一化)
+Comparison:
+  - MoM (EFIE + RWG + DeltaGapSource) simulation
+  - Analytical: D(theta) = [cos(pi/2 * cos(theta))/sin(theta)]^2 (normalized)
 
-还输出：
-  - 终端打印: 输入阻抗 Z_in、辐射效率 η_rad
-  - 图1: E 面归一化方向图 (dB), 极坐标
-  - 图2: E 面方向图 + 解析比较 (线图)
+Also outputs:
+  - Terminal: Input impedance Z_in, radiation efficiency eta_rad
+  - Plot 1: E-plane normalized pattern (dB), polar coordinates
+  - Plot 2: E-plane pattern + analytical comparison (line plot)
 
-用法:
+Usage:
   julia --project scripts/plot_dipole_pattern.jl
 """
 
@@ -21,15 +21,14 @@ using LinearAlgebra, Statistics, Printf
 gr()
 
 # ─────────────────────────────────────────────────────────────────
-# 参数: 300 MHz 半波偶极子
-# ─────────────────────────────────────────────────────────────────
+# Common Parameters: 300 MHz half-wave dipole
 freq    = 300e6           # Hz
 lambda  = 3e8 / freq      # 1 m
-L_dip   = lambda / 2      # 偶极子长度 = λ/2 = 0.5 m
-a_wire  = 0.001           # 细线半径 0.1 cm
-Nz      = 20              # 轴向三角形分段数 (需为偶数，中心处有 feed 边)
-Nphi    = 6               # 周向分段数（细线近似）
-Z0      = 50.0            # 参考阻抗
+L_dip   = lambda / 2      # dipole length = lambda/2 = 0.5 m
+a_wire  = 0.001           # thin wire radius 0.1 cm
+Nz      = 60              # axial triangle segments (must be even for center feed)
+Nphi    = 8               # circumferential segments (thin-wire approximation)
+Z0      = 50.0            # reference impedance
 
 set_frequency!(freq)
 
@@ -52,7 +51,7 @@ N     = num_basis(basis)
 # ─────────────────────────────────────────────────────────────────
 println("\n[2] 定位馈电边 ...")
 feed_edges = Int[]
-z_min_tol  = L_dip * 0.06   # 偶极子总长的 6% 范围内
+z_min_tol  = L_dip * 0.02   # within 1% of total length from center (tight feed)
 for n in 1:N
     rwg = basis.functions[n]
     if abs(rwg.center[3]) < z_min_tol
@@ -75,24 +74,18 @@ V    = excitation_vector(src, basis)
 println("\n[4] 直接求解 ...")
 I = Z \ V
 
-# ─────────────────────────────────────────────────────────────────
-# 4. 输入阻抗 + S11
-# ─────────────────────────────────────────────────────────────────
+# Input impedance + S11
 Z_in = input_impedance(src, I, basis)
 S11  = (Z_in - Z0) / (Z_in + Z0)
 S11_dB = 20 * log10(abs(S11))
-# P_in = 0.5 * Re(V · I_feed*)  (V=1, 馈电电流 I_feed = V/Z_in)
-# I_feed = sum of (I[n] * edge_length) for feed edges (physical current in A)
 I_feed = sum(I[n] * basis.functions[n].edge_length for n in feed_edges)
-P_in   = 0.5 * real(conj(I_feed))   # = 0.5 Re(V · I_feed*), V=1
-@printf "\n  Z_in = %.2f + j%.2f Ω\n" real(Z_in) imag(Z_in)
-@printf "  S11  = %.2f dB (Z0=%g Ω)\n" S11_dB Z0
-@printf "  （理论半波偶极子: Z_in ≈ 73 + j42.5 Ω）\n"
+P_in   = 0.5 * real(conj(I_feed))
+@printf "\n  Z_in = %.2f + j%.2f Ohm\n" real(Z_in) imag(Z_in)
+@printf "  S11  = %.2f dB (Z0=%g Ohm)\n" S11_dB Z0
+@printf "  (Theory half-wave dipole: Z_in approx 73 + j42.5 Ohm)\n"
 
-# ─────────────────────────────────────────────────────────────────
-# 5. 远场方向图 + 方向性
-# ─────────────────────────────────────────────────────────────────
-println("\n[5] 计算远场方向图 ...")
+# Far-field pattern + directivity
+println("\n[5] Computing far-field pattern ...")
 θs = collect(range(1e-3, π - 1e-3, 181))   # 避开奇点
 ϕs = collect(range(0.0, 2π, 73))
 result = antenna_directivity(θs, ϕs, I, basis; P_input = P_in)
@@ -123,12 +116,12 @@ p1 = plot(θs, max.(D_Eplane, -30);
     proj        = :polar,
     label       = "MoM (EFIE)",
     lc          = :steelblue, lw = 2,
-    title       = "半波偶极子方向图 (极坐标E面)\nf=300 MHz",
+    title       = "Half-wave Dipole Pattern (E-plane, polar)\nf=300 MHz",
     legend      = :topright,
     ylims       = (-30, 4),
 )
 plot!(p1, theta_a, max.(D_theory_dBi, -30);
-    label = "解析公式",
+    label = "Analytical",
     lc = :black, lw = 1.5, ls = :dash,
 )
 
@@ -138,22 +131,22 @@ plot!(p1, theta_a, max.(D_theory_dBi, -30);
 p2 = plot(theta_d, D_Eplane;
     label  = "MoM (EFIE)",
     lc     = :steelblue, lw = 2,
-    xlabel = "θ (°)",
-    ylabel = "方向性 (dBi)",
-    title  = "半波偶极子 E 面方向图 vs 解析解",
+    xlabel = "theta (deg)",
+    ylabel = "Directivity (dBi)",
+    title  = "Half-wave Dipole E-plane Pattern vs Analytical",
     legend = :topright,
     xticks = 0:30:180,
     ylims  = (-15, 4),
 )
 plot!(p2, rad2deg.(theta_a), D_theory_dBi;
-    label = "解析 [cos(π/2·cosθ)/sinθ]²  (D_max=2.15 dBi)",
+    label = "Analytical [cos(pi/2*cos(theta))/sin(theta)]^2  (D_max=2.15 dBi)",
     lc = :black, lw = 1.5, ls = :dash,
 )
 annotate!(p2, 90, -12,
-    text("Z_in=$(@sprintf("%.0f",real(Z_in)))+j$(@sprintf("%.0f",imag(Z_in))) Ω  " *
-         "S11=$(@sprintf("%.1f",S11_dB)) dB", 9, :gray))
+    text("Z_in=$(@sprintf(\"%.0f\",real(Z_in)))+j$(@sprintf(\"%.0f\",imag(Z_in))) Ohm  " *
+         "S11=$(@sprintf(\"%.1f\",S11_dB)) dB", 9, :gray))
 
 combined = plot(p1, p2, layout = (1, 2), size = (1100, 470), dpi = 120)
 out = joinpath(dirname(@__DIR__), "docs", "images", "dipole_pattern.png")
 savefig(combined, out)
-println("\n图像已保存: $out")
+println("\nImage saved: $out")
