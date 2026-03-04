@@ -77,7 +77,8 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 - **Gibson 原文根据**: "two passes must be executed...only T_J is actually stored...each testing function has two receive functions"
 - **aggS 清零**: J-Pass 和 M-Pass 之间强制 `fill!(aggS, 0)`，防止两遍叠加
 - **文件**: `PMCHWMLFMAOperator.jl` 自包含（不修改 Aggregation.jl / Disaggregation.jl）
-- **四块接收核函数**:
+- **双八叉树**: `octree0`（k0 外部介质）+ `octree1`（k1 内部介质），各 N 点
+- **4 遍远场**: J×k0, J×k1, M×k0, M×k1；每遍使用对应 octree，aggS 清零隔离
   - Z^EJ: `term_efie × jk₀η₀/(16π) + jk₁η₁/(16π)`（R_L）
   - Z^HJ: `term_mfie × -(jk₀/(16π) + jk₁/(16π))`（R_{-K}，负号）
   - Z^EM: `term_mfie × +(jk₀/(16π) + jk₁/(16π))`（R_K，与 HJ 符号相反）

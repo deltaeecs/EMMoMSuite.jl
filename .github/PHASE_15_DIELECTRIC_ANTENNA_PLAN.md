@@ -261,13 +261,13 @@ vol_basis = SWGBasis(dielectric_mesh)
 
 | 要点 | 说明 |
 |------|------|
-| 单个八叉树 | 从 **N 个** RWG 中心点建立（不是 2N）；J 和 M 共享同一物理网格 |
-| 不需要 MagneticRWGBasis | J/M 使用相同 RWG 积分；在 `mul!` 里通过传入 `x_J` 或 `x_M` 区分，不引入新类型 |
-| 两遍聚合 | J-Pass：用 `x[1:N]` 填充系数聚合；M-Pass：用 `x[N+1:2N]` 填充系数聚合 |
+| 两个八叉树 | 各从 **N 个** RWG 中心点建立（不是 2N），`octree0` 使用 k0，`octree1` 使用 k1 |
+| 不需要 MagneticRWGBasis | J/M 使用相同 RWG 积分；在 `mul!` 里通过传入 `x_range` 和 `kmode` 区分，不引入新类型 |
+| 四遍远场 | J×k0, J×k1, M×k0, M×k1 各一遍（共4遍）；k0 用 octree0, k1 用 octree1 |
 | 聚合积分相同 | J 和 M 的**辐射花样积分**完全一样（$\int \boldsymbol{\rho}\, e^{j k \hat{r}\cdot\mathbf{r}} dS$）；区别由解聚接收函数承担 |
 | 四种解聚接收 | 每个测试函数 × 两种源（J/M）= 4 个矩阵块，每块有独立的因子 |
-| 平移步骤共用 | 两遍聚合使用同一树结构，M2M/M2L/L2L 代码无需改动 |
-| aggS 必须清零 | 每遍聚合之前必须 `fill!(aggS, 0)`，防止两遍叠加 |
+| 平移步骤 | 每遍用各自的八叉树执行 M2M/M2L/L2L，代码无需改动 |
+| aggS 必须清零 | 每遍聚合之前必须 `fill!(aggS, 0)`，防止同一棵树上前后两遍叠加 |
 
 ### 5.1 文件结构（最简化）
 
@@ -286,6 +286,8 @@ src/FastAlgorithms/MLFMA/
 
 ### 5.2 struct PMCHWMLFMAOperator
 
+> **双波数设计说明**：PMCHW 矩阵的每个块都是 k0 和 k1 贡献之和（如 Z^EJ = L(k0) + L(k1)）。MLFMA 的聚合权重 $e^{jk\hat{r}\cdot r}$、平移算子 $T_L(k|d|)$ 均依赖 k，因此 k0 和 k1 的贡献**必须分别用各自的八叉树计算**，不能共用一个八叉树。这导致需要两套八叉树（`octree0` for k0, `octree1` for k1），远场总计 4 遍（J×k0, J×k1, M×k0, M×k1）。
+
 ```julia
 """
     PMCHWMLFMAOperator{FT,CT}
@@ -293,20 +295,25 @@ src/FastAlgorithms/MLFMA/
 PMCHW 系统的 MLFMA 算子。矩阵大小 2N×2N，其中 x = [x_J; x_M]，y = [y_E; y_H]。
 
 字段说明：
-  pmchw   — PMCHW 算子（含 k0,η0,k1,η1 等物理参数）
-  basis   — RWGBasis（N 个 DOF，J 和 M 共享同一网格）
-  Z_near  — 2N×2N 稀疏矩阵，存储所有近邻对的 4 个块（EJ/EM/HJ/HM）
-  octree  — 从 N 个 RWG 中心点建立的八叉树（只需 N 点，不是 2N）
-  sorted_ids, inv_sorted_ids — 长度 N，八叉树排序映射
-  freq    — 工作频率（Hz）
+  pmchw          — PMCHW 算子（含 k0,η0,k1,η1 等物理参数）
+  basis          — RWGBasis（N 个 DOF，J 和 M 共享同一网格）
+  Z_near         — 2N×2N 稀疏矩阵，4 个块（EJ/EM/HJ/HM）
+  octree0        — N 点八叉树，波数 k0（外部介质）
+  octree1        — N 点八叉树，波数 k1（内部介质）
+  sorted_ids0, inv_sorted_ids0 — 长度 N，k0 八叉树排序映射
+  sorted_ids1, inv_sorted_ids1 — 长度 N，k1 八叉树排序映射
+  freq           — 工作频率（Hz）
 """
 struct PMCHWMLFMAOperator{FT,CT} <: AbstractIntegralOperator
     pmchw          :: PMCHW{FT,CT}
     basis          :: RWGBasis
     Z_near         :: SparseMatrixCSC{CT,Int}   # 2N×2N
-    octree         :: OctreeInfo
-    sorted_ids     :: Vector{Int}               # 长度 N
-    inv_sorted_ids :: Vector{Int}               # 长度 N
+    octree0        :: OctreeInfo                # k0 tree
+    octree1        :: OctreeInfo                # k1 tree
+    sorted_ids0    :: Vector{Int}               # 长度 N
+    inv_sorted_ids0:: Vector{Int}
+    sorted_ids1    :: Vector{Int}               # 长度 N
+    inv_sorted_ids1:: Vector{Int}
     freq           :: FT
 end
 
@@ -319,94 +326,108 @@ Base.eltype(::PMCHWMLFMAOperator{FT,CT}) where {FT,CT} = CT
 ```julia
 function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64)
     N = num_basis(basis)
-
-    # ① 从 N 个 RWG 基函数中心建立八叉树
-    #    注意：只用 N 个点，不是 2N——J 和 M 物理位置完全相同，
-    #    区别仅在算子核，不在几何。八叉树只需要一套。
     centers = reduce(hcat, [bf.center for bf in basis.functions])  # 3×N
-    λ = 299792458.0 / pmchw.freq
-    octree, sorted_ids = build_octree(centers, leaf_size; λ = λ)
 
-    inv_sorted_ids = Vector{Int}(undef, N)
+    # ① 分别建立 k0 和 k1 各自的八叉树
+    #    两套树从相同 N 个 RWG 中心点建立，但 Lebedev 极点密度由各自 k 决定。
+    c0 = 299792458.0 / pmchw.freq
+    λ0 = c0 / real(pmchw.k0) * 2π   # k0 → λ0（外部介质波长）
+    λ1 = c0 / real(pmchw.k1) * 2π   # k1 → λ1（内部介质波长）
+
+    octree0, sorted_ids0 = build_octree(centers, leaf_size; λ = λ0)
+    octree1, sorted_ids1 = build_octree(centers, leaf_size; λ = λ1)
+
+    inv_sorted_ids0 = Vector{Int}(undef, N)
+    inv_sorted_ids1 = Vector{Int}(undef, N)
     for i in 1:N
-        inv_sorted_ids[sorted_ids[i]] = i
+        inv_sorted_ids0[sorted_ids0[i]] = i
+        inv_sorted_ids1[sorted_ids1[i]] = i
     end
 
     # ② 装配 2N×2N 近场稀疏矩阵（见 §5.7）
-    Z_near = assemble_near_field_pmchw(pmchw, basis, octree, sorted_ids, inv_sorted_ids)
+    #    近场使用 octree0（排列）作为邻居查找基准（两个树几何相同，近邻对相同）
+    Z_near = assemble_near_field_pmchw(pmchw, basis, octree0, sorted_ids0, inv_sorted_ids0)
 
-    FT = typeof(pmchw.freq)
+    FT = typeof(real(pmchw.freq))
     CT = Complex{FT}
     return PMCHWMLFMAOperator{FT,CT}(
-        pmchw, basis, Z_near, octree, sorted_ids, inv_sorted_ids, pmchw.freq
+        pmchw, basis, Z_near,
+        octree0, octree1,
+        sorted_ids0, inv_sorted_ids0,
+        sorted_ids1, inv_sorted_ids1,
+        pmchw.freq
     )
 end
 ```
 
-### 5.4 mul! — 两遍独立聚合
-
-`mul!(y, A, x)` 的实现分三部分：
+### 5.4 mul! — 两遍 × 两 k = 四遍远场
 
 ```julia
 function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperator, x::AbstractVector)
     fill!(y, zero(eltype(y)))
-    N = num_basis(A.basis)
+    N  = num_basis(A.basis)
+    k0, η0 = A.pmchw.k0, A.pmchw.eta0
+    k1, η1 = A.pmchw.k1, A.pmchw.eta1
 
-    # ─── ① 近场（2N×2N 稀疏矩阵，4 块的所有近邻交互） ───────────────
+    # ─── ① 近场（2N×2N，4 块的所有近邻交互） ────────────────────────
     mul!(y, A.Z_near, x)
 
-    # ─── ② 远场，J-Pass（x[1:N] 为 J 电流系数） ─────────────────────
-    # 清空聚合缓存，确保无残留
-    for lv in A.octree.levels
-        fill!(lv.aggS, zero(eltype(lv.aggS)))
-    end
-    # 聚合：把 x_J = x[1:N] 以标准 RWG 辐射花样 ∫ρ e^{jkr̂·r} dS 累积到八叉树叶结点
-    # （注：M 源的辐射花样公式与 J 完全相同，只是系数换成 x_M；区别在解聚接收函数）
-    aggregate_leaf_pmchw!(A.octree.levels[end], A.basis, x, A.sorted_ids, 1:N)
+    # ─── ② 远场 4 遍（2 source × 2 medium） ─────────────────────────
+    # 辅助函数：清空某棵八叉树的 aggS 缓存
+    clear_agg!(oct) = (for lv in oct.levels; fill!(lv.aggS, zero(eltype(lv.aggS))); end)
 
-    for levelID in (A.octree.nLevels-1):-1:2
-        aggregate_upward!(A.octree.levels[levelID], A.octree.levels[levelID+1])
-    end
-    for levelID in 2:A.octree.nLevels
-        translate!(A.octree.levels[levelID])
-    end
-    for levelID in 2:(A.octree.nLevels-1)
-        disaggregate_downward!(A.octree.levels[levelID], A.octree.levels[levelID+1])
-    end
+    # ── 遍 1：J 源 × k0（聚合用 octree0） ──────────────────────────
+    clear_agg!(A.octree0)
+    aggregate_leaf_pmchw!(A.octree0.levels[end], A.basis, x, A.sorted_ids0, 1:N)
+    _mlfma_up_translate_down!(A.octree0)
+    disaggregate_leaf_pmchw_j!(A.octree0.levels[end], A.basis, A.pmchw,
+                                y, A.sorted_ids0, :k0)
 
-    # 叶结点解聚：J 源 → 写入 y[1:N]（EJ 块）和 y[N+1:2N]（HJ 块）
-    disaggregate_leaf_pmchw_j!(A.octree.levels[end], A.basis, A.pmchw,
-                                y, A.sorted_ids)
+    # ── 遍 2：J 源 × k1（聚合用 octree1） ──────────────────────────
+    clear_agg!(A.octree1)
+    aggregate_leaf_pmchw!(A.octree1.levels[end], A.basis, x, A.sorted_ids1, 1:N)
+    _mlfma_up_translate_down!(A.octree1)
+    disaggregate_leaf_pmchw_j!(A.octree1.levels[end], A.basis, A.pmchw,
+                                y, A.sorted_ids1, :k1)
 
-    # ─── ③ 远场，M-Pass（x[N+1:2N] 为 M 磁流系数） ──────────────────
-    for lv in A.octree.levels
-        fill!(lv.aggS, zero(eltype(lv.aggS)))  # 必须清零！
-    end
+    # ── 遍 3：M 源 × k0（聚合用 octree0） ──────────────────────────
+    clear_agg!(A.octree0)
+    aggregate_leaf_pmchw!(A.octree0.levels[end], A.basis, x, A.sorted_ids0, (N+1):(2N))
+    _mlfma_up_translate_down!(A.octree0)
+    disaggregate_leaf_pmchw_m!(A.octree0.levels[end], A.basis, A.pmchw,
+                                y, A.sorted_ids0, :k0)
 
-    aggregate_leaf_pmchw!(A.octree.levels[end], A.basis, x, A.sorted_ids, (N+1):(2N))
-
-    for levelID in (A.octree.nLevels-1):-1:2
-        aggregate_upward!(A.octree.levels[levelID], A.octree.levels[levelID+1])
-    end
-    for levelID in 2:A.octree.nLevels
-        translate!(A.octree.levels[levelID])
-    end
-    for levelID in 2:(A.octree.nLevels-1)
-        disaggregate_downward!(A.octree.levels[levelID], A.octree.levels[levelID+1])
-    end
-
-    # 叶结点解聚：M 源 → 写入 y[1:N]（EM 块）和 y[N+1:2N]（HM 块）
-    disaggregate_leaf_pmchw_m!(A.octree.levels[end], A.basis, A.pmchw,
-                                y, A.sorted_ids)
+    # ── 遍 4：M 源 × k1（聚合用 octree1） ──────────────────────────
+    clear_agg!(A.octree1)
+    aggregate_leaf_pmchw!(A.octree1.levels[end], A.basis, x, A.sorted_ids1, (N+1):(2N))
+    _mlfma_up_translate_down!(A.octree1)
+    disaggregate_leaf_pmchw_m!(A.octree1.levels[end], A.basis, A.pmchw,
+                                y, A.sorted_ids1, :k1)
 
     return y
 end
+
+# 辅助：对一棵八叉树执行 M2M → M2L → L2L
+function _mlfma_up_translate_down!(octree)
+    for levelID in (octree.nLevels-1):-1:2
+        aggregate_upward!(octree.levels[levelID], octree.levels[levelID+1])
+    end
+    for levelID in 2:octree.nLevels
+        translate!(octree.levels[levelID])
+    end
+    for levelID in 2:(octree.nLevels-1)
+        disaggregate_downward!(octree.levels[levelID], octree.levels[levelID+1])
+    end
+end
 ```
 
-**注意事项**（给无 CEM 背景的工程师）：
-- `aggS` 是每个八叉树盒子存储"辐射场球谐系数"的数组，J-Pass 和 M-Pass 必须分别清零后再使用
-- `aggregate_leaf_pmchw!` 的内层积分公式与现有 `aggregate_leaf!`（RWG 版）完全相同；只是用 `x_range` 参数告知当前用的是 `x[1:N]`（J 系数）还是 `x[N+1:2N]`（M 系数），以便提取正确系数
-- 平移步骤（M2M/M2L/L2L）完全复用现有代码，无须修改
+**为何需要 4 遍**：
+- MLFMA 的聚合因子 $e^{jk\hat{r}\cdot r}$ 和平移算子 $T_L(k|d|)$ 都是 k 的函数
+- k0 和 k1 对应不同介质，Lebedev 极点密度也不同
+- 将两种 k 的贡献混入同一 aggS 是错误的
+- 4 遍远场 = J-k0 + J-k1 + M-k0 + M-k1，每遍结果直接累加到 `y`
+
+**disaggregate 函数新增 `kmode::Symbol` 参数**（`:k0` 或 `:k1`），在函数内选择正确的 k/η 因子（见下方 §5.6）。
 
 ### 5.5 聚合叶结点函数（辐射花样积分）
 
@@ -473,16 +494,16 @@ $$\text{term\_mfie} = \sum_{\hat{r},q} w_r\, w_q \left[(\boldsymbol{\rho}(r_q)\t
 
 #### 因子对照表（精确公式，用于代码验证）
 
-| 矩阵块 | 遍 | 积分类型 | k 值 | 因子 |
-|--------|-----|----------|------|------|
-| Z^EJ | J-Pass | `term_efie` | k0 | $\frac{jk_0\eta_0}{16\pi}$ |
-| Z^EJ | J-Pass | `term_efie` | k1 | $\frac{jk_1\eta_1}{16\pi}$ |
-| Z^HJ | J-Pass | `term_mfie` | k0 | $-\frac{jk_0}{16\pi}$ （**负号**） |
-| Z^HJ | J-Pass | `term_mfie` | k1 | $-\frac{jk_1}{16\pi}$ |
-| Z^EM | M-Pass | `term_mfie` | k0 | $+\frac{jk_0}{16\pi}$ （与 HJ 符号相反） |
-| Z^EM | M-Pass | `term_mfie` | k1 | $+\frac{jk_1}{16\pi}$ |
-| Z^HM | M-Pass | `term_efie` | k0 | $\frac{jk_0/\eta_0}{16\pi}$ |
-| Z^HM | M-Pass | `term_efie` | k1 | $\frac{jk_1/\eta_1}{16\pi}$ |
+| 矩阵块 | 遍（共4遍） | 积分类型 | 因子 |
+|--------|------------|----------|------|
+| Z^EJ | J×k0-Pass | `term_efie` | $\frac{jk_0\eta_0}{16\pi}$ |
+| Z^EJ | J×k1-Pass | `term_efie` | $\frac{jk_1\eta_1}{16\pi}$ |
+| Z^HJ | J×k0-Pass | `term_mfie` | $-\frac{jk_0}{16\pi}$ （**负号**） |
+| Z^HJ | J×k1-Pass | `term_mfie` | $-\frac{jk_1}{16\pi}$ |
+| Z^EM | M×k0-Pass | `term_mfie` | $+\frac{jk_0}{16\pi}$ （与 HJ 符号相反） |
+| Z^EM | M×k1-Pass | `term_mfie` | $+\frac{jk_1}{16\pi}$ |
+| Z^HM | M×k0-Pass | `term_efie` | $\frac{jk_0/\eta_0}{16\pi}$ |
+| Z^HM | M×k1-Pass | `term_efie` | $\frac{jk_1/\eta_1}{16\pi}$ |
 
 > **注意**：因子中的 $16\pi$ 来自 MLFMA 球面积分的归一化约定；与现有 EFIE `Disaggregation.jl` 的 `add_received_field_rwg!` 内 `factor` 计算方式一致（直接拷贝参考）。
 
@@ -491,17 +512,14 @@ $$\text{term\_mfie} = \sum_{\hat{r},q} w_r\, w_q \left[(\boldsymbol{\rho}(r_q)\t
 ```julia
 function disaggregate_leaf_pmchw_j!(
     leaf_level, basis::RWGBasis, pmchw::PMCHW,
-    y::AbstractVector, sorted_ids::Vector{Int}
+    y::AbstractVector, sorted_ids::Vector{Int}, kmode::Symbol
 )
     N      = num_basis(basis)
-    k0, η0 = pmchw.k0, pmchw.eta0
-    k1, η1 = pmchw.k1, pmchw.eta1
+    k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
     disaggG = leaf_level.disaggG   # (nPoles, 2, nCubes)
 
-    factor_EJ_k0 = im * k0 * η0 / (16π)
-    factor_EJ_k1 = im * k1 * η1 / (16π)
-    factor_HJ_k0 = -im * k0 / (16π)   # 负号
-    factor_HJ_k1 = -im * k1 / (16π)
+    factor_EJ = im * k * η / (16π)   # EJ 块
+    factor_HJ = -im * k / (16π)      # HJ 块（负号）
 
     Threads.@threads for iCube in 1:leaf_level.nCubes
         cube  = leaf_level.cubes[iCube]
@@ -512,30 +530,24 @@ function disaggregate_leaf_pmchw_j!(
             bfID_orig = sorted_ids[bfID_sorted]
             bf        = basis.functions[bfID_orig]
 
-            term_efie_k0, term_mfie_k0 = _receive_terms(bf, field, r0, k0, η0, leaf_level.poles)
-            term_efie_k1, term_mfie_k1 = _receive_terms(bf, field, r0, k1, η1, leaf_level.poles)
+            term_efie, term_mfie = _receive_terms(bf, field, r0, k, η, leaf_level.poles)
 
-            # EJ 块 → y[bfID_orig]（E 方程行，索引 1:N）
-            y[bfID_orig]   += term_efie_k0 * factor_EJ_k0 + term_efie_k1 * factor_EJ_k1
-            # HJ 块 → y[bfID_orig + N]（H 方程行）
-            y[bfID_orig+N] += term_mfie_k0 * factor_HJ_k0 + term_mfie_k1 * factor_HJ_k1
+            y[bfID_orig]   += term_efie * factor_EJ   # EJ 块
+            y[bfID_orig+N] += term_mfie * factor_HJ   # HJ 块
         end
     end
 end
 
 function disaggregate_leaf_pmchw_m!(
     leaf_level, basis::RWGBasis, pmchw::PMCHW,
-    y::AbstractVector, sorted_ids::Vector{Int}
+    y::AbstractVector, sorted_ids::Vector{Int}, kmode::Symbol
 )
     N      = num_basis(basis)
-    k0, η0 = pmchw.k0, pmchw.eta0
-    k1, η1 = pmchw.k1, pmchw.eta1
+    k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
     disaggG = leaf_level.disaggG
 
-    factor_EM_k0  = +im * k0 / (16π)        # EM 块：+K（与 HJ 符号相反）
-    factor_EM_k1  = +im * k1 / (16π)
-    factor_HM_k0  =  im * k0 / η0 / (16π)   # HM 块：L_η
-    factor_HM_k1  =  im * k1 / η1 / (16π)
+    factor_EM  = +im * k / (16π)        # EM 块（正号，与 HJ 相反）
+    factor_HM  =  im * k / η / (16π)    # HM 块（L_η）
 
     Threads.@threads for iCube in 1:leaf_level.nCubes
         cube  = leaf_level.cubes[iCube]
@@ -546,13 +558,10 @@ function disaggregate_leaf_pmchw_m!(
             bfID_orig = sorted_ids[bfID_sorted]
             bf        = basis.functions[bfID_orig]
 
-            term_efie_k0, term_mfie_k0 = _receive_terms(bf, field, r0, k0, η0, leaf_level.poles)
-            term_efie_k1, term_mfie_k1 = _receive_terms(bf, field, r0, k1, η1, leaf_level.poles)
+            term_efie, term_mfie = _receive_terms(bf, field, r0, k, η, leaf_level.poles)
 
-            # EM 块 → y[bfID_orig]（E 方程行）
-            y[bfID_orig]   += term_mfie_k0 * factor_EM_k0 + term_mfie_k1 * factor_EM_k1
-            # HM 块 → y[bfID_orig + N]（H 方程行）
-            y[bfID_orig+N] += term_efie_k0 * factor_HM_k0 + term_efie_k1 * factor_HM_k1
+            y[bfID_orig]   += term_mfie * factor_EM   # EM 块
+            y[bfID_orig+N] += term_efie * factor_HM   # HM 块
         end
     end
 end
@@ -630,7 +639,7 @@ end
 | **15.8** | 实现 `assemble_near_field_pmchw`（2N×2N，4 块：EJ/EM/HJ/HM） | 15.7 RED | P1 🟠 |
 | **15.9** | 实现 `aggregate_leaf_pmchw!`（单函数，x_range 参数区分 J/M） | 15.7 RED | P1 🟠 |
 | **15.10** | 实现 `disaggregate_leaf_pmchw_j!` 和 `_m!`（四块接收核函数） | 15.9 | P1 🟠 |
-| **15.11** | 组装 `PMCHWMLFMAOperator` struct + 构造函数 + `mul!` | 15.8, 15.10 | P1 🟠 |
+| **15.11** | 组装 `PMCHWMLFMAOperator` struct（两棵 N 点八叉树 octree0/octree1）+ 构造函数 + `mul!`（4 遍远场） | 15.8, 15.10 | P1 🟠 |
 | **15.12** | 更新 `generate_report.jl` 加入 B1–B5 | 15.6 | P2 🟡 |
 | **15.13** | 检视迭代 × 2 轮 | 所有 | P2 🟡 |
 
@@ -639,9 +648,9 @@ end
 | 旧方案（已废弃） | 新方案（Gibson Algorithm 14） |
 |----------------|------------------------------|
 | `MagneticRWGBasis` 标签类型（需新文件） | 无新类型，`PMCHWMLFMAOperator.jl` 自包含 |
-| 2N 点八叉树（J/M 坐标重复） | N 点八叉树（正确，J/M 共享几何） |
-| 混入同一 `aggS`，解聚时无法分离 | J-Pass/M-Pass 独立 `aggS`，遍后强制清零 |
-| `bfID ≤ N` 判断（排序后失效） | 由 `x_range` 参数在聚合端明确区分 |
+| 2N 点八叉树（J/M 坐标重复） | 两个 N 点八叉树（octree0/k0, octree1/k1）；J/M 共享几何 |
+| 混入同一 `aggS`，解聚时无法分离 | J×k0/J×k1/M×k0/M×k1 四遍独立 `aggS`；每遍前强制清零 |
+| `bfID ≤ N` 判断（排序后失效） | `kmode` Symbol 参数明确指定 k；`x_range` 明确指定 J/M 系数范围 |
 | 解聚靠 sorted bfID 判断行类型（脆弱） | sorted_ids 仅 N 长，原始 bfID 直接写 `y[bfID]` 和 `y[bfID+N]` |
 | 需扩展 Aggregation.jl / Disaggregation.jl | 不修改现有文件，PMCHWMLFMAOperator.jl 自包含 |
 

@@ -417,7 +417,7 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 - [ ] 15.8 实现 `assemble_near_field_pmchw`（2N×2N 稀疏，4 块：EJ/EM/HJ/HM，无需 MagneticRWGBasis）
 - [ ] 15.9 实现 `aggregate_leaf_pmchw!`（单函数，x_range 参数区分 J/M 系数）
 - [ ] 15.10 实现 `disaggregate_leaf_pmchw_j!` + `_m!`（四块接收核函数，依据 Gibson Algorithm 14 两遍设计）
-- [ ] 15.11 组装 `PMCHWMLFMAOperator` struct + 构造函数 + `mul!`（N 点八叉树，J/M 两遍独立聚合）
+- [ ] 15.11 组装 `PMCHWMLFMAOperator` struct（两棵 N 点八叉树：octree0/k0 + octree1/k1）+ 构造函数 + `mul!`（4 遍远场：J×k0, J×k1, M×k0, M×k1）
 - [ ] 15.12 更新 `generate_report.jl` 加入 B1–B5
 - [ ] 15.13 检视迭代 (≥ 2 轮 clean)
 
