@@ -73,7 +73,7 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 
 **PMCHWMLFMAOperator 设计方案（第三次修订 — 依据 Gibson Ch.11 Algorithm 14）**:
 - **放弃**: ~~`MagneticRWGBasis` 标签类型~~（前两版设计已废弃）
-- **核心原则**: 单个 **N 点**八叉树（不是 2N）+ J/M **两遍独立聚合** + 四种解聚接收函数
+- **核心原则**: **两个 N 点八叉树**（octree0/k0 + octree1/k1，不是 2N 点单树）+ **四遍远场** + 四种解聚接收函数
 - **Gibson 原文根据**: "two passes must be executed...only T_J is actually stored...each testing function has two receive functions"
 - **aggS 清零**: J-Pass 和 M-Pass 之间强制 `fill!(aggS, 0)`，防止两遍叠加
 - **文件**: `PMCHWMLFMAOperator.jl` 自包含（不修改 Aggregation.jl / Disaggregation.jl）
