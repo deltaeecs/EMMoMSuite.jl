@@ -154,6 +154,7 @@ S11 S21 ... SN1  S12 S22 ... SN2  ... SN1 ... SNN
 上述实现与 Keysight 的 Touchstone 1.1 规范保持一致。
 """
 function write_touchstone(data::SParameterData, path::String; version::Int = 1)
+    isempty(data.port_impedances) && error("write_touchstone: port_impedances 不能为空")
     Z_ref  = data.port_impedances[1]   # 假设所有端口相同 Z_ref
     n_port = isempty(data.s_matrices) ? length(data.port_impedances) : size(data.s_matrices[1], 1)
 
