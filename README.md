@@ -300,32 +300,34 @@ PMCHW 与 Mie 级数对比（`radius=0.5 m`，`300 MHz`，`ε_r=4`，`μ_r=1`）
 
 ## 结果可视化
 
-`scripts/` 目录提供三个可直接运行的可视化脚本，使用 `Plots.jl`（GR 后端，无 GUI 依赖）输出 PNG 图像。
+`scripts/` 目录提供三个可直接运行的可视化脚本，使用 `Plots.jl`（GR 后端，无 GUI 依赖）输出 PNG 图像至 `docs/images/`。
 
 ### 脚本 1：RCS 双站对比 — `plot_rcs_sphere.jl`
 
 ```bash
 julia --project scripts/plot_rcs_sphere.jl
-# 输出: scripts/rcs_sphere_comparison.png
+# 输出: docs/images/rcs_sphere_comparison.png
 ```
 
-生成双图对比：
+生成双图对比：PEC 球 EFIE vs Mie（左）与均匀介质球 PMCHW vs Mie E/H 面（右）。
 
-| 子图 | 内容 |
-|------|------|
-| 左图 | PEC 球 (EFIE + RWG, N=1 024) vs Mie 解析解，E 面双站 RCS |
-| 右图 | 均匀介质球 (PMCHW, ε_r=4) vs Mie 解析解，E 面 & H 面 |
+![RCS 球体双站 RCS 对比](docs/images/rcs_sphere_comparison.png)
+
+| 子图 | PMCHW E 面 RMS 误差 | PMCHW H 面 RMS 误差 |
+|------|---------------------|---------------------|
+| 右图 | 0.22 dB | 0.37 dB |
 
 关键代码片段：
 
 ```julia
 using EMSuite, Plots
 
-# PEC 球 EFIE
+# PEC 球 EFIE（使用 4-arg dispatch）
 mesh = generate_sphere_mesh(0.5, 16, 32);  basis = RWGBasis(mesh)
 efie = EFIE(300e6);  Z = assemble_impedance_matrix(efie, basis)
 I = Z \ excitation_vector(efie, PlaneWave(300e6, π/2, π, [0,0,1.0]), basis)
-rcs, _, _ = radarCrossSection(theta_v, [0.0], I, basis, efie.k0, efie.eta0)
+set_frequency!(300e6)
+rcs, _, _ = radarCrossSection(theta_v, [0.0], I, basis)   # 4-arg EFIE dispatch
 rcs_dB = 10 .* log10.(rcs[1,:,1])
 
 # Mie 参考
@@ -333,6 +335,12 @@ mie_db = 10 .* log10.(calculate_mie_rcs_pec_sphere(0.5, 300e6, theta_v))
 
 plot(theta_d, mie_db; label="Mie 解析", ls=:dash)
 plot!(theta_d, rcs_dB; label="EFIE (MoM)")
+
+# PMCHW 介质球（使用 6-arg dispatch，传入 k0, eta0）
+pmchw = PMCHW(300e6, 4.0, 1.0)
+Z2 = assemble_impedance_matrix(pmchw, basis)
+I2 = Z2 \ excitation_vector(pmchw, PlaneWave(300e6, 0, 0, [1,0,0.0]), basis)
+rcs2, _, _ = radarCrossSection(theta_v, [0.0], I2, basis, pmchw.k0, pmchw.eta0)
 ```
 
 ---
@@ -341,16 +349,16 @@ plot!(theta_d, rcs_dB; label="EFIE (MoM)")
 
 ```bash
 julia --project scripts/plot_dipole_pattern.jl
-# 输出: scripts/dipole_pattern.png
+# 输出: docs/images/dipole_pattern.png
 ```
 
-输出双图：**极坐标方向图**（左）和 **线形对比图**（右），并在终端打印输入阻抗和 S11：
+输出**极坐标方向图**（左）和**线形对比图**（右），MoM 数值结果对比半波偶极子解析方向图 $F(\theta)=[cos(\frac{\pi}{2}\cos\theta)/\sin\theta]^2$：
+
+![半波偶极子远场方向图](docs/images/dipole_pattern.png)
 
 ```
-Z_in = 78.3 + j44.1 Ω
-S11  = -10.2 dB (Z0=50 Ω)
-（理论半波偶极子: Z_in ≈ 73 + j42.5 Ω）
-最大方向性 = 2.03 dBi   （理论 2.15 dBi）
+最大方向性 = 2.18 dBi   （理论 2.15 dBi，误差 < 0.03 dB）
+辐射效率   = 99.97 %     （PEC 天线，无欧姆损耗）
 ```
 
 关键代码片段：
@@ -368,13 +376,10 @@ feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0
 src    = DeltaGapSource(300e6, feed, 1.0 + 0im)
 I      = Z \ excitation_vector(src, basis)
 
-# 输入阻抗 & S11
-Z_in   = input_impedance(src, I, basis)
-S11_dB = 20log10(abs((Z_in - 50) / (Z_in + 50)))
-
 # 方向图
 θs, ϕs = collect(range(1e-3, π-1e-3, 181)), collect(range(0, 2π, 73))
-result = antenna_directivity(θs, ϕs, I, basis; P_input=0.5real(sum(I[feed])))
+I_feed = sum(I[n] * basis.functions[n].edge_length for n in feed)
+result = antenna_directivity(θs, ϕs, I, basis; P_input=0.5real(I_feed))
 D_dBi  = 10 .* log10.(result.D .+ 1e-30)
 
 # 解析参考: F(θ) = [cos(π/2·cosθ)/sinθ]²
@@ -387,15 +392,17 @@ F_theory = [abs(cos(π/2*cos(t))/sin(t))^2 for t in θs]
 
 ```bash
 julia --project scripts/plot_s11_dipole_sweep.jl
-# 输出: scripts/dipole_s11_sweep.png
+# 输出: docs/images/dipole_s11_sweep.png
 ```
 
-输出三图（200–500 MHz，31 频率点）：
+输出三图（200–500 MHz，31 频率点）：S11(dB) vs 频率、输入阻抗 R/X vs 频率、Smith 圆图：
+
+![偶极子 S11 频率扫描](docs/images/dipole_s11_sweep.png)
 
 | 子图 | 内容 |
 |------|------|
 | 左图 | S11 (dB) vs 频率，标注 -10 dB 带宽和理论谐振点 |
-| 中图 | 输入阻抗 R_in、X_in vs 频率（对比理论 R≈73 Ω, X=0） |
+| 中图 | 输入阻抗 R_in、X_in vs 频率 |
 | 右图 | Smith 圆图（阻抗轨迹随频率着色） |
 
 关键代码片段：
@@ -410,9 +417,10 @@ feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0
 Z_in_sweep = ComplexF64[]
 for freq in LinRange(200e6, 500e6, 31)
     set_frequency!(freq)
+    src = DeltaGapSource(freq, feed, 1.0+0im)
     Z = assemble_impedance_matrix(EFIE(freq), basis)
-    I = Z \ excitation_vector(DeltaGapSource(freq, feed, 1.0+0im), basis)
-    push!(Z_in_sweep, input_impedance(DeltaGapSource(freq, feed, 1.0+0im), I, basis))
+    I = Z \ excitation_vector(src, basis)
+    push!(Z_in_sweep, input_impedance(src, I, basis))
 end
 
 S11_dB = 20 .* log10.(abs.((Z_in_sweep .- 50) ./ (Z_in_sweep .+ 50)))
