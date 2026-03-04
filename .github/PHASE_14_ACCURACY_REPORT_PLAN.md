@@ -306,7 +306,7 @@ PMCHW MLFMA 算子结构：
   [-(K_far(k0) + K_far(k1))           EFIE_far_inv(k0) + EFIE_far_inv(k1)]   [M]
 ```
 
-**Block MLFMA 设计**：
+**Block MLFMA 设计**（⚠️ 以下为 Phase 14 草案，最终实现设计请参阅 [PHASE_15_DIELECTRIC_ANTENNA_PLAN.md](PHASE_15_DIELECTRIC_ANTENNA_PLAN.md) §5）：
 - 每个媒质 (k0, k1) 独立构建 MLFMA 树（共用几何，但波数不同）
 - `mul!(y, op::PMCHWMLFMAOperator, x)` 接受长度 2N 向量，拆分为 J/M 两部分，分别调用各子算子
 - 近场 Z_near 仍用 Dense 直接计算（2N×2N 子块）
