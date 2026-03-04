@@ -262,8 +262,10 @@ end
 
         Z_in = input_impedance(source, ICoeff, basis)
 
-        # Z_in = 1.0 / (0.1 - 0.01im)
-        expected = 1.0 / (0.1 - 0.01im)
+        # Z_in = V / (I_coeff * edge_length)
+        # Shared edge: node2=(1,0,0) to node3=(0,1,0) → length = √2
+        edge_len = sqrt(2.0)
+        expected = 1.0 / ((0.1 - 0.01im) * edge_len)
         @test Z_in ≈ expected
 
         # Z_in is Complex
