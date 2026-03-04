@@ -153,9 +153,11 @@ end
     @test norm(V_E) > 0
     @test norm(V_H) > 0
 
-    # |V_H| / |V_E| 应为 O(1)：MFIE 激励已内置了 η₀ 儹演，两块量级相当
+    # V_H = ∫ f · H^inc dS，H^inc = (k̂ × E^inc)/η₀
+    # 因此 |V_H|/|V_E| ≈ 1/η₀ ≈ 2.65e-3（H 场比 E 场小 η₀ 倍）
+    # 注意：旧实现错用 MFIE 激励（η₀ × ∫ f·(n̂×H^inc)），使 ratio ≈ O(1)，物理不正确
     ratio = norm(V_H) / norm(V_E)
-    @test 0.01 < ratio < 100.0
+    @test 1e-4 < ratio < 0.05  # 正确物理：ratio ≈ 1/η₀ ≈ 2.65e-3
 end
 
 # ============================================================
