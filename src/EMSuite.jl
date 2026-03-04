@@ -62,6 +62,7 @@ include("IntegralEquations/IntegralEquations.jl")
 include("Solvers/Solvers.jl")
 include("PostProcessing/PostProcessing.jl")
 include("IO/IO.jl")
+include("Ports/Ports.jl")
 
 # Re-export Core symbols
 using .CoreModule
@@ -134,6 +135,19 @@ export absorbed_power, sar
 # Re-export IO symbols
 using .IO
 export save_RCS_txt, save_RCS_csv, save_results_hdf5, save_result, save_vtk, save_vtk_multi
+
+# Re-export Ports symbols
+using .PortsModule
+export AbstractPort, port_id, port_current, port_voltage, port_power
+export LumpedPort, lumped_port
+export assemble_lumped_port_impedance!, add_port_excitation!
+export DiscretePort, CoaxPort, coax_impedance
+export DifferentialPairPort
+export mixed_mode_transform_matrix, convert_to_mixed_mode
+export sdd_matrix, scc_matrix, scd_matrix
+export SParameterData, sparam_data, extract_s_matrix
+export write_touchstone, read_touchstone
+export WavePort, PortModes, compute_port_modes, de_embed_s_matrix
 
 
 # Re-export BasisFunctions symbols
