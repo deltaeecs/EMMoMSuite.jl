@@ -27,4 +27,5 @@ using Test
     include("test_hex_rbf.jl")
     include("test_pmchw.jl")
     include("test_ports.jl")
+    include("test_postprocessing_advanced.jl")
 end
