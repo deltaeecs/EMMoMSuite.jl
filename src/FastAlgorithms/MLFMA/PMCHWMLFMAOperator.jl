@@ -271,7 +271,8 @@ function _receive_terms(
     η     :: Number,
     poles :: AbstractPolesInfo,
 )
-    CT        = ComplexF64
+    CT        = typeof(complex(one(real(k))))
+    FT        = real(CT)
     te        = zero(CT)
     tm        = zero(CT)
     JK        = CT(im * k)
@@ -283,7 +284,7 @@ function _receive_terms(
     nPoles     = length(poles_r̂)
 
     tri_info = get_triangles_info(basis.mesh, basis)
-    gq       = GaussQuadratureInfo(:Triangle, 3, Float64)
+    gq       = GaussQuadratureInfo(:Triangle, 3, FT)
     n_qp     = length(gq.weight)
 
     for i_supp in 1:2
