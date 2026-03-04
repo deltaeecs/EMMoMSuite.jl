@@ -11,6 +11,7 @@ generate_report.jl — Phase 14 全量精度报告汇总
 using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
 using Printf, Dates
+using CSV, DataFrames
 
 const ROOT_DIR   = joinpath(@__DIR__, "..", "..")
 const RESULT_DIR = joinpath(ROOT_DIR, "test_results", "accuracy")
@@ -136,7 +137,40 @@ open(report_path, "w") do io
     println(io, "")
     println(io, "- **F8**: 纯介质板 SCFIE，网格不含 CTRIA3，暂跳过")
     println(io, "- **P2**: PMCHW MLFMA，`PMCHWMLFMAOperator` 待实现")
-    println(io, "- **A1-A4**: 偶极子天线端口，运行 `run_A1_A4_antenna.jl`")
+    println(io, "")
+    println(io, "---")
+    println(io, "")
+
+    # ── A1-A4 天线段落 ────────────────────────────────────────────────────────
+    println(io, "## 天线端口精度 (A1-A4)")
+    println(io, "")
+    println(io, "| 用例 | Z_in (Ω) | Z_ref (Ω) | Re误差 | Im误差 (Ω) | D_max (dBi) | S11 (dB) | 结论 |")
+    println(io, "|------|----------|----------|--------|-----------|------------|---------|------|")
+
+    antenna_cases = [
+        ("A1_halfwave_direct",  "A1 半波偶极子 Direct"),
+        ("A2_halfwave_mlfma",   "A2 半波偶极子 MLFMA"),
+        ("A3_resonant_direct",  "A3 近谐振 Direct"),
+        ("A4_50ohm_s11",        "A4 50Ω S11"),
+    ]
+
+    for (fname, desc) in antenna_cases
+        csv_path = joinpath(RESULT_DIR, fname * ".csv")
+        if !isfile(csv_path)
+            println(io, "| $desc | — | — | — | — | — | — | ⚠ 未运行 |")
+            continue
+        end
+        df_a = CSV.read(csv_path, DataFrame)
+        row  = df_a[1, :]
+        zin_str  = @sprintf("%+.1f%+.1fj", row.Z_in_re, row.Z_in_im)
+        zref_str = @sprintf("%+.1f%+.1fj", row.Z_ref_re, row.Z_ref_im)
+        re_str   = hasproperty(row, :re_err_pct) ? @sprintf("%.1f%%", row.re_err_pct) : "—"
+        im_str   = hasproperty(row, :im_err_ohm) ? @sprintf("%.1f", row.im_err_ohm) : "—"
+        dmax_str = hasproperty(row, :D_max_dBi)  ? @sprintf("%.2f", row.D_max_dBi)  : "—"
+        s11_str  = hasproperty(row, :S11_dB)     ? @sprintf("%.2f", row.S11_dB)     : "—"
+        pass_str = row.passed ? "✓ PASS" : "✗ FAIL"
+        println(io, "| $desc | $zin_str | $zref_str | $re_str | $im_str | $dmax_str | $s11_str | $pass_str |")
+    end
 end
 
 println("报告已保存: $report_path")
@@ -153,5 +187,21 @@ let results_found = 0, results_pass = 0
         status = stats.rmse < threshold ? "✓" : "✗"
         @printf("  %s %-46s RMSE=%.3f dB\n", status, desc, stats.rmse)
     end
-    println("\n已有结果: $results_found / $(length(EXPECTED_CASES))  通过: $results_pass")
+    println("\n已有结果 (RCS): $results_found / $(length(EXPECTED_CASES))  通过: $results_pass")
+end
+
+# 天线摘要
+let a_found = 0, a_pass = 0
+    for (fname, desc) in [("A1_halfwave_direct","A1"),("A2_halfwave_mlfma","A2"),
+                           ("A3_resonant_direct","A3"),("A4_50ohm_s11","A4")]
+        csv_path = joinpath(RESULT_DIR, fname * ".csv")
+        isfile(csv_path) || continue
+        df_a = CSV.read(csv_path, DataFrame)
+        a_found += 1
+        df_a[1,:passed] && (a_pass += 1)
+        status = df_a[1,:passed] ? "✓" : "✗"
+        @printf("  %s %-46s Z_in=%+.1f%+.1fj Ω\n",
+            status, desc, df_a[1,:Z_in_re], df_a[1,:Z_in_im])
+    end
+    a_found > 0 && println("\n天线结果: $a_found / 4  通过: $a_pass")
 end
