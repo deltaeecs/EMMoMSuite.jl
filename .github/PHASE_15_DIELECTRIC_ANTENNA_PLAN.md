@@ -239,85 +239,229 @@ vol_basis = SWGBasis(dielectric_mesh)
 
 ---
 
-## 5. PMCHWMLFMAOperator 实现计划
+## 5. PMCHWMLFMAOperator 原生实现方案
+
+### 5.0 设计原则（修订）
+
+> **指导思想**：参照 VS-EFIE（SCFIE）的混合基函数 MLFMA 模式。VS-EFIE 中 `bases = [RWGBasis, SWGBasis]`，两类基函数按空间位置在同一八叉树中交错（不是按类型连续分区）。PMCHW 也应如此——J 和 M 电磁流共享同一网格，八叉树自然将 (J_i, M_i) 打包进同一叶结点。
+>
+> **不做的事**：不创建两个独立的 `MLFMAOperator` 包装器，不在 `mul!` 外层手动切割 `y_E = y[1:N]` / `y_H = y[N+1:2N]` 索引块。
+>
+> **做的事**：引入轻量 `MagneticRWGBasis` 标签类型；在底层 `aggregate_leaf!`/`disaggregate_leaf!`/`assemble_near_field` 里按 operator isa PMCHW 分派正确核函数；`PMCHWMLFMAOperator.mul!` 直接操控八叉树内部，两趟聚合-平移-解聚覆盖全部 4 个矩阵块。
 
 ### 5.1 文件结构
 
 ```
+src/BasisFunctions/
+└── MagneticRWG.jl          ← 新建：MagneticRWGBasis 包装类型
+
 src/FastAlgorithms/MLFMA/
-├── PMCHWMLFMAOperator.jl   ← 新建
-│   ├── struct PMCHWMLFMAOperator{FT,CT}
-│   ├── PMCHWMLFMAOperator(pmchw, basis, leaf_size)  # 构造函数
-│   ├── Base.size, Base.eltype
-│   ├── mul!(y, A::PMCHWMLFMAOperator, x)            # 核心计算
-│   └── get_leaf_intervals(op::PMCHWMLFMAOperator)   # 用于 Block Jacobi
-└── MLFMA.jl  ← 新增 include 和 export
+├── PMCHWMLFMAOperator.jl   ← 新建：struct + mul! + 自定义 disaggregate_leaf_pmchw!
+├── Aggregation.jl          ← 扩展：支持 MagneticRWGBasis（调用同一 add_radiation_pattern_rwg!）
+├── Disaggregation.jl       ← 扩展：新增 disaggregate_leaf_pmchw! 处理 4 块测试
+└── MLFMAOperator.jl        ← 扩展：assemble_near_field 识别 PMCHW 的 4 种交叉块
 ```
 
-### 5.2 结构体定义
+### 5.2 MagneticRWGBasis — M 电流标签类型
+
+**位置**: `src/BasisFunctions/MagneticRWG.jl`
+
+```julia
+"""
+    MagneticRWGBasis{IT,FT} <: AbstractBasisFunction
+
+轻量包装，将 RWGBasis 标记为"磁流（M）"类型。
+空间几何与原始 RWGBasis 完全相同；唯一作用：在 MLFMA
+聚合/解聚/近场装配时触发 PMCHW 专用的 K 算子核函数分支。
+"""
+struct MagneticRWGBasis{IT,FT} <: AbstractBasisFunction
+    basis::RWGBasis{IT,FT}
+end
+
+# 委托接口：从底层 RWGBasis 获取所有几何属性
+CoreModule.num_basis(b::MagneticRWGBasis) = num_basis(b.basis)
+Base.getproperty(b::MagneticRWGBasis, s::Symbol) =
+    s === :basis ? getfield(b, :basis) : getproperty(b.basis, s)
+```
+
+> **关键效果**：`bases = [rwg_basis, MagneticRWGBasis(rwg_basis)]` 时，`basis_offsets = [N, 2N]`，两类基函数中心坐标完全重合；八叉树对 2N 个点排序后，叶结点中 J_i 和 M_i 自然相邻（"混着的"，正是用户要求的效果）。
+
+### 5.3 PMCHWMLFMAOperator 结构体
 
 ```julia
 struct PMCHWMLFMAOperator{FT,CT} <: AbstractIntegralOperator
-    pmchw     :: PMCHW{FT,CT}          # 底层 PMCHW 算子（含 k0, k1, η0, η1）
-    basis     :: RWGBasis              # 共用 RWGBasis（J 和 M 都在同一网格上）
-    Z_near    :: SparseMatrixCSC{CT}   # 2N×2N 近场稀疏矩阵（从 PMCHW 直接装配）
-    # 两个 EFIE-型 MLFMAOperator（分别处理 k0 和 k1 的 L 贡献）
-    mlfma_k0  :: MLFMAOperator{FT,CT}  # EFIE(k0, η0)
-    mlfma_k1  :: MLFMAOperator{FT,CT}  # EFIE(k1, η1)
-    # 可选: K-型算子（阶段 2 添加）
-    # mlfma_k0_K :: MLFMAOperator{FT,CT}
-    # mlfma_k1_K :: MLFMAOperator{FT,CT}
-    sorted_ids     :: Vector{Int}
+    pmchw     :: PMCHW{FT,CT}
+    basis     :: RWGBasis              # N 个 DOF 的 RWGBasis（J 和 M 共用）
+    Z_near    :: SparseMatrixCSC{CT}   # 2N×2N 近场（含 4 个交叉块）
+    octree    :: OctreeInfo            # 从 2N 中心点建立（J 和 M 坐标重叠）
+    sorted_ids     :: Vector{Int}      # 2N 长排列
     inv_sorted_ids :: Vector{Int}
-    freq      :: FT                    # 供 AbstractIntegralOperator 接口
+    freq      :: FT
 end
+
+Base.size(op::PMCHWMLFMAOperator)    = size(op.Z_near)
+Base.eltype(::PMCHWMLFMAOperator{FT,CT}) where {FT,CT} = CT
 ```
 
-### 5.3 mul! 的阶段实现
+### 5.4 mul! — 两趟聚合共享八叉树
 
-**阶段 1（仅近场，可立即验证接口）**:
 ```julia
-function LinearAlgebra.mul!(y, A::PMCHWMLFMAOperator, x)
-    mul!(y, A.Z_near, x)   # 纯近场：等价于直接法但用稀疏矩阵
+function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperator, x::AbstractVector)
+    N = num_basis(A.basis)
+
+    # ① 近场（2N×2N 稀疏矩阵，包含全部 4 块近邻交互）
+    mul!(y, A.Z_near, x)
+
+    # ② 远场 — 趟 1：J 源（x[1:N]）
+    #    聚合：standard RWGBasis radiation pattern
+    x_J = @view x[1:N]
+    x_pad_J = zeros(eltype(x), 2N); x_pad_J[1:N] .= x_J   # 只含 J 系数
+    aggregate!(A.octree, AbstractBasisFunction[A.basis, MagneticRWGBasis(A.basis)],
+               [N, 2N], A.pmchw, x_pad_J, A.sorted_ids)
+    #    注：aggregate_leaf! 对 J 和 M 用同一 add_radiation_pattern_rwg!
+    #        （M 辐射花样积分形式 ∫ρ e^{jkr̂·r} 与 J 相同；区别在解聚）
+
+    _pmchw_translate_disaggregate!(y, A, :J)
+
+    # ③ 远场 — 趟 2：M 源（x[N+1:2N]）
+    x_M = @view x[N+1:2N]
+    x_pad_M = zeros(eltype(x), 2N); x_pad_M[N+1:2N] .= x_M
+    aggregate!(A.octree, AbstractBasisFunction[A.basis, MagneticRWGBasis(A.basis)],
+               [N, 2N], A.pmchw, x_pad_M, A.sorted_ids)
+
+    _pmchw_translate_disaggregate!(y, A, :M)
+
+    return y
+end
+
+function _pmchw_translate_disaggregate!(y, A::PMCHWMLFMAOperator, src_type::Symbol)
+    # 平移（水平传递）
+    for levelID = 2:A.octree.nLevels
+        translate!(A.octree.levels[levelID])
+    end
+    # 向下传递
+    for levelID = 2:(A.octree.nLevels-1)
+        disaggregate_downward!(A.octree.levels[levelID], A.octree.levels[levelID+1])
+    end
+    # 叶结点解聚 —— PMCHW 专用：根据 src_type + test_type 选核函数
+    N = num_basis(A.basis)
+    y_far = zeros(eltype(y), 2N)
+    disaggregate_leaf_pmchw!(
+        A.octree.levels[A.octree.nLevels],
+        A.basis, A.pmchw, y_far, A.sorted_ids, src_type,
+    )
+    y .+= y_far
 end
 ```
 
-**阶段 2（完整 MLFMA）**:
+### 5.5 disaggregate_leaf_pmchw! — 4 块测试公式
+
+PMCHW 的远场测试逻辑（在 `Disaggregation.jl` 新增，或写入 `PMCHWMLFMAOperator.jl`）：
+
+| src_type | test_type | 核函数 | 因子 |
+|----------|-----------|--------|------|
+| J | E 方程（bfID ≤ N） | L（EFIE 测试 ρ·E） | η₀/k₀ + η₁/k₁ 相应因子 |
+| J | H 方程（bfID > N） | −K（MFIE 测试 (ρ×n̂)·H，负号） | −1/k 相关 |
+| M | E 方程（bfID ≤ N） | K（MFIE 测试 (ρ×n̂)·H） | +1/k 相关 |
+| M | H 方程（bfID > N） | Lη（EFIE/η 测试 ρ·E） | 1/η 调整 |
+
+实现参考 `add_received_field_rwg!` 中已有的 EFIE/MFIE 分支：
+
 ```julia
-function LinearAlgebra.mul!(y, A::PMCHWMLFMAOperator, x)
-    N = size(A.mlfma_k0, 1)   # RWGBasis 的 N
-    x_J = x[1:N];   x_M = x[N+1:2N]
-    y_E = view(y, 1:N);   y_H = view(y, N+1:2N)
+function disaggregate_leaf_pmchw!(
+    leaf_level, basis::RWGBasis, pmchw::PMCHW, y_far, sorted_ids, src_type::Symbol
+)
+    N = num_basis(basis)
+    k0, eta0, k1, eta1 = pmchw.k0, pmchw.eta0, pmchw.k1, pmchw.eta1
+    elem_info = get_triangles_info(basis.mesh, basis)
+    gq        = GaussQuadratureInfo(:Triangle, 3, Float64)
+    poles     = leaf_level.poles
+    nPoles    = length(poles.r̂sθsϕs)
+    disaggG   = leaf_level.disaggG
 
-    # 近场贡献
-    mul!(y, A.Z_near, x)   # sparse mat-vec (2N×2N)
+    Threads.@threads for iCube = 1:leaf_level.nCubes
+        cube = leaf_level.cubes[iCube]
+        field = view(disaggG, :, :, iCube)
+        for bfID_sorted in cube.bfInterval
+            bfID   = sorted_ids[bfID_sorted]
+            is_E_row = bfID ≤ N                     # E 方程（前 N 行）
+            local_id = is_E_row ? bfID : bfID - N   # 本地基函数编号
+            bf       = basis.functions[local_id]
 
-    # 远场贡献（从 Z_far_col[J] 和 Z_far_col[M] 分别计算）
-    # EJ block: L(k0)*J + L(k1)*J
-    y_EJ_k0 = zeros(CT, N); mul!(y_EJ_k0, A.mlfma_k0, x_J)
-    y_EJ_k1 = zeros(CT, N); mul!(y_EJ_k1, A.mlfma_k1, x_J)
-    y_E .+= y_EJ_k0 .+ y_EJ_k1
-    # ... (K 块和 Lη 块需要额外的 K-type MLFMA 实例)
+            # 计算 term_efie（ρ·E 积分）和 term_mfie（(ρ×n̂)·H 积分）
+            # … (积分循环，复用 add_received_field_rwg! 的内层逻辑)
+
+            val = zero(ComplexF64)
+            if src_type === :J && is_E_row
+                # EJ 块：L 算子，factor = jk0η0/(16π) + jk1η1/(16π)
+                val = term_efie_k0 * factor_EJ_k0 + term_efie_k1 * factor_EJ_k1
+            elseif src_type === :J && !is_E_row
+                # HJ 块：-K 算子，factor = -(jk0/(16π) + jk1/(16π))
+                val = -(term_mfie_k0 * factor_K_k0 + term_mfie_k1 * factor_K_k1)
+            elseif src_type === :M && is_E_row
+                # EM 块：+K 算子
+                val = term_mfie_k0 * factor_K_k0 + term_mfie_k1 * factor_K_k1
+            else   # :M, H 方程
+                # HM 块：Lη 算子，factor = jk0/(η0·16π) + jk1/(η1·16π)
+                val = term_efie_k0 * factor_HM_k0 + term_efie_k1 * factor_HM_k1
+            end
+
+            y_far[bfID] += val
+        end
+    end
 end
 ```
 
-> 阶段 1 先完成，验证 B1/B2 接口正确性后，再在阶段 2 扩展完整 far-field。
+### 5.6 assemble_near_field 近场扩展（PMCHW 4 块）
 
-### 5.4 近场矩阵构建
+在 `MLFMAOperator.jl` 的 `assemble_near_field` 内，**新增 PMCHW 分支**：
 
-参考 `assemble_impedance_matrix(pmchw, basis)` 已返回完整 2N×2N 矩阵。  
-PMCHWMLFMAOperator 构建时直接截取 Z_near_sparse 部分（近邻块）：
+```julia
+# 在现有 if operator isa SCFIE 分支后添加：
+elseif operator isa PMCHW
+    # RWG×RWG → EJ 块（L 核）
+    if !isempty(my_tris) && !isempty(neigh_tris)
+        # (与现有 efie_interaction! 类似，但 operator 用 pmchw 的 L 子算子)
+    end
+    # RWG×MagneticRWG → EM 块（K 核）
+    # MagneticRWG×RWG → HJ 块（-K 核）
+    # MagneticRWG×MagneticRWG → HM 块（Lη 核）
+end
+```
+
+> **注**：可直接调用 `pmchw_block_interaction!(Z_local, pmchw, tri_test, tri_src, test_type, src_type)` 辅助函数，封装 EJ/EM/HJ/HM 四种核函数选择逻辑，代码清晰，符合 Legacy PMCHW 装配逻辑（`assemble_impedance_matrix` 中已有对应子块计算）。
+
+### 5.7 构造函数
 
 ```julia
 function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64)
-    # 1. 构建单一 RWGBasis 的八叉树
-    # 2. 装配 Z_near (2N×2N 近邻稀疏矩阵，从完整矩阵筛选近邻对)
-    # 3. 构建 mlfma_k0 = MLFMAOperator(EFIE(freq, η0_equiv), basis, leaf_size)
-    #    其中 η0_equiv = η0  → 统一远场聚合
-    # 4. 构建 mlfma_k1 = MLFMAOperator(EFIE(freq_equiv, η1), basis, leaf_size)
-    #    注意: k1 ≠ k0，需要分别构建八叉树（不同的 Lebedev 展开阶数）
+    # 1. 构建八叉树：从 2N 个中心点（N J + N M，位置相同）
+    m_basis = MagneticRWGBasis(basis)
+    bases   = AbstractBasisFunction[basis, m_basis]
+    offsets = cumsum([num_basis(b) for b in bases])   # [N, 2N]
+    centers_J = reduce(hcat, [bf.center for bf in basis.functions])
+    centers_M = reduce(hcat, [bf.center for bf in m_basis.functions])  # 同 J
+    all_centers = hcat(centers_J, centers_M)
+    λ = 299792458.0 / pmchw.freq
+    octree, sorted_ids = build_octree(all_centers, leaf_size; λ = λ)
+    N = num_basis(basis)
+    inv_sorted_ids = zeros(Int, 2N)
+    for i = 1:2N; inv_sorted_ids[sorted_ids[i]] = i; end
+
+    # 2. 装配 Z_near（2N×2N，含全部 4 块近邻交互）
+    Z_near = assemble_near_field(pmchw, bases, offsets, octree, sorted_ids, inv_sorted_ids)
+
+    FT = typeof(pmchw.freq)
+    CT = Complex{FT}
+    return PMCHWMLFMAOperator{FT,CT}(pmchw, basis, Z_near, octree, sorted_ids, inv_sorted_ids, pmchw.freq)
 end
 ```
+
+**关键优势**：
+- 八叉树建在 2N 点上，J_i 与 M_i 坐标相同 → 叶结点内 J/M 自然交错（"混着的"）
+- 两趟 `aggregate!` 复用完全相同的八叉树结构，无重复构建
+- 没有 `y_E = y[1:N]` 等外部索引切割；J/M 的区别由 `bfID ≤ N` 在解聚内部处理
+- 与 VS-EFIE 设计完全对称（VS-EFIE 也是 `bases = [RWG, SWG]`，这里是 `[RWG, MagneticRWG]`）
 
 ---
 
@@ -332,10 +476,24 @@ end
 | **15.5** | 实现 `excitation_vector(SCFIE, DeltaGapSource, rwg, swg)` | 15.4 RED | P0 🔴 |
 | **15.6** | 基准脚本 `benchmark/accuracy/run_B1_B5_antenna.jl` | 15.3, 15.5 | P1 🟠 |
 | **15.7** | TDD: `test_pmchw_mlfma_operator.jl` | — | P1 🟠 |
-| **15.8** | `PMCHWMLFMAOperator` 阶段 1（仅近场） | 15.7 RED | P1 🟠 |
-| **15.9** | `PMCHWMLFMAOperator` 阶段 2（添加 Z_far，K 块） | 15.8 | P2 🟡 |
-| **15.10** | 更新 `generate_report.jl` 加入 B1–B5 | 15.6 | P2 🟡 |
-| **15.11** | 检视迭代 × 2 轮 | 所有 | P2 🟡 |
+| **15.8** | 新建 `MagneticRWGBasis` 标签类型（`src/BasisFunctions/MagneticRWG.jl`） | 15.7 RED | P1 🟠 |
+| **15.9** | 扩展 `aggregate_leaf!`：支持 `MagneticRWGBasis`（复用 RWG 辐射花样积分） | 15.8 | P1 🟠 |
+| **15.10** | 新建 `PMCHWMLFMAOperator` + `disaggregate_leaf_pmchw!`（4 块测试公式） | 15.9 | P1 🟠 |
+| **15.11** | 扩展 `assemble_near_field`：PMCHW 的 4 种交叉块近场（K 核 + Lη 核） | 15.10 | P1 🟠 |
+| **15.12** | 更新 `generate_report.jl` 加入 B1–B5 | 15.6 | P2 🟡 |
+| **15.13** | 检视迭代 × 2 轮 | 所有 | P2 🟡 |
+
+### 受益于 MagneticRWGBasis 的设计亮点
+
+与旧方案（"阶段1仅近场 → 阶段2加远场"）相比，新方案：
+
+| 旧方案 | 新方案 |
+|--------|--------|
+| `PMCHWMLFMAOperator` 包含 2 个独立 `MLFMAOperator` 对象 | 只含 1 个 `OctreeInfo` + `Z_near` |
+| `mul!` 外层手动 `y_E = y[1:N]` / `y_H = y[N+1:2N]` | J/M 区分在 `disaggregate_leaf_pmchw!` 内部以 `bfID ≤ N` 判断 |
+| 两套八叉树（k0 和 k1 分别构建） | 一套八叉树，两趟聚合-平移-解聚，复用树结构 |
+| K 块远场另建 CFIE 算子 | 直接在 `disaggregate_leaf_pmchw!` 里按 `term_mfie` 公式计算，零额外算子 |
+| 不可扩展为混合 J/M 空间排列 | 八叉树对 2N 点排序，叶内 (J_i, M_i) 天然交错，与 VS-EFIE 对称 |
 
 ---
 
@@ -346,11 +504,13 @@ end
 | 新增激励 API 单元测试 | `test_pmchw_excitation.jl` 全通过（含 zero-feed 错误捕获） |
 | SCFIE delta-gap 测试 | `test_scfie_delta_gap.jl` 全通过 |
 | B1 PMCHW Direct | Re(Z_in) > 0，εᵣ→1 时 Z_in 趋近 EFIE 结果（相对误差 <10%） |
-| B2 PMCHW MLFMA (阶段1) | GMRES 收敛，Z_in_B2 与 Z_in_B1 误差 <5% |
-| B3 VS-EFIE Direct | Z_in Re误差 (vs EFIE-only) <10% |
+| B2 PMCHW MLFMA | GMRES 收敛，Z_in_B2 与 Z_in_B1 误差 <5%（使用 PMCHWMLFMAOperator） |
+| B3 VS-EFIE Direct | Z_in Re 误差 (vs EFIE-only) <10% |
 | B4 VS-CFIE Direct | Z_in 与 B3 差异 <5Ω |
 | B5 VS-CFIE MLFMA | Z_in 与 B4 差异 <5% |
-| PMCHWMLFMAOperator 阶段 2 | B2 MLFMA far-field residual <1e-3，Z_in 与 B1 误差 <5% |
+| MagneticRWGBasis 设计 | 八叉树叶结点中 (J_i, M_i) 按空间位置交错；与 VS-EFIE 的 (RWG,SWG) 模式对称 |
+| disaggregate_leaf_pmchw! | 4 个块的因子（EJ/EM/HJ/HM）与 Direct solve 的矩阵元素对齐（数量级 + 符号） |
+| `assemble_near_field` PMCHW 分支 | K 块近场矩阵元素与 `assemble_impedance_matrix(pmchw,basis)[1:N,N+1:2N]` 一致 |
 | 检视迭代 | ≥ 2 轮连续 clean |
 
 ---
@@ -360,10 +520,12 @@ end
 | 风险 | 概率 | 缓解措施 |
 |------|------|---------|
 | PMCHW delta-gap 符号/因子错误 | 中 | TDD: 先验证 ε→1 极限等于 EFIE，再跑实际介质 |
-| PMCHWMLFMAOperator K-块 far-field 复杂 | 高 | 阶段 1 先跳过 K 块远场（仅近场），验证收敛后再加 |
+| `disaggregate_leaf_pmchw!` 的 EJ/EM/HJ/HM 因子搞错符号或 η | 高 | 单独验证每块：用 Z_near（直接法等效）与 Direct 矩阵元素逐项对比 |
+| `MagneticRWGBasis` 在 `aggregate_leaf!` 中被遗漏（error 分支） | 低 | 扩展 `aggregate_leaf!` 前先写单元测试，确认 `basis isa MagneticRWGBasis` 被识别 |
+| 两趟聚合重置 `aggS` 不彻底（第2趟叠加第1趟残留） | 中 | 在 `aggregate!` 入口处显式 `fill!(level.aggS, 0)` |
 | 介质天线无解析参考值 | 高 | 使用自洽检查（Re>0、freq sweep 趋势、ε→1 极限）代替绝对精度 |
-| sphere_600MHz.nas 网格不适合天线馈电（弯曲面难找馈边） | 中 | 程序生成介质球（generate_cylinder_mesh 改为球面网格），或用平面偶极子形状 |
-| k1 复数时 MLFMA Lebedev 展开需要更高阶 | 中 | 以 max(|k0|, |k1|) 为准选展开阶数；有损介质先用无损版本验证 |
+| k1 复数时 Lebedev 展开阶数不足 | 中 | 以 max(|k0|, |k1|) 选展开阶数；先用无损介质验证 |
+| `assemble_near_field` PMCHW K 块因子 | 中 | 与 `PMCHW.jl` 里的 `pmchw_em_interaction!` 函数返回值对比校验 |
 
 ---
 
@@ -373,7 +535,9 @@ end
 - PROGRESS: [REFACTORING_PROGRESS.md](REFACTORING_PROGRESS.md) `Phase 15` 节
 - 基准脚本: `benchmark/accuracy/run_B1_B5_antenna.jl`
 - 测试文件: `test/test_pmchw_excitation.jl`, `test/test_scfie_delta_gap.jl`, `test/test_pmchw_mlfma_operator.jl`
+- 新类型: `src/BasisFunctions/MagneticRWG.jl`
 - 实现文件: `src/FastAlgorithms/MLFMA/PMCHWMLFMAOperator.jl`
+- 修改文件: `src/FastAlgorithms/MLFMA/Aggregation.jl`（MagneticRWGBasis 分支）, `src/FastAlgorithms/MLFMA/Disaggregation.jl`（disaggregate_leaf_pmchw!）, `src/FastAlgorithms/MLFMA/MLFMAOperator.jl`（assemble_near_field PMCHW 分支）
 
 ---
 

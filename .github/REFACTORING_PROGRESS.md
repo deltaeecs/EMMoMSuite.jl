@@ -66,10 +66,17 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 
 ## Phase 15: 介质与金属-介质混合天线 + PMCHWMLFMAOperator — **计划中 📋**
 
-> 最后更新: 2026-03-07  
+> 最后更新: 2026-03-07（设计修订：原生 MagneticRWGBasis 方案）
 > 计划文档: [PHASE_15_DIELECTRIC_ANTENNA_PLAN.md](PHASE_15_DIELECTRIC_ANTENNA_PLAN.md)
 
-**目标**: 扩展天线测试至介质（PMCHW）和金属-介质混合（VS-EFIE/VS-CFIE）类型，同步实现 PMCHWMLFMAOperator。
+**目标**: 扩展天线测试至介质（PMCHW）和金属-介质混合（VS-EFIE/VS-CFIE）类型，同步实现原生 PMCHWMLFMAOperator。
+
+**PMCHWMLFMAOperator 设计方案（已修订）**:
+- **核心思路**: 参照 VS-EFIE（SCFIE）混合基函数模式 `bases = [RWGBasis, SWGBasis]`
+- **新类型**: `MagneticRWGBasis` — 轻量包装 RWGBasis，标记 M 电流 DOF
+- **八叉树**: 从 2N 中心点建立（N J + N M，坐标相同），叶内 (J_i, M_i) 自然交错
+- **mul!**: 两趟聚合-平移-解聚共享同一八叉树；`disaggregate_leaf_pmchw!` 内部按 `bfID ≤ N` 区分 E/H 方程行
+- **不做**: 不包封两个独立 `MLFMAOperator`；不在外层手动切割 `y_E/y_H` 块
 
 **新增 API**:
 - `excitation_vector(op::PMCHW, source::DeltaGapSource, basis::RWGBasis)` → 2N 激励向量（E-行 delta-gap）
@@ -80,7 +87,7 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 | ID | 方程 | 馈电 | 求解 | 参考 |
 |----|------|-----|------|-----|
 | B1 | PMCHW (εᵣ=4) | DeltaGap (球面) | Direct | 物理自洽 + εᵣ→1 极限 |
-| B2 | PMCHW | DeltaGap | MLFMA | B1 Direct |
+| B2 | PMCHW | DeltaGap | MLFMA (MagneticRWGBasis) | B1 Direct |
 | B3 | VS-EFIE (α=0) | DeltaGap (金属面) | Direct | EFIE-only εᵣ→1 |
 | B4 | VS-CFIE (α=0.5) | DeltaGap | Direct | B3 |
 | B5 | VS-CFIE (α=0.5) | DeltaGap | MLFMA | B4 Direct |
@@ -90,9 +97,12 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 - [ ] 15.2–15.3 PMCHW DeltaGap 激励 + input_impedance API
 - [ ] 15.4–15.5 SCFIE DeltaGap 激励 API
 - [ ] 15.6 基准脚本 `run_B1_B5_antenna.jl`
-- [ ] 15.7–15.8 PMCHWMLFMAOperator 阶段 1（仅近场）
-- [ ] 15.9 PMCHWMLFMAOperator 阶段 2（完整 Z_far）
-- [ ] 15.10–15.11 报告更新 + 检视迭代
+- [ ] 15.7 TDD: `test_pmchw_mlfma_operator.jl`
+- [ ] 15.8 新建 `MagneticRWGBasis` (`src/BasisFunctions/MagneticRWG.jl`)
+- [ ] 15.9 扩展 `aggregate_leaf!` 支持 `MagneticRWGBasis`
+- [ ] 15.10 新建 `PMCHWMLFMAOperator` + `disaggregate_leaf_pmchw!`（EJ/EM/HJ/HM 4 块）
+- [ ] 15.11 扩展 `assemble_near_field` 支持 PMCHW 4 种交叉块（K 核 + Lη 核）
+- [ ] 15.12–15.13 报告更新 + 检视迭代
 
 ---
 ## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?
