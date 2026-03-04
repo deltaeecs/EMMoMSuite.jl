@@ -173,26 +173,102 @@ end
 计算 PMCHWT 激励向量 V（长度 2N）。
 
 ```
-V = [V_E]   V_E[m] = -∫ f_m(r) · (n̂ × E^inc) dS  （电场 RHS）
-    [V_H]   V_H[m] = -∫ f_m(r) · (n̂ × H^inc) dS  （磁场 RHS）
+V = [V_E]   V_E[m] = ∫ f_m(r) · E^inc(r) dS   （电场 RHS, EFIE 公式）
+    [V_H]   V_H[m] = ∫ f_m(r) · H^inc(r) dS   （磁场 RHS, 直接点积）
 ```
 
-V_E 调用 EFIE 激励接口；V_H 调用 MFIE 激励接口（η₀ 已由 MFIE 接口内置）。
+注意：V_H 必须直接积分 f · H^inc，不能使用 MFIE 激励接口。
+MFIE 激励计算 η₀ × ∫ f · (n̂ × H^inc) dS，与 PMCHW 的 ∫ f · H^inc dS 不同。
 """
 function excitation_vector(op::PMCHW{FT,CT}, source::PlaneWave, basis::RWGBasis{IT,FT}) where {IT,FT,CT}
     N = num_basis(basis)
     V = zeros(CT, 2N)
 
-    # V_E：使用 EFIE 激励（∫ f_m · E^inc dS）
+    # V_E：EFIE 激励 ∫ f_m · E^inc dS
     efie_dummy = EFIE(op.freq)
-    V_E = excitation_vector(efie_dummy, source, basis)
-    V[1:N] .= V_E
+    V[1:N] .= excitation_vector(efie_dummy, source, basis)
 
-    # V_H：使用 MFIE 激励（∫ f_m · H^inc dS，MFIE 接口已含 η₀ 因子）
-    mfie_dummy = MFIE(op.freq)
-    V_H = excitation_vector(mfie_dummy, source, basis)
-    V[N+1:2N] .= V_H
+    # V_H：PMCHW 正确公式 ∫ f_m · H^inc dS
+    # H^inc = (k̂ × E^inc) / η₀（平面波磁场，直接点积，无 n̂ 叉积，无额外 η₀ 因子）
+    # 不能用 MFIE 激励（MFIE 计算 η₀ × ∫ f · (n̂ × H^inc) dS，物理含义不同）
+    V[N+1:2N] .= _pmchw_excitation_H(source, basis, op.eta0)
 
+    return V
+end
+
+"""
+    _pmchw_excitation_H(source, basis, eta0) → Vector{Complex}
+
+计算 PMCHW 磁场激励向量：
+
+    V_H[m] = ∫ f_m(r) · H^inc(r) dS
+
+其中 H^inc(r) = (k̂ × E^inc(r)) / η₀。
+
+与 MFIE 激励的区别：
+- MFIE：η₀ × ∫ f · (n̂ × H^inc) dS（含面法向叉积与 η₀ 因子，用于 CFIE）
+- PMCHW V_H：∫ f · H^inc dS（直接点积，无 n̂ 叉积，无额外因子）
+"""
+function _pmchw_excitation_H(source::PlaneWave, basis::RWGBasis{IT,FT}, eta0::FT) where {IT,FT}
+    N = num_basis(basis)
+    CT = Complex{FT}
+    V  = zeros(CT, N)
+
+    quad   = GaussQuadratureInfo(:Triangle, 3, FT)
+    num_q  = length(quad.weight)
+
+    mesh  = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+
+    # 波传播方向单位矢量 k̂
+    st, ct_val = sincos(source.theta)
+    sp, cp     = sincos(source.phi)
+    k_hat = SVector{3,FT}(st * cp, st * sp, ct_val)
+
+    for n = 1:N
+        bf  = basis.functions[n]
+        val = zero(CT)
+
+        for k = 1:2
+            tri_idx = bf.support[k]
+            if tri_idx == 0
+                continue
+            end
+
+            sign       = bf.signs[k]
+            local_edge = bf.local_edge_idx[k]
+
+            v_indices = elems[:, tri_idx]
+            r1 = verts[:, v_indices[1]]
+            r2 = verts[:, v_indices[2]]
+            r3 = verts[:, v_indices[3]]
+
+            cross_prod = cross(r2 - r1, r3 - r1)
+            area       = FT(0.5) * norm(cross_prod)
+
+            v_op = verts[:, v_indices[local_edge]]
+
+            for q = 1:num_q
+                u = quad.coordinate[1, q]
+                v = quad.coordinate[2, q]
+                w = quad.coordinate[3, q]
+                r = u * r1 + v * r2 + w * r3
+
+                rho   = r - v_op
+                f_val = sign * (bf.edge_length / (2 * area)) * rho
+
+                # H^inc = (k̂ × E^inc) / η₀
+                E_inc = incident_field(source, r)
+                H_inc = cross(k_hat, E_inc) / eta0
+
+                # 直接点积 f · H^inc（f_val 为实数矢量）
+                integrand = dot(f_val, H_inc)
+                val += area * quad.weight[q] * integrand
+            end
+        end
+        V[n] = val
+    end
     return V
 end
 
