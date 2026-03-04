@@ -1,0 +1,31 @@
+"""
+    Accuracy — Phase 14 精度对比工具模块
+
+包含：
+- `FekoReader`:      解析 MoM_AllinOne compare_feko/*.csv 文件
+- `ReferenceData`:   Mie PEC/介质 + 偶极子解析参考
+- `AccuracyMetrics`: AccuracyResult / AntennaAccuracyResult 指标计算
+"""
+module Accuracy
+
+include("FekoReader.jl")
+include("ReferenceData.jl")
+include("AccuracyMetrics.jl")
+
+using .FekoReader: read_feko_rcs, split_phi_cuts
+using .ReferenceData: mie_pec_rcs_dBsm, mie_dielectric_rcs_dBsm,
+                      dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic,
+                      dipole_halfwave_farfield_analytic
+using .AccuracyMetrics: AccuracyResult, AntennaAccuracyResult,
+                        compute_rcs_accuracy, compute_antenna_accuracy,
+                        print_accuracy_report
+
+export read_feko_rcs, split_phi_cuts
+export mie_pec_rcs_dBsm, mie_dielectric_rcs_dBsm,
+       dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic,
+       dipole_halfwave_farfield_analytic
+export AccuracyResult, AntennaAccuracyResult,
+       compute_rcs_accuracy, compute_antenna_accuracy,
+       print_accuracy_report
+
+end # module Accuracy
