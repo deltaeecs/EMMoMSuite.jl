@@ -136,7 +136,7 @@ open(report_path, "w") do io
     println(io, "## 备注")
     println(io, "")
     println(io, "- **F8**: 纯介质板 SCFIE，网格不含 CTRIA3，暂跳过")
-    println(io, "- **P2**: PMCHW MLFMA，`PMCHWMLFMAOperator` 待实现")
+    println(io, "- **P2**: PMCHW MLFMA，`PMCHWMLFMAOperator` 已实现 (Phase 15 步骤 15.8–15.11)")
     println(io, "")
     println(io, "---")
     println(io, "")
@@ -171,6 +171,39 @@ open(report_path, "w") do io
         pass_str = row.passed ? "✓ PASS" : "✗ FAIL"
         println(io, "| $desc | $zin_str | $zref_str | $re_str | $im_str | $dmax_str | $s11_str | $pass_str |")
     end
+
+    # ── B1-B5 介质天线段落 ────────────────────────────────────────────────────
+    println(io, "")
+    println(io, "---")
+    println(io, "")
+    println(io, "## 介质天线端口精度 (B1-B5, Phase 15)")
+    println(io, "")
+    println(io, "| 用例 | Z_in (Ω) | Z_ref (Ω) | Re误差 | Im误差 (Ω) | 结论 |")
+    println(io, "|------|----------|----------|--------|-----------|------|")
+
+    b_antenna_cases = [
+        ("B1_PMCHW_sphere_eps4",      "B1 PMCHW Direct (εᵣ=4, Direct)"),
+        ("B2_PMCHW_MLFMA",            "B2 PMCHW MLFMA"),
+        ("B3_VEFIE_TriTetra_direct",  "B3 VS-EFIE Direct"),
+        ("B4_VCFIE_TriTetra_direct",  "B4 VS-CFIE Direct"),
+        ("B5_PMCHW_MLFMA_large",      "B5 PMCHW MLFMA (大网格)"),
+    ]
+
+    for (fname, desc) in b_antenna_cases
+        csv_path = joinpath(RESULT_DIR, "$(fname)_Zin.csv")
+        if !isfile(csv_path)
+            println(io, "| $desc | — | — | — | — | ⚠ 未运行 |")
+            continue
+        end
+        df_b = CSV.read(csv_path, DataFrame)
+        row  = df_b[1, :]
+        zin_str  = @sprintf("%+.1f%+.1fj", row.Zin_re, row.Zin_im)
+        zref_str = isnan(row.Zref_re) ? "—" : @sprintf("%+.1f%+.1fj", row.Zref_re, row.Zref_im)
+        re_str   = isnan(row.re_err_pct) ? "—" : @sprintf("%.1f%%", row.re_err_pct)
+        im_str   = isnan(row.im_err_ohm) ? "—" : @sprintf("%.1f", row.im_err_ohm)
+        pass_str = row.passed ? "✓ PASS" : "✗ FAIL"
+        println(io, "| $desc | $zin_str | $zref_str | $re_str | $im_str | $pass_str |")
+    end
 end
 
 println("报告已保存: $report_path")
@@ -204,4 +237,36 @@ let a_found = 0, a_pass = 0
             status, desc, df_a[1,:Z_in_re], df_a[1,:Z_in_im])
     end
     a_found > 0 && println("\n天线结果: $a_found / 4  通过: $a_pass")
+end
+
+# ─── B1-B5 天线基准摘要 ──────────────────────────────────────────────────────
+let b_found = 0, b_pass = 0
+    # B1:  PMCHW Direct (球体 εᵣ=4)
+    # B2:  PMCHW MLFMA
+    # B3:  VS-EFIE Direct
+    # B4:  VS-CFIE Direct
+    # B5:  PMCHW MLFMA 大网格
+    b_cases = [
+        ("B1_PMCHW_sphere_eps4",  "B1 PMCHW Direct (εᵣ=4)"),
+        ("B2_PMCHW_MLFMA",        "B2 PMCHW MLFMA"),
+        ("B3_VEFIE_TriTetra_direct",  "B3 VS-EFIE Direct"),
+        ("B4_VCFIE_TriTetra_direct",  "B4 VS-CFIE Direct"),
+        ("B5_PMCHW_MLFMA_large",  "B5 PMCHW MLFMA (大网格)"),
+    ]
+    println("\n── B1-B5 介质天线基准 ──────────────────────────────")
+    for (fname, desc) in b_cases
+        csv_path = joinpath(RESULT_DIR, "$(fname)_Zin.csv")
+        if !isfile(csv_path)
+            println("  ⚠ 未运行  $desc")
+            continue
+        end
+        df_b = CSV.read(csv_path, DataFrame)
+        row  = df_b[1, :]
+        b_found += 1
+        row.passed && (b_pass += 1)
+        status = row.passed ? "✓" : "✗"
+        @printf("  %s %-42s Z_in=%+.1f%+.1fj Ω\n",
+            status, desc, row.Zin_re, row.Zin_im)
+    end
+    b_found > 0 && println("\nB1-B5 结果: $b_found / $(length(b_cases))  通过: $b_pass")
 end
