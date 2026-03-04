@@ -131,6 +131,14 @@ export radarCrossSection, farField, geoElectricJCal, geoVolumeCurrentCal, calcul
 export field_cut_line, field_cut_plane
 export antenna_directivity, input_impedance, beam_metrics
 export absorbed_power, sar
+# Phase 21
+export SolverResult
+export NearFieldGrid, NearFieldLine
+export FarFieldPattern
+export gain, gain_db, hpbw, side_lobe_level
+export axial_ratio, co_cross_decompose, xpd
+export RCSResult, rcs_frequency_response, rcs_angular_pattern
+export MLFMACache, invalidate_cache!, validate_cache, solve_multi_rhs
 
 # Re-export IO symbols
 using .IO
