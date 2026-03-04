@@ -7,6 +7,7 @@ using ..EFIEModule
 using ..MFIEModule
 using ..CFIEModule
 using ..VEFIEModule
+using ..SCFIEModule
 using ..PMCHWModule
 using LinearAlgebra
 using StaticArrays
@@ -275,6 +276,53 @@ end
 # Delta Gap (Same for all operators usually, as it forces V)
 excitation_vector(op::AbstractIntegralOperator, source::DeltaGapSource, basis::RWGBasis) =
     excitation_vector(source, basis)
+
+"""
+    excitation_vector(op::PMCHW, source::DeltaGapSource, basis::RWGBasis) → Vector{ComplexF64}
+
+PMCHW Delta-Gap 激励向量（长度 2N）。
+
+Delta-gap 施加于 PMCHW E-方程行（前 N 行），H-方程行保持为零。
+
+物理含义：缝隙电场仅激励 E 方程中的 J 电流；
+          H 方程的 M 电流由连续性/PMCHW 的 K 算子耦合提供，激励为零。
+"""
+function excitation_vector(op::PMCHW, source::DeltaGapSource, basis::RWGBasis)
+    N = num_basis(basis)
+    V = zeros(ComplexF64, 2N)
+    for idx in source.edge_indices
+        if 1 <= idx <= N
+            V[idx] = source.voltage * basis.functions[idx].edge_length
+        else
+            @warn "PMCHW DeltaGapSource: edge index $idx out of bounds (1:$N); skipped"
+        end
+    end
+    return V
+end
+
+"""
+    excitation_vector(op::SCFIE, source::DeltaGapSource,
+                      surf_basis::RWGBasis, vol_basis::SWGBasis) → Vector
+
+SCFIE (VS-EFIE/VS-CFIE) Delta-Gap 激励向量（长度 N_surf + N_vol）。
+
+Delta-gap 仅施加于表面方程（前 N_surf 行）；体积方程（后 N_vol 行）全为零。
+体积方程由表面电流通过耦合算子驱动，不需要独立激励。
+"""
+function excitation_vector(op::SCFIE, source::DeltaGapSource,
+                           surf_basis::RWGBasis, vol_basis::SWGBasis)
+    N_surf = num_basis(surf_basis)
+    N_vol  = num_basis(vol_basis)
+    V = zeros(ComplexF64, N_surf + N_vol)
+    for idx in source.edge_indices
+        if 1 <= idx <= N_surf
+            V[idx] = source.voltage * surf_basis.functions[idx].edge_length
+        else
+            @warn "SCFIE DeltaGapSource: edge index $idx out of bounds (1:$N_surf); skipped"
+        end
+    end
+    return V
+end
 
 function excitation_vector(source::DeltaGapSource, basis::RWGBasis{IT,FT}) where {IT,FT}
     N = num_basis(basis)
