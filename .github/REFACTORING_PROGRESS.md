@@ -28,6 +28,13 @@
 
 4. **检视**: 2 轮检视完成，修正了 edgel 符号描述、时间约定、Addition Theorem 指数符号
 
+5. **PMCHW 完整算法报告**: [pmchw_algorithm_report.md](.github/plans/pmchw_algorithm_report.md)
+   - 覆盖面等效原理 → L/K 算子 → 2N×2N 矩阵 → 4遍 MLFMA → 双流 RCS 全链路
+   - K^PMCHW 积分核与 MFIE K 的详细区别 (无对角、无 n̂× 测试、无 η₀ 预乘)
+   - 4 个子块的 MLFMA 系数链验证 (EJ/HM L型, EM/HJ K型)
+   - 确认 Legacy 不含 PMCHW 实现，PMCHW 完全为 EMSuite 原创
+   - 2 轮检视完成：Round 1 修复 §6.4 球坐标符号、§C.3 有损介质描述等 4 项; Round 2 无新问题
+
 ## Phase 9 测试覆盖率提升 → 进行中
 
 ### Round 4 工作成果
