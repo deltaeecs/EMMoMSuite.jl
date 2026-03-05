@@ -2,6 +2,32 @@
 
 > 最后更新: 2026-03-XX
 
+## MLFMA 算法分析阶段 — **已完成** ✅
+
+> 更新: 2026-03-XX
+
+### 工作成果
+
+1. **代码清理**:
+   - `scripts/` 废物代码归档到 `scripts/archive/` (~80 文件)
+   - `benchmark/debug_archive/` 清理 (~50 文件)
+   - 根目录废物文件删除 (tmp_*.txt, 过期文档等)
+   - 保留: `scripts/format_code.jl`, `scripts/install_formatter.jl`
+
+2. **Legacy MLFMA 完整算法报告**: [legacy_mlfma_algorithm_report.md](.github/plans/legacy_mlfma_algorithm_report.md)
+   - 覆盖从网格读取到 RCS 后处理的全流程
+   - 精确到每一个公式和系数
+   - 12 项 Legacy 工程技巧总结
+   - EMSuite vs Legacy 系数链完整验证 (总系数一致: k²η/16π²)
+
+3. **关键发现**:
+   - nLevels=2: EFIE 精度 0.5%~9% ✅ | nLevels≥3: 1005%~2918% ✗
+   - 总系数链验证通过 → 问题在 upward/downward pass 的插值或相移中
+   - Addition Theorem 指数符号确认: 源端 e^{+jk}, 场端 e^{-jk}
+   - 远亲定义 (7³-3³=316) 和清零时机均与 Legacy 一致
+
+4. **检视**: 2 轮检视完成，修正了 edgel 符号描述、时间约定、Addition Theorem 指数符号
+
 ## Phase 9 测试覆盖率提升 → 进行中
 
 ### Round 4 工作成果

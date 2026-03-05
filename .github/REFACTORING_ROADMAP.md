@@ -1,6 +1,14 @@
 ﻿# EMSuite 閲嶆瀯璺嚎鍥?
 
-> 鏈€鍚庢洿鏂? 2026-02-28 (Phase 12 瀹屾垚)
+> 鏈€鍚庢洿鏂? 2026-03-XX (MLFMA 算法分析阶段完成)
+
+## MLFMA 算法分析阶段 ✅
+
+- [x] 代码清理 (scripts 80+, benchmark 50+, root waste files)
+- [x] Legacy MLFMA 完整算法报告 → `.github/plans/legacy_mlfma_algorithm_report.md`
+- [x] EMSuite vs Legacy 系数链验证 (总系数一致: k²η/16π²)
+- [x] 问题定位: nLevels≥3 错误源于 upward/downward pass (插值/相移)
+- [x] 2轮检视完成
 
 ## 椤圭洰姒傝堪
 
