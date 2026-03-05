@@ -758,3 +758,434 @@ $Z^{HJ} = -Z^{EM}$ 是精确的结构不变量。在存储和计算中可利用�
 - **计算**（相移因子、转移函数、前系数 factor）均使用完整复数 $k_1, \eta_1$，保证相位和衰减正确
 - **八叉树几何**（叶盒边长、截断项数、极点采样）使用 $\text{Re}(k_1)$ 对应的波长 $\lambda_1 = 2\pi / \text{Re}(k_1)$。对高损耗介质（大的 $\text{Im}(k_1)$），八叉树参数可能不再最优，但不影响正确性
 - 代码: `λ1 = 2π / real(pmchw.k1)`, `JK = im * k` (k 取完整复数)
+
+---
+
+## 附录 D：模块验证方案
+
+> **目的**：为每个 PMCHW 模块提供独立、可执行的验证方案。每个验证项包含：目标、方法、预期结果（含容差）、参考测试编号。
+>
+> **测试夹具约定**：除非另行说明，默认使用 $r = 0.5$ m 球体, $f = 300$ MHz, $\varepsilon_r = 4.0$, $\mu_r = 1.0$, `lat_divs=4, lon_divs=6` (N=54)。
+
+### D.1 材料参数与波数验证 (§1)
+
+**验证目标**：确认 PMCHW 结构体从 $(f, \varepsilon_r, \mu_r)$ 正确计算 $k_0, \eta_0, k_1, \eta_1$。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D1.1 | $k_0$ 计算 | `pmchw.k0 == 2π·f/c₀` | 精确匹配 | `< eps()` |
+| D1.2 | $\eta_0$ 计算 | `pmchw.eta0 == √(μ₀/ε₀)` | $\approx 376.73\;\Omega$ | `< eps()` |
+| D1.3 | $k_1$ 无损 | `pmchw.k1 == k₀√(ε_r·μ_r)` | $k_1 = 2k_0$ (当 $\varepsilon_r=4$) | `< eps()` |
+| D1.4 | $\eta_1$ 无损 | `pmchw.eta1 == η₀√(μ_r/ε_r)` | $\eta_1 = η_0/2$ (当 $\varepsilon_r=4$) | `< eps()` |
+| D1.5 | $k_1$ 有损 | `PMCHW(f, 4.0-0.1im)` | `Im(k₁) > 0` (衰减) | 定性 |
+| D1.6 | $\eta_1$ 有损 | 同上 | `Im(η₁) ≠ 0` (复数) | 定性 |
+| D1.7 | PEC 极限 | `PMCHW(f, 1e6)` | $\eta_1 \to 0$, $k_1 \to \infty$ | 趋势正确 |
+
+**已有测试覆盖**：部分 (22.2 含 PEC 极限和有损测试，但未逐项验证 $k_1, \eta_1$)
+
+```julia
+# 推荐验证代码
+pmchw = PMCHW(300e6, 4.0)
+@test pmchw.k0 ≈ 2π * 300e6 / 299792458.0
+@test pmchw.eta0 ≈ √(4π*1e-7 / (1/(299792458.0^2 * 4π*1e-7)))
+@test pmchw.k1 ≈ pmchw.k0 * √(4.0)
+@test pmchw.eta1 ≈ pmchw.eta0 / √(4.0)
+```
+
+---
+
+### D.2 2N×2N 矩阵结构不变量验证 (§2)
+
+**验证目标**：确认 4 个子块满足理论预测的对称性和代数关系。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D2.1 | $Z^{EJ}$ 对称 | `norm(Z_EJ - Z_EJ') / norm(Z_EJ)` | 复对称 (非 Hermitian) | `< 1e-8` |
+| D2.2 | $Z^{HM}$ 对称 | `norm(Z_HM - Z_HM') / norm(Z_HM)` | 复对称 | `< 1e-8` |
+| D2.3 | $Z^{HJ} = -Z^{EM}$ | `norm(Z_HJ + Z_EM) / norm(Z_EM)` | 精确为零 | `< 1e-10` |
+| D2.4 | 范数比 | `norm(Z_EJ) / norm(Z_HM)` | $\approx \eta_0^2 \approx 141866$ | 2 个数量级以内 |
+| D2.5 | 所有子块非零 | `norm(Z_block) > 0` | 4 块均非零 | 定性 |
+| D2.6 | $Z^{EJ}$ 非 Hermitian | `Z_EJ ≠ Z_EJ'` (一般) | 复对称 ≠ Hermitian | 定性 |
+
+**提取子块**：
+```julia
+Z = assemble_impedance_matrix(pmchw, basis)
+N = num_basis(basis)
+Z_EJ = Z[1:N, 1:N]
+Z_EM = Z[1:N, N+1:2N]
+Z_HJ = Z[N+1:2N, 1:N]
+Z_HM = Z[N+1:2N, N+1:2N]
+```
+
+**已有测试覆盖**：✅ 全覆盖 (test 22.2)
+
+---
+
+### D.3 L 算子 (EFIE 核) 因子验证 (§3.1)
+
+**验证目标**：确认 `_l_block_operator` 生成的 EFIE 对象 factor 值正确。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D3.1 | EJ factor (区域0) | 检查 `efie_ej0.factor` | $jk_0\eta_0/(16\pi)$ | `< eps()` |
+| D3.2 | EJ factor (区域1) | 检查 `efie_ej1.factor` | $jk_1\eta_1/(16\pi)$ | `< eps()` |
+| D3.3 | HM factor (区域0) | 检查 `efie_hm0.factor` | $jk_0/(\eta_0 \cdot 16\pi)$ | `< eps()` |
+| D3.4 | HM factor (区域1) | 检查 `efie_hm1.factor` | $jk_1/(\eta_1 \cdot 16\pi)$ | `< eps()` |
+| D3.5 | 单区域比值 | $Z^{EJ}_\text{region0} / Z^{HM}_\text{region0}$ | $= \eta_0^2$ (精确) | `< 1e-12` |
+
+**验证方法（D3.5 详述）**：构造 $\varepsilon_r = 1, \mu_r = 1$ 的 PMCHW，此时 $k_0 = k_1$, $\eta_0 = \eta_1$，故 $Z^{EJ} = 2L(k_0,\eta_0)$, $Z^{HM} = 2L_e(k_0,\eta_0)$，逐元素比值精确为 $\eta_0^2$：
+
+```julia
+pmchw_vac = PMCHW(300e6, 1.0, 1.0)  # ε_r=1
+Z_vac = assemble_impedance_matrix(pmchw_vac, basis)
+# 逐元素比值 (跳过零元素)
+ratio = Z_vac[1:N,1:N] ./ Z_vac[N+1:2N, N+1:2N]
+@test all(r -> abs(r - pmchw_vac.eta0^2) < 1e-10, ratio[abs.(Z_vac[N+1:2N,N+1:2N]) .> 1e-20])
+```
+
+**已有测试覆盖**：⚠️ 仅范数比 (D2.4), 未逐元素验证 (D3.5)
+
+---
+
+### D.4 K 算子核验证 (§3.2–3.3)
+
+**验证目标**：确认 `calc_k_pmchw_term!` 和 `assemble_K_pmchw_offdiag` 的正确性。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D4.1 | 输出形状 | `size(K) == (N, N)` | N×N | 精确 |
+| D4.2 | 非零 | `norm(K) > 0` | 非零 | 定性 |
+| D4.3 | 复数值 | `eltype(K) <: Complex` | 复数 | 精确 |
+| D4.4 | 自对角为零 | 对任意 RWG $n$，其自对角元素应为零或极小 | $\|K[n,n]\| < \epsilon \cdot \|K\|_\infty$ | `< 1e-6` |
+| D4.5 | 非对称 | `norm(K - K') / norm(K)` | 非对称 ($K \neq K^T$) | `> 1e-3` |
+| D4.6 | 双区域叠加 | $K_\text{total} = K(k_0) + K(k_1)$ | 分别装配后相加 = 直接装配 | `< 1e-10` |
+| D4.7 | η=1 因子 | 检查 K 算子使用 `MFIE(0, k, 1, gq)` | factor 为 $1/(16\pi)$，不含 $\eta$ | 代码审查 |
+
+**D4.4 自对角验证的物理意义**：PMCHW 的 K 算子没有 mass matrix ($\frac{1}{2}$ 对角项被两侧相加消去)。因此自对角元素仅来自 PV 积分，且代码中 `t_test == t_src` 时跳过，所以 K 矩阵的"块对角"（共享三角形的基函数对）应显著小于非对角元素。但 $K[n,n]$ 不一定精确为零，因为同一 RWG 基函数的两个支撑三角形 $T^+, T^-$ 之间的 K 相互作用不为零。
+
+**D4.6 验证代码**：
+```julia
+# 分别装配 K(k₀) 和 K(k₁)
+K0 = assemble_K_pmchw_offdiag(pmchw.k0, basis)  
+K1 = assemble_K_pmchw_offdiag(pmchw.k1, basis)
+K_sum = K0 + K1
+
+# 直接从 PMCHW 装配获取
+Z = assemble_impedance_matrix(pmchw, basis)
+K_direct = Z[1:N, N+1:2N]  # Z^EM = K₀ + K₁
+
+@test norm(K_sum - K_direct) / norm(K_direct) < 1e-10
+```
+
+**已有测试覆盖**：✅ D4.1–D4.3 (test 22.1), ❌ D4.4–D4.6
+
+---
+
+### D.5 奇异积分验证 (§3.4)
+
+**验证目标**：确认 L 算子的解析奇异项 ($F_1, F_{21}, F_{22}$) 和 K 算子的自对角跳过行为。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D5.1 | L 算子自对角非零 | $Z^{EJ}[n,n] \neq 0$ | 自对角元素是虚部主导（$jk\eta \cdot F_1$） | 定性 |
+| D5.2 | L 算子自对角主导 | $\|Z^{EJ}_\text{diag}\|_\infty / \|Z^{EJ}_\text{offdiag}\|_\infty$ | $> 1$（自对角不弱于非对角） | 定性 |
+| D5.3 | K 算子跳过验证 | 将 `t_test == t_src` 跳过条件移除 | 自对角贡献应极小（PV 积分几乎为零） | `< 1e-4 × ‖K‖` |
+
+**已有测试覆盖**：❌
+
+---
+
+### D.6 激励向量验证 (§4)
+
+**验证目标**：确认平面波和 Delta-Gap 激励计算正确。
+
+#### D.6.1 平面波激励
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D6.1 | V 向量长度 | `length(V) == 2N` | 2N | 精确 |
+| D6.2 | V_E 非零 | `norm(V[1:N]) > 0` | 非零 | 定性 |
+| D6.3 | V_H 非零 | `norm(V[N+1:2N]) > 0` | 非零 | 定性 |
+| D6.4 | 幅度比 | `norm(V[N+1:2N]) / norm(V[1:N])` | $\approx 1/\eta_0 \approx 2.65 \times 10^{-3}$ | 1 个数量级 |
+| D6.5 | V_E 与 EFIE 一致 | `V[1:N] == excitation_vector(EFIE(freq), pw, basis)` | 精确相等 | `< eps()` |
+
+**D6.4 的物理推导**：$V_H = \int \mathbf{f} \cdot \mathbf{H}^{inc}$, $V_E = \int \mathbf{f} \cdot \mathbf{E}^{inc}$。平面波中 $|\mathbf{H}^{inc}| = |\mathbf{E}^{inc}|/\eta_0$，故 $|V_H|/|V_E| \approx 1/\eta_0$。
+
+#### D.6.2 Delta-Gap 激励
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D6.6 | V_H 全零 | `V[N+1:2N] == zeros(N)` | 精确零 | `< eps()` |
+| D6.7 | 馈电元素 | `V[feed_idx] == V_gap × l_edge` | 精确 | `< eps()` |
+| D6.8 | 非馈电元素 | `V[i] == 0` for `i ≠ feed_idx` | 精确零 | `< eps()` |
+
+**已有测试覆盖**：✅ D6.1–D6.4 (test 22.3), ✅ D6.6–D6.8 (test 15.1–15.2)
+
+---
+
+### D.7 双流 RCS 验证 (§6)
+
+**验证目标**：确认从双电流 $(\mathbf{I}_J, \mathbf{I}_M)$ 正确合成远场和 RCS。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D7.1 | RCS 非负 | `all(σ .>= 0)` | 物理约束 | 精确 |
+| D7.2 | factor 正确 | 检查代码中 `k₀²/(4π)` | ≠ EFIE 的 $(k_0\eta_0)^2/(4\pi)$ | 代码审查 |
+| D7.3 | M=0 退化 | 令 `I_M = zeros(N)`，比较 PMCHW RCS 与 EFIE RCS | 相等 ($\sigma_\text{PMCHW} = \sigma_\text{EFIE}$) | `< 1e-10` |
+| D7.4 | J=0 退化 | 令 `I_J = zeros(N)`，仅 M 贡献 | RCS 仅含 $\|L\|^2$ 项 | 定性 |
+| D7.5 | 远场分量合成 | 手动计算 $E_\theta = \eta_0 N_\theta + L_\phi$ | 与代码输出一致 | `< 1e-10` |
+| D7.6 | PEC 极限一致性 | $\varepsilon_r \to \infty$ 时 PMCHW RCS → 某基准 | 求解收敛，RCS 有限 | 定性 |
+
+**D7.3 详述——PMCHW vs EFIE RCS factor 差异**：
+- EFIE RCS: $\sigma_\text{EFIE} = \frac{(k_0\eta_0)^2}{4\pi} |N|^2$
+- PMCHW RCS: $\sigma_\text{PMCHW} = \frac{k_0^2}{4\pi} (|\eta_0 N_\theta + L_\phi|^2 + |\eta_0 N_\phi - L_\theta|^2)$
+
+当 $\mathbf{I}_M = 0$ (即 $L=0$) 时：$\sigma_\text{PMCHW} = \frac{k_0^2 \eta_0^2}{4\pi} |N|^2 = \sigma_\text{EFIE}$。两者**在此特殊情况下相等**。
+
+```julia
+# D7.5 验证代码
+N_θϕ = radiation_integral_rwg(r_info, basis, I_J)
+L_θϕ = radiation_integral_rwg(r_info, basis, I_M)
+
+E_θ_manual = pmchw.eta0 * N_θϕ[1] + L_θϕ[2]
+E_ϕ_manual = pmchw.eta0 * N_θϕ[2] - L_θϕ[1]
+σ_manual = pmchw.k0^2 / (4π) * (abs2(E_θ_manual) + abs2(E_ϕ_manual))
+
+@test σ_manual ≈ σ_code
+```
+
+**已有测试覆盖**：❌ (RCS 完全未测试)
+
+---
+
+### D.8 MLFMA 聚合验证 (§7.3)
+
+**验证目标**：确认叶层聚合 (`aggregate_leaf_pmchw!`) 正确计算辐射函数。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D8.1 | aggS 非零 | 单位电流输入后 `norm(aggS) > 0` | 非零 | 定性 |
+| D8.2 | aggS 线性 | `aggS(2x) == 2·aggS(x)` | 精确线性 | `< 1e-12` |
+| D8.3 | J/M 无差别 | 同样系数传入 1:N 或 N+1:2N | `aggS` 完全相同 | `< eps()` |
+| D8.4 | 与 EFIE 一致 | 对比 EFIE `aggregate_leaf!` 输出 | 相同辐射函数 | `< 1e-12` |
+
+**D8.3 的物理意义**：聚合函数只看 RWG 基函数几何和输入系数向量，不区分电流/磁流类型。传入同样的系数，无论从 x[1:N] 还是 x[N+1:2N] 提取，聚合结果必须相同。
+
+**已有测试覆盖**：❌ (聚合未隔离测试)
+
+---
+
+### D.9 MLFMA 接收函数验证 (§7.7)
+
+**验证目标**：确认 `_receive_terms` 正确产生 L 型和 K 型两种接收模式。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D9.1 | te_L 非零 | 给定非零 disaggG | `te_L ≠ 0` | 定性 |
+| D9.2 | te_K 非零 | 给定非零 disaggG | `te_K ≠ 0` | 定性 |
+| D9.3 | te_L/te_K 独立 | 在一般情况下 | `te_L ≠ te_K` | 定性 |
+| D9.4 | K 型叉积关系 | 检查 $\hat{r} \times (\hat{\theta}, \hat{\phi})$ 展开 | $E_\theta \hat{\phi} - E_\phi \hat{\theta}$ | 代码审查 |
+| D9.5 | 与 EFIE disagg 比对 | EFIE 解聚仅用 te_L | PMCHW te_L 与 EFIE 一致 | `< 1e-12` |
+
+**D9.5 验证方法**：在相同八叉树和相同输入下，EFIE 的 `disaggregate_leaf!` 产生的结果应等于 PMCHW `_receive_terms` 返回的 `te_L` 乘以对应因子：
+
+```julia
+# 概念性伪代码 (需在测试中注入中间变量)
+te_L_pmchw, te_K_pmchw = _receive_terms(bf, basis, field, r0, k, η, poles)
+te_efie = disaggregate_leaf_efie_equivalent(...)  # EFIE 版本
+@test te_L_pmchw ≈ te_efie
+```
+
+**已有测试覆盖**：❌ (接收函数未隔离测试)
+
+---
+
+### D.10 MLFMA 解聚因子验证 (§7.5–7.6)
+
+**验证目标**：确认 J 通道和 M 通道解聚使用正确的因子和符号。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D10.1 | factor_EJ 值 | 数值检查 | $jk_l\eta_l/(4\pi)$ | `< eps()` |
+| D10.2 | factor_HJ 值 | 数值检查 | $+jk_l/(4\pi)$（正号） | `< eps()` |
+| D10.3 | factor_EM 值 | 数值检查 | $-jk_l/(4\pi)$（负号） | `< eps()` |
+| D10.4 | factor_HM 值 | 数值检查 | $jk_l/(\eta_l \cdot 4\pi)$ | `< eps()` |
+| D10.5 | J 通道写入位置 | disagg_j 写入 y[bfID] 和 y[bfID+N] | 同时写 E 行和 H 行 | 代码审查 |
+| D10.6 | M 通道写入位置 | disagg_m 写入 y[bfID] 和 y[bfID+N] | 同时写 E 行和 H 行 | 代码审查 |
+| D10.7 | HJ/EM 符号关系 | `factor_HJ / factor_EM` | $= -1$ | `< eps()` |
+
+**D10.7 推导**：$Z^{HJ} = -Z^{EM}$。J 通道的 H 行和 M 通道的 E 行都使用 `te_K` 接收，因此符号关系由 factor 携带：`factor_HJ × te_K = -factor_EM × te_K`，即 `factor_HJ = -factor_EM`。代入验证：$+jk/(4\pi) = -(-jk/(4\pi))$ ✓。注意这两个因子都不含 $\eta$，因此比值为 $-1$ 而非 $-\eta$。
+
+```julia
+# 因子数值验证
+k = pmchw.k0; η = pmchw.eta0
+@test factor_EJ ≈ im * k * η / (4π)
+@test factor_HJ ≈ im * k / (4π)           # 正号
+@test factor_EM ≈ -im * k / (4π)           # 负号
+@test factor_HM ≈ im * k / (η * 4π)
+@test factor_HJ ≈ -factor_EM               # 反号关系
+@test factor_EJ / factor_HM ≈ η^2          # 与直接法比值一致
+```
+
+**已有测试覆盖**：❌ (因子未单独验证)
+
+---
+
+### D.11 MLFMA 系数链端到端验证 (§7.8)
+
+**验证目标**：通过 MLFMA matvec 与 Direct matvec 的对比，端到端验证所有系数正确。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D11.1 | matvec 整体 | `\|y_{mlfma} - y_{direct}\| / \|y_{direct}\|` | 远场截断误差 | `< 10%` |
+| D11.2 | E 行分量 | `\|y[1:N]_{mlfma} - y[1:N]_{direct}\| / \|y[1:N]_{direct}\|` | 分量级误差 | `< 15%` |
+| D11.3 | H 行分量 | `\|y[N+1:2N]_{mlfma} - y[N+1:2N]_{direct}\|` | 分量级误差 | `< 15%` |
+| D11.4 | 随机输入 | 多个随机 x 向量 | 方差小于均值 | 统计 |
+
+**D11.1 为何允许 10% 误差**：MLFMA 使用有限阶多级展开近似远场 Green 函数，对于小网格 (N=54) 远/近交界处截断误差较大。更大的网格 ($N > 500$) 误差通常 $< 3\%$。
+
+```julia
+Z_direct = assemble_impedance_matrix(pmchw, basis)
+x = randn(ComplexF64, 2N)
+y_direct = Z_direct * x
+
+y_mlfma = similar(y_direct)
+mul!(y_mlfma, op, x)
+
+rel_err = norm(y_mlfma - y_direct) / norm(y_direct)
+@test rel_err < 0.10
+```
+
+**已有测试覆盖**：✅ D11.1 (test 15.11)
+
+---
+
+### D.12 近场矩阵验证 (§8)
+
+**验证目标**：确认稀疏近场矩阵正确提取了密集矩阵的邻近元素。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D12.1 | 稀疏性 | `nnz(Z_near) < (2N)^2` | 真稀疏 | 严格小于 |
+| D12.2 | 4 子块非零 | 检查 4 个 N×N 子块均有非零元素 | 全部非零 | 定性 |
+| D12.3 | HJ = -EM | `Z_near[N+1:2N, 1:N] + Z_near[1:N, N+1:2N]` | 零矩阵 | `< 1e-8 × ‖Z_near‖` |
+| D12.4 | 对角元素匹配 | `diag(Z_near) ≈ diag(Z_full)` | 对角元素必在近场中 | `< 1e-12` |
+| D12.5 | 近/远互补 | `Z_near + Z_far ≈ Z_full` | 分解完整 | `< 1e-10` |
+
+**D12.5 验证方法**：Z_far 可通过 `Z_full - Z_near` 获得。但更直接的方式是检查近场矩阵的非零位置覆盖了所有自身和邻居基函数对：
+
+```julia
+Z_full = assemble_impedance_matrix(pmchw, basis)
+Z_near = op.Z_near  # PMCHWMLFMAOperator 的近场稀疏矩阵
+
+# 对角匹配
+@test norm(diag(Z_near) - diag(Z_full)) / norm(diag(Z_full)) < 1e-12
+
+# 稀疏性
+@test nnz(Z_near) < (2N)^2
+```
+
+**已有测试覆盖**：✅ D12.1–D12.3 (test 15.8), ⚠️ D12.4–D12.5 (未单独验证)
+
+---
+
+### D.13 mul! 流程验证 (§9)
+
+**验证目标**：确认 `mul!(y, A, x)` 正确执行近场+4遍远场，结果与直接法一致。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D13.1 | 零输入 | `mul!(y, A, zeros(2N))` | `y == zeros(2N)` | `< eps()` |
+| D13.2 | 线性 | `mul!(y, A, α·x) ≈ α·mul!(y, A, x)` | 精确线性 | `< 1e-10` |
+| D13.3 | 输出长度 | `length(y) == 2N` | 2N | 精确 |
+| D13.4 | E/H 行均非零 | `norm(y[1:N]) > 0`, `norm(y[N+1:2N]) > 0` | 双行块均有贡献 | 定性 |
+| D13.5 | 4 遍清零 | 连续两次 mul! 结果相同 | 无残留 | `< 1e-12` |
+| D13.6 | GMRES 收敛 | 使用 MLFMA 算子求解 PMCHW | GMRES 迭代 < 100 | 收敛 |
+
+**D13.5 验证代码**：
+```julia
+x = randn(ComplexF64, 2N)
+y1 = zeros(ComplexF64, 2N)
+y2 = zeros(ComplexF64, 2N)
+mul!(y1, op, x)
+mul!(y2, op, x)
+@test norm(y1 - y2) / norm(y1) < 1e-12
+```
+
+**已有测试覆盖**：✅ D13.1–D13.3 (test 15.11), ⚠️ D13.4–D13.6 (部分覆盖)
+
+---
+
+### D.14 端到端求解验证
+
+**验证目标**：确认 PMCHW 从网格到 RCS 的完整流程正确。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D14.1 | 直接法收敛 | LU 求解 2N×2N 系统 | 残差 $\|Zx-b\|/\|b\| < 10^{-10}$ | `< 1e-10` |
+| D14.2 | I_J 非零 | `norm(I[1:N]) > 0` | 非零电流 | 定性 |
+| D14.3 | I_M 非零 | `norm(I[N+1:2N]) > 0` | 非零磁流 | 定性 |
+| D14.4 | I_M/I_J 比值 | `norm(I_M) / norm(I_J)` | $\approx 1/\eta_0$（量级） | 1–2 个数量级 |
+| D14.5 | MLFMA Z_in | `Z_in_mlfma ≈ Z_in_direct` | 输入阻抗一致 | `< 5%` |
+| D14.6 | RCS 物理合理 | 介质球 RCS $< $ PEC 球 RCS | 通过率 | 定性 |
+
+**D14.4 的物理推导**：从矩阵结构 $Z^{EJ} I_J + Z^{EM} I_M = V_E$ 和 $\|Z^{EJ}\| \sim \eta_0^2 \|Z^{HM}\|$，可推出 $\|I_M\| / \|I_J\| \sim 1/\eta_0$。
+
+**已有测试覆盖**：✅ D14.1–D14.3 (test 22.2 end-to-end), ✅ D14.5 (test 15.11 B2)
+
+---
+
+### D.15 MLFMA 4 遍隔离验证 (§7.1)
+
+**验证目标**：确认每一遍 MLFMA 写入正确的 y 子块。
+
+| # | 验证项 | 方法 | 预期 | 容差 |
+|---|--------|------|------|------|
+| D15.1 | 遍 1 (J×k₀) | 仅执行遍 1，检查 y[1:N] 和 y[N+1:2N] | 均非零 (L→E行, -K→H行) | 定性 |
+| D15.2 | 遍 3 (M×k₀) | 仅执行遍 3，检查 y[1:N] 和 y[N+1:2N] | 均非零 (K→E行, L→H行) | 定性 |
+| D15.3 | 遍 1+2 累加 | 遍 1 + 遍 2 = J 列的完整远场 | 对比直接法 $Z_\text{far}[:, 1:N] \cdot x_J$ | `< 15%` |
+| D15.4 | 4 遍总和 | 全部 4 遍累加 | $\approx Z_\text{full} \cdot x$ (含近场) | `< 10%` |
+
+**验证方法（需要代码修改以隔离单遍）**：
+
+方案 A (推荐)：构造特殊输入使部分遍贡献为零
+```julia
+# 仅测试 J 列：令 I_M = 0
+x_J_only = [randn(ComplexF64, N); zeros(ComplexF64, N)]
+y_mlfma = zeros(ComplexF64, 2N); mul!(y_mlfma, op, x_J_only)
+y_direct = Z_full * x_J_only
+@test norm(y_mlfma - y_direct) / norm(y_direct) < 0.15
+
+# 仅测试 M 列：令 I_J = 0  
+x_M_only = [zeros(ComplexF64, N); randn(ComplexF64, N)]
+y_mlfma = zeros(ComplexF64, 2N); mul!(y_mlfma, op, x_M_only)
+y_direct = Z_full * x_M_only
+@test norm(y_mlfma - y_direct) / norm(y_direct) < 0.15
+```
+
+**已有测试覆盖**：❌ (逐遍验证未实现)
+
+---
+
+### D.16 验证覆盖矩阵
+
+| 模块 | 报告章节 | 验证项 | 已有测试 | 建议优先级 |
+|------|---------|--------|---------|-----------|
+| 材料参数 | §1 | D1.1–D1.7 | ⚠️ 部分 | 低 |
+| 矩阵不变量 | §2 | D2.1–D2.6 | ✅ 全覆盖 | — |
+| L 算子因子 | §3.1 | D3.1–D3.5 | ⚠️ 仅比值 | 中 |
+| K 算子核 | §3.2 | D4.1–D4.7 | ⚠️ 部分 | 中 |
+| 奇异积分 | §3.4 | D5.1–D5.3 | ❌ | 低 |
+| 平面波激励 | §4.1 | D6.1–D6.5 | ✅ 全覆盖 | — |
+| DeltaGap 激励 | §4.2 | D6.6–D6.8 | ✅ 全覆盖 | — |
+| 双流 RCS | §6 | D7.1–D7.6 | ❌ | **高** |
+| MLFMA 聚合 | §7.3 | D8.1–D8.4 | ❌ | 中 |
+| MLFMA 接收 | §7.7 | D9.1–D9.5 | ❌ | 中 |
+| MLFMA 解聚因子 | §7.5–7.6 | D10.1–D10.7 | ❌ | **高** |
+| MLFMA 系数链 | §7.8 | D11.1–D11.4 | ✅ 整体 | — |
+| 近场矩阵 | §8 | D12.1–D12.5 | ✅ 大部分 | 低 |
+| mul! 流程 | §9 | D13.1–D13.6 | ✅ 大部分 | 低 |
+| 端到端求解 | §5 | D14.1–D14.6 | ✅ 大部分 | — |
+| 4 遍隔离 | §7.1 | D15.1–D15.4 | ❌ | **高** |
+
+> **建议实现优先级**：D7 (RCS) > D10 (解聚因子) > D15 (4 遍隔离) > D4 (K 核隔离) > D3 (L 因子) > D8 (聚合) > D9 (接收) > D1 (材料) > D5 (奇异积分)
