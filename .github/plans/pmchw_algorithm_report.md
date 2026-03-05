@@ -414,7 +414,7 @@ PMCHW 的 MLFMA 加速需要处理 4 个子块的远场相互作用，分解为 
 | octree0 | $k_0$ | $\lambda_0 = 2\pi/k_0$ | 叶盒边长、截断项数、极点采样 |
 | octree1 | $k_1$ | $\lambda_1 = 2\pi/\text{Re}(k_1)$ | 同上 |
 
-> **不能共享八叉树**：波新数影响 (1) 叶层盒子边长 (以波长为参考), (2) 各层截断项数 $L$, (3) Lebedev/Gauss-Legendre 极点采样数, (4) 相移因子, (5) 转移函数。
+> **不能共享八叉树**：波数影响 (1) 叶层盒子边长 (以波长为参考), (2) 各层截断项数 $L$, (3) Lebedev/Gauss-Legendre 极点采样数, (4) 相移因子, (5) 转移函数。
 
 ### 7.3 叶层聚合 (`aggregate_leaf_pmchw!`)
 
@@ -685,8 +685,8 @@ end
 |------|-----------|------|------------|
 | $Z^{EJ}$ | $\frac{jk\eta}{16\pi} = \frac{j\omega\mu}{16\pi}$ | 矢量势 $\propto j\omega\mu$, 标量势 $\propto \frac{j}{\omega\varepsilon}$ | Eq.3.185 |
 | $Z^{HM}$ | $\frac{jk}{\eta \cdot 16\pi} = \frac{j\omega\varepsilon}{16\pi}$ | 矢量势 $\propto j\omega\varepsilon$, 标量势 $\propto \frac{j}{\omega\mu}$ | Eq.3.190 (对偶) |
-| $Z^{EM}$ | $\frac{l_m l_n}{16\pi}$ | K 算子 (PV) | Eq.3.187 |
-| $Z^{HJ}$ | $-\frac{l_m l_n}{16\pi}$ | $-K$ (结构不变量) | Eq.3.188 |
+| $Z^{EM}$ | $\frac{1}{16\pi}$ | K 算子 (PV) | Eq.3.187 |
+| $Z^{HJ}$ | $-\frac{1}{16\pi}$ | $-K$ (结构不变量) | Eq.3.188 |
 
 ### 11.2 MLFMA 解聚因子表
 
