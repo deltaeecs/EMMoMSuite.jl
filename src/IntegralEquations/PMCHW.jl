@@ -31,6 +31,7 @@ using ..MFIEModule
 using ..Impedance
 using StaticArrays
 using LinearAlgebra
+using ...Utilities.Parameters: set_frequency!
 
 import ..CoreModule: assemble_impedance_matrix
 
@@ -86,6 +87,9 @@ function PMCHW(freq::FT, eps_r_in, mu_r_in = 1.0) where {FT<:AbstractFloat}
 
     k1   = CT(k0) * sqrt(eps_r * mu_r)
     eta1 = CT(eta0) * sqrt(mu_r / eps_r)
+
+    # 同步全局参数，确保 radiation_integral_rwg 等函数通过 get_k0() 获取正确的波数
+    set_frequency!(Float64(freq))
 
     return PMCHW{FT,CT}(freq, k0, eta0, k1, eta1, eps_r, mu_r)
 end
