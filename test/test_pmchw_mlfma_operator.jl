@@ -193,8 +193,7 @@ end
     @info "Gate B EJ k0" rel0 ratio0 corr0
     @info "Gate B EJ k1" rel1 ratio1 corr1
 
-    # RED gate: current baseline still has k0 magnitude regression to be fixed.
-    @test_broken rel0 < 0.15
+    @test rel0 < 0.15
     @test corr0 > 0.95
 
     # RED gate: k1 path target is fixed here and should be turned green by implementation fixes.
