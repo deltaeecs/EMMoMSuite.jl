@@ -174,6 +174,33 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 - End-to-end Gate C improved from ~49.40% to ~42.27%, still above `<10%` target.
 - Added robustness fix in `Interpolation.jl` to avoid interpolation sparse assembly length mismatch for clipped interpolation orders.
 
+### 2026-03-06 Update (Structured Debug Plan — 结构化调试计划制定)
+
+- Previous approach was ad-hoc (coefficient guessing, unstructured experiments).
+- Adopted structured two-part debugging methodology per user direction:
+  - **Part 1**: Near-field matrix element-by-element comparison (`Z_near` vs `Z_full` at sparsity pattern)
+    - Gate D1 test: `max_element_err < 0.1%`
+    - If FAIL: trace `assemble_near_field_pmchw` for offending `(i,j)` pair
+  - **Part 2**: Far-field column extraction via unit vectors (`e_j` → column j of MLFMA approximation)
+    - Gate D2 test: scan all N columns, find max-error column, compare with dense far-field reference
+    - For worst `(i_max, j_max)`: module-level decomposition (aggregation → translation → disaggregation)
+  - **Part 3**: Full operator Gate C after all passes verified
+- Plan document: `.github/plans/phase_15_mlfma_structured_debug_plan.md`
+- Execution order: Gate D1 → Gate D2 (EJ k1) → fix identified module → Gate D2 (EM/HM) → Gate C
+- Status: Plan confirmed, implementation pending user review.
+
+### Phase 0 Dense PMCHW Baseline Validation — **已完成** ✅ (d7ee785)
+
+- **根本 Bug 确认**: `radiation_integral_rwg` 通过全局 `get_k0()` 读取波数；Julia 启动时 `k0=0.0`；`PMCHW()` 构造函数原本未调用 `set_frequency!`，导致所有远场辐射积分 phase=1（exp(0)=1），远场计算退化为0阶近似。
+- **修复** (commit `d7ee785`):
+  - `src/IntegralEquations/PMCHW.jl`: 导入 `set_frequency!`，在构造函数末尾自动调用 `set_frequency!(Float64(freq))`
+  - `src/PostProcessing/RCS.jl`: PMCHWT `radarCrossSection` 重载（显式 k0 参数版本）在调用 `radiation_integral_rwg` 前同步全局 `k0`
+- **验证结果** (`scripts/diag_step0_pmchw_dense_vs_mie.jl`):
+  - E 面 RMSE: `8.89 dB → 0.82 dB` ✅ PASS (< 1.5 dB 门限)
+  - 后向散射: MoM=5.81 vs Mie=5.76 dBsm (Δ=0.06 dB)
+  - H 面: lat=8 时 RMSE=1.63 dB（近零点误差，lat≥12 时 RMSE<0.79 dB）
+- **下一步**: Gate D1（近场矩阵元素对比）→ Gate D2（单位向量列提取）→ Gate B k1 修复
+
 ---
 ## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?
 
