@@ -136,14 +136,10 @@ function interpolationCSCMatCal(
     npXϕs = length(pXϕs)
     ntXϕs = length(tXϕs)
 
-    # Use one effective interpolation order across theta/phi branches.
-    # This avoids downstream shape mismatches when requested order exceeds local grids.
-    nlocalInterpEff = min(nlocalInterp, npXθs, npXϕs)
-
     ################################################################
     # Theta direction
 
-    nlocalInterpTheta = nlocalInterpEff
+    nlocalInterpTheta = nlocalInterp
     if nlocalInterpTheta > npXθs
         nlocalInterpTheta = npXθs
     end
@@ -179,7 +175,7 @@ function interpolationCSCMatCal(
     ################################################################
     # Phi direction
 
-    nlocalInterpPhi = nlocalInterpEff
+    nlocalInterpPhi = nlocalInterp
     if nlocalInterpPhi > npXϕs
         nlocalInterpPhi = npXϕs
     end
@@ -230,7 +226,7 @@ function interpolationCSCMatCal(
         end
     end
 
-    rawIDϕs = repeat(collect(IT, 1:ntempSample); inner = nlocalInterpEff)
+    rawIDϕs = repeat(collect(IT, 1:ntempSample); inner = nlocalInterp)
     interWGlobalϕs = repeat(interWϕs, inner = (1, ntXθs))
     interpϕCSC = sparse(rawIDϕs, view(interIDGlobalϕs, :), view(interWGlobalϕs, :))
 
@@ -246,8 +242,8 @@ function interpolationCSCMatCal(
     halfnpϕ = npXϕs ÷ 2
     for ipϕ = 1:npXϕs
         for ipθ = 1:npXθs
-            inGlobalIDs = zeros(IT, nlocalInterpEff)
-            for jInter = 1:nlocalInterpEff
+            inGlobalIDs = zeros(IT, nlocalInterp)
+            for jInter = 1:nlocalInterp
                 interIDθ = interIDθs[jInter, ipθ]
                 targetIdxInTempSampleIndexes = [interIDθ, ipϕ]
 
@@ -270,7 +266,7 @@ function interpolationCSCMatCal(
         end
     end
 
-    rawIDθs = repeat(collect(IT, 1:npSample); inner = nlocalInterpEff)
+    rawIDθs = repeat(collect(IT, 1:npSample); inner = nlocalInterp)
     interWGlobalθs = repeat(interWθs; outer = (1, npXϕs))
     interpθCSC = sparse(rawIDθs, view(interIDGlobalθs, :), view(interWGlobalθs, :))
 
