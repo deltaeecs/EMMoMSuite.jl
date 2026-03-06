@@ -444,6 +444,11 @@ function radarCrossSection(
     N = num_basis(basis)
     @assert length(ICoeff) == 2N "PMCHWT: ICoeff 长度应为 2N=$(2N)，实际为 $(length(ICoeff))"
 
+    # radiation_integral_rwg 内部通过全局 get_k0() 读取波数，必须在调用前同步
+    c0 = FT(299792458.0)
+    freq_from_k0 = Float64(k0 * c0 / (2 * FT(π)))
+    set_frequency!(freq_from_k0)
+
     I_J = ICoeff[1:N]
     I_M = ICoeff[N+1:2N]
 
