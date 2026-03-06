@@ -143,6 +143,25 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 - [ ] 15.11 组装 `PMCHWMLFMAOperator` struct + 构造函数 + `mul!`（两棵 N 点八叉树 octree0/k0+octree1/k1，四遍远场）
 - [ ] 15.12–15.13 报告更新 + 检视迭代（≥ 2 轮 clean）
 
+### 2026-03-06 Update (Governance Refresh)
+
+- Rolled back the recent experimental PMCHW/MLFMA code updates as requested.
+- Added governance plan: `.github/plans/phase_15_theory_impl_test_refresh.md`.
+- New task `15.G1` added to roadmap to enforce a strict Theory -> Implementation -> Test contract.
+- Next implementation work must satisfy mandatory Gate A/B/C/D checks before acceptance.
+
+### 2026-03-06 Update (Gate A/B Implemented)
+
+- Added executable Gate A/B tests into `test/test_pmchw_mlfma_operator.jl`.
+- Gate A (structural invariants) is green:
+   - HJ + EM near-field invariant passed
+   - non-trivial near/far split passed
+   - dual-octree permutation sanity passed
+- Gate B (EJ pass alignment) is now machine-tracked with fixed seed (`Random.seed!(42)`):
+   - k0: `rel=0.7536`, `corr=0.9962` (magnitude regression, marked `@test_broken`)
+   - k1: `rel=0.9588`, `corr=0.4641` (marked `@test_broken`)
+- Main end-to-end gate remains failing: `15.11 MLFMA mul! vs Direct` = `49.40%`.
+
 ---
 ## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?
 

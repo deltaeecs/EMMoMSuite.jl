@@ -428,6 +428,8 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 - [ ] 15.11 组装 `PMCHWMLFMAOperator` struct（两棵 N 点八叉树：octree0/k0 + octree1/k1）+ 构造函数 + `mul!`（4 遍远场：J×k0, J×k1, M×k0, M×k1）
 - [ ] 15.12 更新 `generate_report.jl` 加入 B1–B5
 - [ ] 15.13 检视迭代 (≥ 2 轮 clean)
+- [ ] 15.G1 刷新 Theory-Implementation-Test 治理闭环（可执行原则 + 门禁测试，进行中：Gate A/B 已落地）
+    - 计划文档: `.github/plans/phase_15_theory_impl_test_refresh.md`
 
 ### 精度验收门限
 
