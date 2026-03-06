@@ -126,7 +126,7 @@ function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperator, x::Abstrac
     y_far = zeros(eltype(y), 2N)
 
     function clear_agg!(oct)
-        for lv in oct.levels
+        for (_, lv) in oct.levels
             isdefined(lv, :aggS)    && fill!(lv.aggS,    zero(eltype(lv.aggS)))
             isdefined(lv, :disaggG) && fill!(lv.disaggG, zero(eltype(lv.disaggG)))
         end
@@ -343,8 +343,8 @@ function disaggregate_leaf_pmchw_j!(
     N    = num_basis(basis)
     k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
 
-    factor_EJ = im * k * η / (16π)
-    factor_HJ = -im * k      / (16π)
+    factor_EJ = im * k * η / (4π)
+    factor_HJ = -im * k      / (4π)
 
     leaf_level = octree.levels[octree.nLevels]
     isdefined(leaf_level, :disaggG) || return
@@ -381,8 +381,8 @@ function disaggregate_leaf_pmchw_m!(
     N    = num_basis(basis)
     k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
 
-    factor_EM =  im * k / (16π)
-    factor_HM =  im * k / (η * 16π)
+    factor_EM =  im * k / (4π)
+    factor_HM =  im * k / (η * 4π)
 
     leaf_level = octree.levels[octree.nLevels]
     isdefined(leaf_level, :disaggG) || return

@@ -162,6 +162,18 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
    - k1: `rel=0.9588`, `corr=0.4641` (marked `@test_broken`)
 - Main end-to-end gate remains failing: `15.11 MLFMA mul! vs Direct` = `49.40%`.
 
+### 2026-03-06 Update (Gate B k0 Green, k1 still Red)
+
+- Applied and verified two effective fixes in `PMCHWMLFMAOperator.jl`:
+   - fixed pass-state clearing loop (`for (_, lv) in oct.levels`)
+   - restored PMCHW disaggregation block scaling to `1/(4π)` chain factors
+- Gate B EJ k0 is now green:
+   - `rel=0.0877`, `ratio=0.9908`, `corr=0.9962`
+- Gate B EJ k1 remains red (tracked by `@test_broken`):
+   - `rel=0.8897`, `ratio=0.3899`, `corr=0.4641`
+- End-to-end Gate C improved from ~49.40% to ~42.27%, still above `<10%` target.
+- Added robustness fix in `Interpolation.jl` to avoid interpolation sparse assembly length mismatch for clipped interpolation orders.
+
 ---
 ## 褰撳墠闃舵: Phase 13.3 V-EFIE MPI 骞惰鍖?鈥?**宸插畬鎴?* 鉁?
 
