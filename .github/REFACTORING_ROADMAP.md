@@ -378,7 +378,7 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 - [x] 14.4 F5–F6: Sphere 600MHz 仿真脚本 (`run_F5_F6_sphere.jl`) ✅
 - [x] 14.5 F7–F9: Plate 1.2GHz 仿真脚本 (`run_F7_F9_plate.jl`) ✅
 - [x] 14.6 P1–P3: PMCHW 介质球 Direct 脚本 (`run_P1_P3_pmchw.jl`) ✅
-- [ ] 14.7 `PMCHWMLFMAOperator` 实现 (2×2 块 MLFMA) + 单元测试
+- [ ] 14.7 PMCHW block/operator shell + MLFMA backend 主线实现（Dense shell 先行，MLFMA 后接） + 单元测试
 - [ ] 14.8 P2: PMCHW 介质球 MLFMA 验证
 - [x] 14.9 A1–A4: 偶极子天线 DeltaGap 基准脚本 (`run_A1_A4_antenna.jl`) ✅ commit 3039d32
 - [ ] 14.10 实际运行仿真 → CSV → `generate_report.jl` → ACCURACY_REPORT.md
@@ -391,7 +391,7 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 | Direct | S-EFIE, S-CFIE, V-EFIE, SCFIE | ≤ 2.0 dB |
 | Direct | PMCHW 介质球 | ≤ 2.5 dB |
 | MLFMA+GMRES | S-EFIE, S-CFIE | ≤ 3.0 dB |
-| MLFMA+GMRES | PMCHW（PMCHWMLFMAOperator） | ≤ 3.0 dB |
+| MLFMA+GMRES | PMCHW（block/operator shell + MLFMA backend） | ≤ 3.0 dB |
 | 天线端口 | 输入阻抗误差 | < 5% |
 | 天线端口 | 最大方向性误差 | < 1.0 dBi |
 
@@ -405,31 +405,217 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 
 ---
 
-## Phase 15: 介质与金属-介质混合天线精度测试 + PMCHWMLFMAOperator（计划中）
+## Phase 15: 介质与金属-介质混合天线精度测试 + PMCHW Transmission Block/Operator 架构（计划中）
 
 > 详见 [PHASE_15_DIELECTRIC_ANTENNA_PLAN.md](PHASE_15_DIELECTRIC_ANTENNA_PLAN.md)
 
 ### 目标
 
-在 Phase 14 天线测试（A1–A4 纯金属偶极子）基础上扩展：介质天线（PMCHW）和金属-介质混合天线（VS-EFIE/VS-CFIE）的输入阻抗验证，以及 PMCHWMLFMAOperator 实现。
+在 Phase 14 天线测试（A1–A4 纯金属偶极子）基础上扩展：介质天线（PMCHW）和金属-介质混合天线（VS-EFIE/VS-CFIE）的输入阻抗验证，并把 PMCHW 顶层实现迁移到 Bempp 风格 block/operator shell；Dense backend 先行，MLFMA 作为 backend 收编，H-matrix 延后。
 
 ### 子任务
 
-- [ ] 15.1 TDD: `test_pmchw_excitation.jl`（PMCHW DeltaGap 激励 + input_impedance）
-- [ ] 15.2 实现 `excitation_vector(PMCHW, DeltaGapSource, RWGBasis)` → 2N 向量
-- [ ] 15.3 实现 `input_impedance(op::PMCHW, source, I_2N, basis)` → J 部分阻抗
-- [ ] 15.4 TDD: `test_scfie_delta_gap.jl`（SCFIE DeltaGap 激励）
-- [ ] 15.5 实现 `excitation_vector(SCFIE, DeltaGapSource, rwg, swg)` → (N_S+N_V) 向量
-- [ ] 15.6 基准脚本 `benchmark/accuracy/run_B1_B5_antenna.jl`（B1–B5 用例）
-- [ ] 15.7 TDD: `test_pmchw_mlfma_operator.jl`
-- [ ] 15.8 实现 `assemble_near_field_pmchw`（2N×2N 稀疏，4 块：EJ/EM/HJ/HM，无需 MagneticRWGBasis）
-- [ ] 15.9 实现 `aggregate_leaf_pmchw!`（单函数，x_range 参数区分 J/M 系数）
-- [ ] 15.10 实现 `disaggregate_leaf_pmchw_j!` + `_m!`（四块接收核函数，依据 Gibson Algorithm 14 两遍设计）
-- [ ] 15.11 组装 `PMCHWMLFMAOperator` struct（两棵 N 点八叉树：octree0/k0 + octree1/k1）+ 构造函数 + `mul!`（4 遍远场：J×k0, J×k1, M×k0, M×k1）
-- [ ] 15.12 更新 `generate_report.jl` 加入 B1–B5
-- [ ] 15.13 检视迭代 (≥ 2 轮 clean)
-- [ ] 15.G1 刷新 Theory-Implementation-Test 治理闭环（可执行原则 + 门禁测试，进行中：Gate A/B 已落地）
-    - 计划文档: `.github/plans/phase_15_theory_impl_test_refresh.md`
+- [x] 15.1 TDD: `test_pmchw_excitation.jl`（PMCHW DeltaGap 激励 + input_impedance）
+- [x] 15.2 实现 `excitation_vector(PMCHW, DeltaGapSource, RWGBasis)` → 2N 向量
+- [x] 15.3 实现 `input_impedance(op::PMCHW, source, I_2N, basis)` → J 部分阻抗
+- [x] 15.4 TDD: `test_scfie_delta_gap.jl`（SCFIE DeltaGap 激励）
+- [x] 15.5 实现 `excitation_vector(SCFIE, DeltaGapSource, rwg, swg)` → (N_S+N_V) 向量
+- [x] 15.6 基准脚本 `benchmark/accuracy/run_B1_B5_antenna.jl`（B1–B5 用例）
+- [x] 15.7 TDD: `test_pmchw_mlfma_operator.jl`
+- [x] 15.8 实现 `assemble_near_field_pmchw`（2N×2N 稀疏，4 块：EJ/EM/HJ/HM，无需 MagneticRWGBasis）
+- [x] 15.9 实现 `aggregate_leaf_pmchw!`（单函数，x_range 参数区分 J/M 系数）
+- [x] 15.10 实现 `disaggregate_leaf_pmchw_j!` + `_m!`（四块接收核函数，依据 Gibson Algorithm 14 两遍设计）
+- [x] 15.11 完成 PMCHW block/operator shell 与 Dense backend 验证，再把现有 `PMCHWMLFMAOperator` 收编为 MLFMA backend（兼容 facade 可保留）
+- [x] 15.12 更新 `generate_report.jl` 加入 B1–B5
+- [x] 15.13 检视迭代（连续 3 轮无新发现后通过）
+- [x] 15.14 Alternative formulation：N-Muller dense baseline + 正式测试
+- [x] 15.15 同一 dielectric sphere 上比较 PMCHW / N-Muller conditioning、直接解与 GMRES 行为
+- [x] 15.G1 刷新 Theory-Implementation-Test 治理闭环（函数级开发合同 + 连续 3 轮文档检视）
+    - 当前执行文档: `.github/plans/phase_15_theory_impl_test_refresh.md`
+    - 强制路线: Gate D0（Dense PMCHW -> Mie 基线复验）→ Gate D1（近场逐元素）→ Gate B（单 pass）→ Gate C（端到端）
+    - 强制要求: 禁止新增临时诊断脚本，诊断结论必须转正式测试或直接删除
+    - 最新定位: `k1` 共享 core 的红灯已压缩到 leaf far-path 近距阈值；`leaf_size=0.10` 下 `near_range=4` 红、`near_range=7` 绿，正式构造函数已据此上调 near-range 标尺
+    - 当前状态: 正式 `GD2`、`Gate B`、`Gate C` 已随 near-range 修正转绿；共享 core 的旧红灯保留为诊断回归，用于证明阈值机制而非重新作为主线阻塞
+    - B2 当前状态: 输入阻抗实部误差 `3.885%`，已满足 `<5%` 验收门限
+    - 新增中尺度回归: `N=540` 时 `Gate C` 仍为 green，但 `GMRES(200)` 对 `LU` 的 B2 偏差放大；dense+GMRES 与 MLFMA+GMRES 一致，后续应把问题归入求解器/预条件阶段，而非 MLFMA matvec 正确性阶段
+    - 新增接口修复: `BlockJacobiPreconditioner` 已支持非连续索引块，`MLFMAOperator` / `PMCHWMLFMAOperator` 可直接构造 `BlockJacobiPreconditioner(op)` 与兼容签名 `BlockJacobiPreconditioner(op, basis)`
+    - 最新边界修正: 上述“归入求解器/预条件阶段”的判断只对 `GMRES(200)` 低精度阶段成立；当 `restart` 提升到 `300/1000` 时，dense GMRES 已接近 `LU`，而 PMCHW MLFMA 仍保留约 `5.8%` 阻抗偏差，因此下一轮重点必须转向**长 Krylov 下的 PMCHW MLFMA 算子保真度**
+    - 额外约束: 现有 `Diagonal` / `ILU(Z_near)` / `BlockJacobi(op)` 在 `N=540` 夹具上都比无预条件更差；继续扩大 `near_range` 则会触发 OOM，因此这两条都不能作为主线修复方案
+    - 外部调研新增结论: Bempp 的 transmission/FMM 主线是 block multitrace + `singular_part + FMM evaluator`，FreeFEM/BEMTool/Htool 主线是 cluster-tree H-matrix；二者都不同于本地 `PMCHWMLFMAOperator` 的“双八叉树 + 四遍远场”专用实现，因此后续应把问题进一步拆到 operator/block 级误差，而不是只在整体 2N `mul!` 上调参
+    - 新增 Gate S 主线: 必须补做 `dense weak` / `dense strong` / `MLFMA weak` / `MLFMA strong` 四路对照；只有在 `dense strong` 已回收而 `MLFMA strong` 仍失配时，才允许把剩余长 Krylov 偏差正式归因到 MLFMA 压缩误差
+- [x] 15.G2 冻结 Phase 15 架构主线为 Bempp 风格 block/operator shell
+    - 顶层 transmission 语义固定为四块 `EJ/EM/HJ/HM` block/operator shell，而不是继续扩张单体 `PMCHWMLFMAOperator`
+    - `weak_form` / `strong_form` / mass-matrix-aware solve 归入 shell；Dense / MLFMA / H-matrix 统一视为 backend
+    - 执行顺序冻结为：Dense shell → strong-form 分界（Gate S）→ MLFMA backend 收编 → 后续才允许评估 H-matrix backend
+    - FreeFEM/Htool 路线被正式延后到 shell 与 Gate S 稳定之后，禁止在当前阶段直接跳入 H-matrix 主线
+- [x] 15.G3 落地 PMCHW Dense block/operator shell 最小实现
+    - 新增 `PMCHWBlockOperator` 与 `DensePMCHWBackend`，显式承载四块 `EJ/EM/HJ/HM` 语义
+    - `weak_form` / `strong_form` 已在 shell 层落位；默认 `strong_form` 现已接入真实 RWG surface Gram 的 2N block pairing
+    - 新增 `test/test_pmchw_operator_shell.jl`，验证 block split、默认 strong-form pairing、matvec 与 GMRES 兼容性
+    - 当前完成的是 Dense shell + Dense pairing 基线；`Gate S` 的正式中尺度四路对照与 MLFMA backend 收编仍未完成
+- [x] 15.G4 落地 Gate S 的 dense 半边回归
+    - 新增 `strong_form_rhs` 与 `recover_trial_coefficients`，固定 strong-form 的 shell 层 RHS/解向量变换语义
+    - 新增 `test/test_pmchw_gate_s_dense.jl`，在 `N=540` 夹具上正式比较 `dense weak` / `dense strong` / `dense LU`
+    - 当前证据已确认 `dense strong` 在同一 GMRES 设置下优于 `dense weak`，但完整 Gate S 仍缺 `MLFMA weak` / `MLFMA strong`
+- [x] 15.G5 完成 PMCHW MLFMA backend 的 shell 收编小夹具验证
+    - 新增 `MatrixFreePMCHWBackend`，允许把 `PMCHWMLFMAOperator` 作为 matrix-free backend 接入 `PMCHWBlockOperator`
+    - 新增 strong-form 变换包装算子，用于非矩阵 backend 的 `strong_form(shell)`
+    - 新增 `test/test_pmchw_operator_shell_mlfma.jl`，验证 MLFMA backend 在 shell 下的 weak/strong 求解链可执行，并与 Dense shell 在小夹具上保持近似一致
+    - 当前尚未完成的是 **中尺度** `MLFMA weak / strong` 两路的稳定正式回归；现阶段只有 Dense 半边在 `N=540` 夹具上已被正式锁定
+- [x] 15.G6 锁定中尺度四路 Gate S 专门回归
+    - 新增 `test/test_pmchw_gate_s_mlfma_medium.jl`，在同一 `N=540` 夹具上统一比较 `dense weak` / `dense strong` / `MLFMA weak` / `MLFMA strong`
+    - 当前结果：`9/9 pass`，运行时间约 `9m05s`
+    - 关键指标：`relw = 3.45e-3`、`rels = 3.18e-3`、`zgw = 2.34e-5`、`zgs = 5.75e-5`
+    - 当前边界：该测试已把 Gate S 的中尺度四路主对照正式化，但因运行成本较高，暂不并入默认 `test/runtests.jl`
+- [x] 15.G7 接通 B2 天线基准脚本的 PMCHW MLFMA 实跑路径
+    - `benchmark/accuracy/run_B1_B5_antenna.jl` 的 B2 已从占位状态改为 shell + MatrixFree backend + strong-form GMRES
+    - 单项复验结果：`B2_PMCHW_MLFMA` 已通过，`Z_in = +0.000 + j(+0.186) Ω`，相对 Direct 参考的虚部误差约 `0.01 Ω`
+    - 近零参考实部下新增 `re_ref_floor_ohm` 判定下限，避免球面 delta-gap 场景中因 `Re(Z_ref)≈0` 触发伪失败
+    - 当前边界：`15.6` 仍未整体勾选，因为 B5 仍待实现；但 B2 已不再是脚本中的空白占位
+- [x] 15.G8 验证天线基准脚本默认入口可执行
+    - 已复跑 `benchmark/accuracy/run_B1_B5_antenna.jl` 默认入口，`B1 / B3 / B4` 全部通过
+    - 当前脚本状态：默认入口绿色，`B2` 单项绿色，剩余缺口仅为 `B5`
+    - 这一步锁定了 Phase 15 天线基准框架本身已可用，后续实现重点可收束到 `B5` 或 alternative formulation / backend 误差预算
+- [x] 15.G9 完整 B1–B5 天线基准全绿
+    - 已复跑 `benchmark/accuracy/run_B1_B5_antenna.jl B1 B2 B3 B4 B5`，当前结果 `PASS: 6 / 6`
+    - `B5` 已接通到 `SCFIE + MLFMAOperator + GMRES` 路径，并与 `B4 Direct` 在当前 TriTetra 夹具上保持一致
+    - `benchmark/accuracy/generate_report.jl` 已修正 B5 标签并可正确汇总 `B1`–`B5`
+    - 当前边界：`15.13` 检视迭代仍未完成；Phase 15 的下一实现重点已从天线基准脚本接线转向 alternative formulation / backend 误差预算
+- [x] 15.G10 Alternative formulation 子流启动：N-Muller dense baseline
+    - 已新增 `src/IntegralEquations/NMuller.jl`，并由 `src/IntegralEquations/IntegralEquations.jl` 与 `src/EMSuite.jl` 正式导出
+    - 已新增 `test/test_nmuller.jl`，当前结果 `15/15 pass`
+    - 已新增 `test/test_nmuller_comparison.jl` 与 `benchmark/compare_pmchw_nmuller_sphere.jl`，在共享球夹具上记录 formulation 行为差异
+    - 当前观测：`cond(NMuller)/cond(PMCHW) = 1.4837e-2`，同一 GMRES 预算下 `NMuller` 的 residual 与 relative solution error 均低于 `PMCHW`
+    - 执行文档：`.github/plans/phase_15_nmuller_dense_baseline.md`
+- [x] 15.G11 N-Muller DeltaGap / input_impedance + PMCHW MLFMA 显式 budget 接口
+    - 已为 `NMuller` 新增 `DeltaGapSource` 激励与 `input_impedance` 路径，形成最小诊断性馈电链；其物理端口语义仍待与 formulation-specific 参考实现对齐
+    - 已新增 `test/test_nmuller_excitation.jl`，当前结果 `10/10 pass`
+    - 已为 `PMCHWMLFMAOperator` 新增 `PMCHWMLFMAErrorBudget`，显式暴露 `near_range`、`L_min` 与 `leaf_size_eff` 控制，同时保持旧构造入口兼容
+    - `test/test_pmchw_mlfma_operator.jl` 已新增 budget 回归，当前结果 `PMCHWMLFMAOperator budget interface preserves defaults and exposes overrides | 8/8 pass`
+    - 最新诊断：`benchmark/compare_pmchw_nmuller_impedance.jl` 显示当前 N-Muller DeltaGap / input_impedance 组合与 PMCHW `Z_in` 相差 7-8 个数量级，说明这条链路仍处于语义排查阶段，暂不能升格为正式阻抗验收门
+- [x] 15.G12 PMCHW MLFMA budget sweep 基准入口
+    - 已新增 `benchmark/compare_pmchw_mlfma_budget.jl`，固定 small / medium 夹具比较不同 `PMCHWMLFMAErrorBudget` 配置
+    - 基准输出项覆盖 `near_range`、`leaf_size_eff`、`L_min`、`nnz_near / near_density`、matvec 相对误差、强形式 `Z_in` 误差与构造/求解耗时
+    - 对应结果会落盘到 `test_results/accuracy/PMCHW_MLFMA_budget_sweep_<preset>.csv`，用于后续冻结正式预算门
+    - 首轮 `medium` 观测：budget 能把 `near_density` 从 `1.0000` 压到 `0.2350`–`0.3007`，同时把 `rel_matvec` 控制在 `7.3e-4`–`7.7e-4`；但固定 `GMRES(100)` 下 `Z_in` 误差几乎不变，当前说明 solver 截止仍是主导因素
+- [x] 15.G13 Phase 15 检视迭代闭环（3 轮 clean）
+    - Round 1（架构/算法审查）: 核对 shell 职责边界、四块语义、strong-form 路径、backend 收编一致性，未发现新的 Phase 15 阻塞问题
+    - Round 2（关键回归）: `test_pmchw_operator_shell.jl`、`test_pmchw_operator_shell_mlfma.jl`、`test_pmchw_gate_s_dense.jl`、`test_nmuller.jl`、`test_nmuller_comparison.jl` 全部通过
+    - Round 3（中尺度门禁复验）: `test_pmchw_gate_s_mlfma_medium.jl`、`test_pmchw_mlfma_budget_medium.jl`、`test_nmuller_planewave_gmres_trajectory_medium.jl` 全部通过
+    - 残余风险（非 Phase 15）: `docs/setup_docs.jl`、`test/test_legacy_parity.jl` 仍存在语法错误，已记录为跨阶段遗留，不阻塞 Phase 15 关闭
+- [x] 15.G13 PMCHW MLFMA medium budget 专门门禁
+        - 已新增 `test/test_pmchw_mlfma_budget_medium.jl`，固定 `N=540` 夹具比较 `default / loose_near / fixed_leaf_0p04_nr9` 三组预算
+        - 当前门禁锁定三类事实：
+            1. budget 会显著改变 `near_density`
+            2. default budget 的 matvec fidelity 优于更稀疏预算
+            3. 固定 `GMRES(100)` 下三组预算的 `Z_in` 与最终残差几乎不变，说明当前偏差主要不由 budget 决定
+        - 该回归运行成本较高，暂不并入默认 `runtests.jl`
+- [x] 15.G14 PMCHW MLFMA 代表性预算长 Krylov 对照
+    - 已新增 `benchmark/compare_pmchw_mlfma_budget_krylov.jl`，固定 `N=540` medium 夹具、固定三组代表性预算 `default / loose_near / fixed_leaf_0p04_nr9`
+    - `benchmark/compare_pmchw_mlfma_budget.jl` 现默认只跑代表性三组预算；如需恢复探索集，显式传入 `full`
+    - 已固定两档 Krylov 对照：`short = restart=100, maxiter=100, reltol=1e-4`，`long = restart=300, maxiter=600, reltol=1e-6`
+    - 当前 `medium` 结果已落盘到 `test_results/accuracy/PMCHW_MLFMA_budget_krylov_medium.csv`
+    - 关键结论：
+        1. `short` 档下三组预算相对 dense 的 `Z_in` gap 仍只有亚欧姆量级（实部 `0.03`–`0.27Ω`，虚部 `0.18`–`0.54Ω`），预算影响仍被 Krylov 截止误差淹没
+        2. 刷新后的 `long` 档三组预算相对 dense 的 `Z_in` gap 也都只剩亚欧姆量级：`default = 0.03815Ω / 0.00236Ω`，`loose_near = 0.48107Ω / 0.02029Ω`，`fixed_leaf_0p04_nr9 = 0.06282Ω / 0.07629Ω`
+        3. 因此 G14 现已与 BG2、Arnoldi、GMRES 轨迹诊断重新对齐：当前 long-Krylov 主线不再表现为 budget 主导的大分叉
+- [x] 15.G15 PMCHW MLFMA medium long-Krylov budget 专门门禁
+    - 已新增 `test/test_pmchw_mlfma_budget_krylov_medium.jl`，固定 `N=540` 夹具、固定 long Krylov 配置 `restart=300, maxiter=600, reltol=1e-6`
+    - 当前门禁只保留最有信息量的两组预算：`default` 与 `loose_near`
+    - K 接收链修复后，旧门限已被证明过时；最新回归结果为 `15.BG2 PMCHW MLFMA medium long-Krylov budget gate | 16/16 pass | 29m08.0s`
+    - 当前门禁锁定四类事实：
+        1. dense strong 在同一 long Krylov 配置下已明显逼近 `LU`（`Re` 误差 `6.78%`, `Im` 误差 `4.28Ω`）
+        2. `default` budget 相对 dense strong 的 `Z_in` gap 已收缩到 `0.03815Ω / 0.00236Ω`
+        3. `loose_near` budget 虽然仍更差，但 gap 也仅 `0.48107Ω / 0.02029Ω`
+        4. 因此 receive 修复后，long-Krylov 剩余边界已不能再归因为“budget 主导的 backend fidelity 大分叉”
+- [x] 15.G16 PMCHW medium block/operator fidelity 诊断
+    - 已新增 `benchmark/compare_pmchw_block_fidelity_medium.jl`，固定 `N=540` 夹具、`default / loose_near` 两组预算、`J_only / M_only` 两类物理 probe
+    - 诊断语义已冻结为：strong-form 对照必须比较同一物理 probe；输入先过 `trial_pairing`，输出再映回测试空间，禁止直接把 weak-space probe 送入 `strong_form`
+    - 结果已落盘到 `test_results/accuracy/PMCHW_block_fidelity_medium.csv`
+    - 当前结论：
+        1. 映回物理空间后，`strong` 与 `weak` 的 block fidelity 指标一致，因此当前 medium 边界不是 strong-form 专属失真
+        2. `J_only` probe 在 `default` budget 下总体误差仅 `3.26e-5`，继续维持高保真
+        3. 修复 PMCHW K 接收链后，`M_only` probe 在 `default` budget 下已降到 `2.98e-4`，`loose_near` 下也仅 `2.03e-3`
+        4. `M×k0` 与 `M×k1` 单 pass 的 `E-row` 误差也分别降到 `2.87e-4 / 9.89e-4`（`default`）与 `1.06e-3 / 3.00e-3`（`loose_near`），说明此前 medium 边界确由 K-type receive 公式错误驱动
+    - 后续主线：基于已修复的 `M` 通道接收链，重新评估 medium long-Krylov budget gap 是否仍由 backend fidelity 主导，而不是继续停留在旧的 `M_only -> E-row` 故障结论
+- [x] 15.G17 PMCHW medium block fidelity 专门门禁
+    - 已新增 `test/test_pmchw_block_fidelity_medium.jl`，固定 `N=540` 夹具，把 medium block fidelity 诊断升级为正式专门回归
+    - 当前结果：K 接收链修复后已切换为精度上界门禁；最新回归结果为 `15.BF1 PMCHW medium block fidelity gate | 26/26 pass | 4m42.9s`
+    - 当前门禁锁定三类事实：
+        1. 映回物理空间后，`strong` 与 `weak` 的 fidelity 指标一致，因此当前 medium block gap 不属于 strong-only 问题
+        2. `J_only` 与 `M_only` 在 `default` budget 下都已进入 `1e-4 ~ 1e-5` 级别，`loose_near` 下 `M_only` 仍只到 `2e-3` 量级
+        3. `M×k0` 与 `M×k1` 两条 pass 在 `E-row` 上均已恢复到 `1e-3` 级别以内/附近，且 `loose_near` 相比 `default` 仍会稳定恶化，保留了 budget 灵敏度
+    - 后续主线：把 medium long-Krylov 的剩余边界重新与 BG1/BG2 对照，判断 receive 修复后是否还需要进一步收缩 near/far budget 或 GMRES/预条件链
+- [x] 15.G18 Receive 修复后的 budget 主线复核
+    - 已复核 `test_results/accuracy/PMCHW_MLFMA_budget_sweep_medium.csv` 与 `test_results/accuracy/PMCHW_MLFMA_budget_krylov_medium.csv`
+    - 结论已更新为：短 Krylov 结论保留，但旧的 long-Krylov 大 gap 归因被推翻：
+        1. 短 Krylov `GMRES(100)` 下，代表性 budget 的 `Z_in` spread 仍很小，主导项仍是 solver 截止
+        2. medium budget sweep 仍保持 `default > loose > fixed` 的 `near_density` 梯度，且 `default` matvec fidelity 最好（`3.20e-4 < 7.30e-4 < 7.70e-4`）
+        3. long Krylov 下现行 BG2 值已收缩到：`default = 0.03815Ω / 0.00236Ω`，`loose_near = 0.48107Ω / 0.02029Ω`
+        4. 因此 Phase 15 剩余边界已从“budget 主导”转向“更深 Krylov 轨迹 / formulation / conditioning 放大”
+- [x] 15.G19 PMCHW medium Arnoldi 子空间保真诊断
+    - 已新增 `benchmark/compare_pmchw_krylov_subspace_medium.jl`，按 dense strong-form 的 Arnoldi 子空间方向比较 `dense strong` 与 `MLFMA strong` 的 matvec
+    - 当前结果已落盘到 `test_results/accuracy/PMCHW_krylov_subspace_medium.csv`
+    - 当前结论：
+        1. 在前 12 个 Arnoldi 方向上，`default` budget 的最大 `rel_total` 仅 `8.12e-5`，`loose_near` 也仅 `4.26e-4`
+        2. `E-row` 误差与总体误差同量级，`H-row` 略大但仍仅 `3.48e-4`（default）/ `2.85e-3`（loose）
+        3. 因此 BG2 的 long-Krylov 大 gap 不能简单归因于“早期 Krylov 子空间方向上的 fast matvec 已明显失真”
+    - 后续主线：继续向更深 Krylov 子空间、重启/正交化轨迹或 formulation 条件数放大效应收缩，而不是回退到随机 probe 或已修复的 M-pass receive 链
+- [x] 15.G20 PMCHW medium GMRES 轨迹诊断
+    - 已新增 `benchmark/compare_pmchw_gmres_trajectory_medium.jl`，固定 checkpoint `100 / 300 / 600`，直接比较 dense strong 与 MLFMA strong 的解轨迹
+    - 当前结果已落盘到 `test_results/accuracy/PMCHW_gmres_trajectory_medium.csv`
+    - 当前结论：
+        1. `default` 路径在 `300` 步时与 dense strong 几乎重合（`gap = 0.00620Ω / 0.00566Ω`），到 `600` 步仍仅 `0.03815Ω / 0.00236Ω`
+        2. `loose_near` 到 `600` 步的解向量偏差增大到 `1.52e-2`，但阻抗 gap 仍只到 `0.48107Ω / 0.02029Ω`
+        3. 因此 receive 修复后，long-Krylov 主线不再表现为“大尺度阻抗分叉”，而更像是深层轨迹上的次级放大问题
+- [x] 15.G21 PMCHW vs N-Muller medium dense GMRES 轨迹对照
+    - 已新增专门测试 `test/test_nmuller_gmres_trajectory_medium.jl`，当前结果 `25/25 pass`
+    - 已新增 benchmark `benchmark/compare_pmchw_nmuller_gmres_trajectory_medium.jl`
+    - 当前结果已落盘到 `test_results/accuracy/PMCHW_NMuller_gmres_trajectory_medium.csv`
+    - 当前结论：
+        1. 在 `50 / 100 / 150 / 200 / 250` 全部 checkpoint 上，`NMuller` 的 `rel_vs_LU` 与 `resnorm` 都持续优于 `PMCHW`
+        2. `PMCHW` 在 `250` 步时仍为 `rel=1.000066e+00`, `res=7.078038e-01`，而 `NMuller` 已收敛到 `rel=7.808047e-02`, `res=4.174158e-02`
+        3. 因此当前剩余边界更像是 `PMCHW formulation / conditioning` 问题，而不是 N-Muller 支线本身或已修复的 PMCHW fast backend 主干
+- [x] 15.G22 PMCHW vs N-Muller medium plane-wave dense GMRES 轨迹对照
+    - 已新增专门测试 `test/test_nmuller_planewave_gmres_trajectory_medium.jl`，当前结果 `25/25 pass`
+    - 已新增 benchmark `benchmark/compare_pmchw_nmuller_planewave_gmres_trajectory_medium.jl`
+    - 当前结果已落盘到 `test_results/accuracy/PMCHW_NMuller_planewave_gmres_trajectory_medium.csv`
+    - 当前结论：
+        1. 把 RHS 从 random probe 切到 `PlaneWave` 物理激励后，`NMuller` 仍在全部 checkpoint 上同时优于 `PMCHW` 的 `rel_vs_LU` 与相对残差
+        2. `PMCHW` 在 `250` 步时仍为 `rel=1.002186e+00`, `rres=1.779276e-03`，而 `NMuller` 已在 `67` 步内停机并稳定到 `rel=1.149702e-02`, `rres=9.583083e-06`
+        3. 因而“剩余问题更像 PMCHW formulation / conditioning，而不是 repaired backend”这一判断已经从随机 RHS 扩展到物理激励 RHS
+- [x] 15.G23 PMCHW medium plane-wave dense weak/strong 轨迹对照
+    - 已新增专门测试 `test/test_pmchw_gate_s_planewave_trajectory_medium.jl`，当前结果 `31/31 pass`
+    - 已新增 benchmark `benchmark/compare_pmchw_gate_s_planewave_trajectory_medium.jl`
+    - 当前结果已落盘到 `test_results/accuracy/PMCHW_gate_s_planewave_trajectory_medium.csv`
+    - 当前结论：
+        1. 在 `PlaneWave` 物理激励下，`strong` 相比 `weak` 的 `rel_vs_LU` 只带来边际改善，且 5 个 checkpoint 上改善比例都不足 1%
+        2. 到 `250` 步时，`weak = rel 1.002186e+00 / rres 1.779276e-03`，`strong = rel 1.001109e+00 / rres 1.868816e-03`，两者都没有收回到接近 LU 的区域
+        3. 因而 PMCHW 当前剩余问题不能再简单归结为“只差 strong-form”；在 plane-wave 工况下，主边界仍落在更深的 formulation / conditioning 机制
+- [x] 15.G24 PMCHW vs N-Muller medium plane-wave dense restart 扫描
+    - 已新增专门测试 `test/test_pmchw_nmuller_planewave_restart_sweep_medium.jl`，当前结果 `22/22 pass`
+    - 已新增 benchmark `benchmark/compare_pmchw_nmuller_planewave_restart_sweep_medium.jl`
+    - 当前结果已落盘到 `test_results/accuracy/PMCHW_NMuller_planewave_restart_sweep_medium.csv`
+    - 当前结论：
+        1. `IterativeSolvers.gmres` 默认 `restart = min(20, size(A,2))`；此前 plane-wave dense 轨迹里 `PMCHW` 的坏终点确有明显 restart 主导成分
+        2. 对同一 medium 夹具，`PMCHW` 从 `restart=20` 提升到 `restart=250` 后，`rel_vs_LU` 从 `1.002186e+00` 降到 `5.186365e-02`，相对残差从 `1.779276e-03` 降到 `8.501219e-06`
+        3. 但在同一 `restart=250` 下，`NMuller` 仍保持 `rel=7.800091e-03`, `rres=8.610863e-06`, `iters=44`；因此新边界应修正为“PMCHW 先有强 restart 敏感性，剥离后仍保留明显 formulation gap”，而不是单纯把全部剩余问题都归为 backend 或 strong-form
+
+### 当前主线说明
+
+- **主交付 formulation 仍是 PMCHW**：Phase 15 当前所有 medium 级精度与收敛治理都以 PMCHW shell + MLFMA backend 为主线。
+- **N-Muller 当前定位为 dense 对照基线**：只用于比较 conditioning / GMRES 行为，帮助区分“formulation 问题”与“backend 问题”；它不是当前阻塞主线。
+- **当前剩余问题的最新归因**：已从早期的 `M` pass receive 错误、再到中期的“budget 主导 long-Krylov 大分叉”，收缩为 **更深 Krylov 轨迹 / formulation 条件数放大**。
+- **最新证据边界**：上述归因不仅在 random-RHS dense 对照下成立，在 `PlaneWave` 物理激励 RHS 下也继续成立。
+- **对 PMCHW 自身的新分界**：`PlaneWave` 工况下的 dense `weak/strong` 对照表明，strong-form 不是当前 medium 主问题的单独解；它只带来边际改善，无法把 PMCHW 拉回 LU 邻域。
+- **对 restart 机制的新分界**：默认 `restart=20` 会显著夸大 PMCHW plane-wave dense 轨迹失真；但把 `restart` 提升到 `250` 后，PMCHW 虽已把相对残差收回到 `~1e-5`，相对 LU 误差仍显著高于 `NMuller`。
+- **本段收尾结论**：Phase 15 当前这段 dense plane-wave 归因子流可先收口到 `G22/G23/G24`；后续若继续推进，应直接进入显式 full-restart / Arnoldi 级诊断，而不再重复 weak-vs-strong 或默认-restart 现象复测。
+- **下一执行顺序**：
+    1. 继续在 PMCHW 主线上做更深 Krylov / restart / Arnoldi 诊断，并把默认 restart 与 full-restart 行为明确拆开；
+    2. 用 N-Muller 只做同夹具 dense 轨迹对照；
+    3. 暂不扩展 N-Muller 天线语义，不让支线反客为主。
+
+- **工作区清理状态（2026-03-08）**：已删除 `scripts/` 下 5 个一次性诊断脚本（4 个 `tmp_*` 探针 + 1 个 `diagnose_pmchw_farfield_blocks.jl`），正式测试、benchmark、CSV 结果与计划文档全部保留；下一阶段若需要继续追踪，应直接在现有专门回归入口上扩展，而不是重新堆积临时脚本。
 
 ### 精度验收门限
 
