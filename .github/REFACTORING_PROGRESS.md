@@ -1394,6 +1394,18 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
    - Registrator 提交与 General Registry 审核合并
    - TagBot/Registrator 所需仓库权限与密钥配置
 
+### 2026-03-09 Update (Phase 16 报告计划落地)
+
+- 已新增发布前全模块验证计划：
+   - `.github/plans/phase_16_release_validation_report_plan.md`
+   - 明确要求：解析基准 + FEKO 对标双线覆盖，并给出模块覆盖矩阵
+- 已新增报告模板：
+   - `test_results/reports/RELEASE_VALIDATION_REPORT_TEMPLATE.md`
+- 已新增报告生成入口：
+   - `benchmark/run_release_validation_report.jl`
+   - 运行后生成 `test_results/reports/RELEASE_VALIDATION_REPORT.md`
+- Phase 16 当前状态：计划与骨架完成，待执行全量用例填充实测数据并完成 2 轮检视。
+
 ---
 
 ## Legacy 鍥犲瓙瀵圭収琛?

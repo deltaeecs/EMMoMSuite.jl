@@ -518,6 +518,24 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
     - 关键结论：
         1. `short` 档下三组预算相对 dense 的 `Z_in` gap 仍只有亚欧姆量级（实部 `0.03`–`0.27Ω`，虚部 `0.18`–`0.54Ω`），预算影响仍被 Krylov 截止误差淹没
         2. 刷新后的 `long` 档三组预算相对 dense 的 `Z_in` gap 也都只剩亚欧姆量级：`default = 0.03815Ω / 0.00236Ω`，`loose_near = 0.48107Ω / 0.02029Ω`，`fixed_leaf_0p04_nr9 = 0.06282Ω / 0.07629Ω`
+
+    ---
+
+    ## Phase 16: 发布前全模块效率与精度报告（计划中）
+
+    > 详见 `.github/plans/phase_16_release_validation_report_plan.md`
+
+    ### 目标
+
+    发布前输出统一验证报告，覆盖所有核心模块；测试集必须同时包含解析基准（Mie/解析阻抗）与 FEKO 对标用例。
+
+    ### 子任务
+
+    - [x] 16.1 制定发布前验证计划（模块覆盖矩阵 + 解析/FEKO 用例矩阵）
+    - [x] 16.2 报告模板落地（`test_results/reports/RELEASE_VALIDATION_REPORT_TEMPLATE.md`）
+    - [x] 16.3 报告生成入口脚本（`benchmark/run_release_validation_report.jl`）
+    - [ ] 16.4 执行全量用例并填充主报告（`test_results/reports/RELEASE_VALIDATION_REPORT.md`）
+    - [ ] 16.5 检视迭代（>=2 轮 clean）并给出发布 Go/No-Go 结论
         3. 因此 G14 现已与 BG2、Arnoldi、GMRES 轨迹诊断重新对齐：当前 long-Krylov 主线不再表现为 budget 主导的大分叉
 - [x] 15.G15 PMCHW MLFMA medium long-Krylov budget 专门门禁
     - 已新增 `test/test_pmchw_mlfma_budget_krylov_medium.jl`，固定 `N=540` 夹具、固定 long Krylov 配置 `restart=300, maxiter=600, reltol=1e-6`
