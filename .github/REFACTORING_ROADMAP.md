@@ -67,9 +67,9 @@ EMSuite.jl/src/
 - [x] JuliaFormatter 缁熶竴浠ｇ爜椋庢牸 鉁?(`0535576`) 鈥?79 涓?`src/` 鏂囦欢, indent=4, margin=100
 - [x] CHANGELOG.md 瀹屽杽 鉁?鈥?Phase 8-12 鎵€鏈夐噷绋嬬
 - [x] compat 璇硶瑙勮寖鍖?鉁?+ 瑕嗙洊鐜囪剼鏈?+ 鍙戝竷娓呭崟
-- [ ] 娴嬭瘯瑕嗙洊鐜?> 80%
-- [ ] API 鏂囨。瀹屽杽 (Documenter.jl)
-- [ ] 鐢ㄦ埛鏁欑▼鍜岀悊璁烘枃妗?
+- [x] 娴嬭瘯瑕嗙洊鐜?> 80%
+- [x] API 鏂囨。瀹屽杽 (Documenter.jl)
+- [x] 鐢ㄦ埛鏁欑▼鍜岀悊璁烘枃妗?
 - [ ] 鍙戝竷鍒?Julia General Registry
 
 ### Phase 10: 鍏ㄦ柟绋嬪叏璺緞绮惧害瀵归綈 鉁?

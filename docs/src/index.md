@@ -1,33 +1,30 @@
 # EMSuite.jl
 
-Welcome to the documentation for **EMSuite.jl**, a comprehensive Computational Electromagnetics (CEM) library written in Julia.
+EMSuite is a Julia-based computational electromagnetics toolkit centered on Method of Moments workflows for scattering, radiation, and transmission problems.
 
-## Overview
+## What You Get
 
-EMSuite provides a modular and high-performance framework for solving electromagnetic scattering and radiation problems using the **Method of Moments (MoM)**. It is designed for researchers and engineers who need a flexible platform for algorithm development and large-scale simulation.
+- Surface and volume formulations: EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, and N-Muller.
+- Basis support: RWG, SWG, PWC, PWCHex, RBF.
+- Fast backend: MLFMA with medium/large-scale regression gates.
+- Solver stack: LU, GMRES, BiCGSTAB, and preconditioners.
+- Post-processing: RCS, near/far fields, antenna metrics, and export helpers.
 
-## Key Features
+## Documentation Map
 
-*   **Versatile Geometry Support**: Handles triangular (surface) and tetrahedral (volume) meshes.
-*   **Advanced Integral Equations**: Supports EFIE, MFIE, CFIE, and VIE formulations.
-*   **Fast Algorithms**: Implements Multilevel Fast Multipole Algorithm (MLFMA) for accelerating large-scale problems.
-*   **Parallel Computing**: Built-in support for MPI and multi-threading to leverage modern clusters.
-*   **Rich Basis Functions**: Includes RWG, SWG, PWC, and Rooftop basis functions.
-*   **Robust Solvers**: Integrated direct (LU) and iterative (GMRES, BiCGSTAB) solvers with preconditioning.
+- [Installation](guide/installation.md)
+- [Quick Start](guide/quick_start.md)
+- [Advanced Guide](guide/advanced.md)
+- [Examples](guide/examples.md)
+- [Theory Overview](theory/overview.md)
+- [API Reference](api/public_api.md)
 
-## Documentation Structure
-
-*   **[User Guide](guide/quick_start.md)**: Step-by-step instructions for installation, quick start, and running examples.
-*   **[Algorithm Theory](theory/electromagnetics.md)**: Detailed mathematical derivations of the underlying physics and numerical methods.
-*   **[API Reference](api/public_api.md)**: Comprehensive documentation of types and functions.
-
-## Getting Started
-
-To install the package, simply run:
+## Local Development Install
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/yourusername/EMSuite.jl")
+Pkg.activate(".")
+Pkg.instantiate()
 ```
 
-See the [Installation Guide](guide/installation.md) for more details.
+For package usage details, continue with the [User Guide](guide/quick_start.md).

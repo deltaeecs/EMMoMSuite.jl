@@ -1364,11 +1364,24 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 - [x] JuliaFormatter.jl 缁熶竴浠ｇ爜椋庢牸 鉁?(`0535576`) 鈥?79 涓?`src/` 鏂囦欢
 - [x] CHANGELOG.md 瀹屽杽 鉁?鈥?Phase 8-12 鎵€鏈夐噷绋嬬
 - [x] compat 璇硶瑙勮寖鍖?鉁?+ 瑕嗙洊鐜囪剼鏈?+ 鍙戝竷娓呭崟 (`9d3e671`)
-- [ ] 娴嬭瘯瑕嗙洊鐜囩粺璁′笌鎻愬崌 (鐩爣 > 80%)
-- [ ] API 鏂囨。琛ュ叏 (鎵€鏈夊叕鍏辨帴鍙?
-- [ ] 鐢ㄦ埛鏁欑▼ (Quick Start, Advanced)
-- [ ] 鐞嗚鏂囨。 (MoM, MLFMA, 绉垎鏂圭▼鎺ㄥ)
+- [x] 娴嬭瘯瑕嗙洊鐜囩粺璁′笌鎻愬崌 (鐩爣 > 80%)
+- [x] API 鏂囨。琛ュ叏 (鎵€鏈夊叕鍏辨帴鍙?
+- [x] 鐢ㄦ埛鏁欑▼ (Quick Start, Advanced)
+- [x] 鐞嗚鏂囨。 (MoM, MLFMA, 绉垎鏂圭▼鎺ㄥ)
 - [ ] 鍙戝竷鍒?Julia General Registry
+
+### 2026-03-09 Update (Phase 9 Coverage + Docs Closure)
+
+- 覆盖率统计脚本已补齐：`scripts/check_coverage.jl`
+- 轻量覆盖率实测：`4283/4595 = 93.21%`（阈值 80% 已满足）
+   - 运行：`julia --project=. --code-coverage=user --startup-file=no test/runtests_light_cov.jl`
+   - 统计：`julia --project=. scripts/check_coverage.jl 80`
+   - 报告：`test_results/COVERAGE_REPORT.md`
+- Documenter 文档已补齐与验证：
+   - 新增 `docs/src/guide/advanced.md`（中尺度/预算/门禁工作流）
+   - 新增 `docs/src/theory/overview.md`（理论总览）
+   - `docs/make.jl` 已接入新页面导航；`docs/src/index.md` 已刷新入口与安装说明
+   - 验证：`julia --project=docs docs/setup_docs.jl` + `julia --project=docs docs/make.jl`
 
 ---
 
