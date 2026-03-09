@@ -2,7 +2,7 @@
 
 > 创建日期: 2026-03-09  
 > 状态: 计划已冻结，执行中  
-> 关联目标: 发布前形成一份覆盖所有核心模块的统一验证报告（效率 + 精度）
+> 关联目标: 发布前形成一份覆盖所有核心模块的统一验证报告（效率 + 精度 + 内存可执行性）
 
 ---
 
@@ -51,6 +51,7 @@
 1. 模块效率：组装、求解、总耗时、内存行为（可得时）。
 2. 模块精度：对 Legacy / FEKO / 解析基准的 RMSE、关键角误差、阻抗误差。
 3. 功能覆盖矩阵：模块是否被用例命中与结果状态。
+4. 大规模 direct 可执行性：矩阵规模估算、峰值内存是否合理、是否存在非必要副本导致的 OOM。
 
 ### 2.1 模块覆盖要求
 
@@ -90,6 +91,7 @@
 - `benchmark/run_full_benchmark.jl`
 - `benchmark/run_full_accuracy_benchmark.jl`
 - `benchmark/accuracy/run_B1_B5_antenna.jl`
+- `benchmark/accuracy/run_P1_P3_pmchw.jl`
 - `benchmark/compare_pmchw_mlfma_budget.jl`
 - `benchmark/compare_pmchw_mlfma_budget_krylov.jl`
 - `benchmark/compare_pmchw_nmuller_sphere.jl`
@@ -132,10 +134,12 @@
   - 至少 2 组解析对标结果（Mie/解析阻抗）
   - 至少 4 组 FEKO 对标结果
   - 全模块覆盖矩阵（命中状态）
+  - 至少 1 组效率/内存诊断结论（说明慢用例与 OOM 用例的可执行性状态）
 - 关键门限（建议值，可按历史阈值微调）：
   - Direct vs FEKO/Mie：RMSE <= 2.5 dB
   - MLFMA vs Dense/参考：RMSE <= 3.0 dB 或已解释的 budget 边界
   - 端口误差：Re < 5%，Im < 20 ohm（按用例定义）
+  - 大规模 direct：不得因可消除的临时副本/隐式复制而提前 OOM
 - 检视迭代 >= 2 轮且无新增阻塞问题
 
 ---
@@ -175,6 +179,9 @@
   - `F6`（S-CFIE Sphere MLFMA）FEKO/Mie 超阈值
   - `F7`（V-EFIE Plate Direct）FEKO 超阈值
   - `P1/P3` PMCHW direct OOM
+  - 部分核心用例耗时过久（当前典型为 `F6` 球体 MLFMA 构建、`P1/P3` 大规模 direct）
   - `A1/A2/A4` 解析天线门失败
 - 说明：
   - `F5/F6` “缺失 sphere_600MHz.nas”已确认为过时结论，真实根因是半径提取实现问题，现已修复并有测试覆盖。
+  - 当前机器物理内存约 `68.5 GB`；`P1/P3` 的 `2N=52848` PMCHW 稠密矩阵本体理论占用约 `44.7 GiB`，原实现还会额外物化多个 `N×N` 子块并通过 `A\b` 触发整矩阵复制，属于可消除的峰值内存放大。
+  - 已落地第一轮修复：PMCHW 四块矩阵改为直接写入 `2N×2N` 总矩阵视图，`P1/P3` 改为 `lu!` 原地分解，当前待用真实大用例复核是否完全解除 OOM。

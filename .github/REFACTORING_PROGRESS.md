@@ -1438,6 +1438,23 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
    - 结论：`F6` 阻塞当前不由 GMRES 截断主导，后续需优先排查 MLFMA 算子保真/常数链路
 - 当前阶段结论：Phase 16 仍为 **No-Go**，但球体链路已从“无法执行”推进到“可执行且可量化诊断”。
 
+### 2026-03-09 Update (Phase 16 效率/内存主线刷新)
+
+- 已把 Phase 16 阻塞从“纯精度问题”升级为“精度 + 效率/内存问题”双主线：
+   - 慢用例：`F6` 球体 MLFMA 构建耗时过长；`P1/P3` 大规模 PMCHW direct 即使不考虑精度也难以形成稳定门禁
+   - OOM 用例：`P1/P3` 在当前机器上出现 `OutOfMemoryError()`，但量级分析表明问题不应简单归因为“机器内存不足”
+- 已完成 OOM 首轮根因分析：
+   - 当前机器物理内存约 `68.5 GB`
+   - `P1/P3` 的 `2N = 52848` PMCHW dense 矩阵本体约 `44.7 GiB`
+   - 原实现除总矩阵外，还会额外分配多个 `N×N` L/K 子块，并在 `Z \ V` 时触发整矩阵复制，导致峰值内存被人为放大
+- 已落地源码修复：
+   - `src/IntegralEquations/Impedance.jl`：新增 `assemble_generic!`
+   - `src/IntegralEquations/EFIE.jl`：新增原地写入装配路径
+   - `src/IntegralEquations/PMCHW.jl`：四块 PMCHW 子块直接写入总矩阵视图，不再额外物化大块临时矩阵
+   - `benchmark/accuracy/run_P1_P3_pmchw.jl`：改为 `lu!` 原地分解 + `ldiv!` 求解，并打印理论矩阵占用
+- 已验证：`test/test_pmchw.jl`、`test/test_nmuller.jl` 通过，说明 dense PMCHW 主线未被破坏
+- 当前剩余状态：真实 `P1/P3` 大用例仍需继续复跑确认 OOM 是否完全解除；在此之前，Phase 16 维持 **No-Go**
+
 ---
 
 ## Legacy 鍥犲瓙瀵圭収琛?

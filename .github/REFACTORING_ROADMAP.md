@@ -555,6 +555,21 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
         1. 结论：当前 `F6` 阻塞不由 GMRES 截断主导
         2. 下一步：优先排查 MLFMA 算子保真与常数链路
     - 因此 `16.4/16.5` 继续保持未勾选，发布结论维持 No-Go
+
+    ### 2026-03-09 效率/内存问题升级
+
+    - 已确认 Phase 16 还存在核心效率问题，不能只按精度门来评估：
+        1. `F6` 球体 MLFMA 构建耗时过长
+        2. `P1/P3` 大规模 PMCHW direct 在当前机器上发生 OOM
+    - 已完成 `P1/P3` OOM 首轮根因分析：
+        1. 当前机器物理内存约 `68.5 GB`
+        2. `2N = 52848` 的 PMCHW dense matrix 本体约 `44.7 GiB`
+        3. 旧实现还会额外分配多个 `N×N` 子块，并在 `A\b` 时触发整矩阵复制，峰值内存放大不合理
+    - 已落地第一轮修复：
+        1. `assemble_generic!` 原地装配路径
+        2. PMCHW 四块子矩阵直接写入总矩阵视图
+        3. `run_P1_P3_pmchw.jl` 改为 `lu!` 原地分解
+    - 当前状态：单元回归已通过，但 `P1/P3` 大用例仍待继续复跑确认；因此 `16.4/16.5` 继续保持未勾选
 - [x] 15.G15 PMCHW MLFMA medium long-Krylov budget 专门门禁
     - 已新增 `test/test_pmchw_mlfma_budget_krylov_medium.jl`，固定 `N=540` 夹具、固定 long Krylov 配置 `restart=300, maxiter=600, reltol=1e-6`
     - 当前门禁只保留最有信息量的两组预算：`default` 与 `loose_near`
