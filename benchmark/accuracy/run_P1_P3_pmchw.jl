@@ -20,6 +20,10 @@ using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 using EMSuite
 using LinearAlgebra, Printf, Statistics, Dates
 
+function dense_complex_gib(dim)
+    return dim * dim * sizeof(ComplexF64) / 2.0^30
+end
+
 # ─── 路径 ─────────────────────────────────────────────────────────────────────
 const ROOT_DIR   = joinpath(@__DIR__, "..", "..")
 const MESH_DIR   = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles")
@@ -65,6 +69,7 @@ if "P1" in enabled
     basis = RWGBasis(mesh)
     N     = num_basis(basis)
     println("  RWG 未知量: $N (2N = $(2N))")
+    @printf("  稠密矩阵理论占用: %.2f GiB\n", dense_complex_gib(2N))
 
     pmchw  = PMCHW(freq, eps_r, mu_r)
     source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
@@ -72,9 +77,13 @@ if "P1" in enabled
     t1 = @elapsed Z = assemble_impedance_matrix(pmchw, basis)
     @printf("  PMCHW 组装: %.1fs  (%d×%d)\n", t1, size(Z)...)
     V = excitation_vector(pmchw, source, basis)
-    t2 = @elapsed I = Z \ V
+    t2 = @elapsed begin
+        F = lu!(Z)
+        I = similar(V)
+        ldiv!(I, F, V)
+    end
     @printf("  LU 求解: %.1fs\n", t2)
-    Z = nothing; GC.gc()
+    F = nothing; Z = nothing; GC.gc()
 
     k0_val   = Float64(pmchw.k0)
     eta0_val = Float64(pmchw.eta0)
@@ -112,6 +121,7 @@ if "P3" in enabled
     basis = RWGBasis(mesh)
     N     = num_basis(basis)
     println("  RWG 未知量: $N (2N = $(2N))")
+    @printf("  稠密矩阵理论占用: %.2f GiB\n", dense_complex_gib(2N))
 
     pmchw  = PMCHW(freq, eps_r, mu_r)
     source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
@@ -119,9 +129,13 @@ if "P3" in enabled
     t1 = @elapsed Z = assemble_impedance_matrix(pmchw, basis)
     @printf("  PMCHW 组装: %.1fs  (%d×%d)\n", t1, size(Z)...)
     V = excitation_vector(pmchw, source, basis)
-    t2 = @elapsed I = Z \ V
+    t2 = @elapsed begin
+        F = lu!(Z)
+        I = similar(V)
+        ldiv!(I, F, V)
+    end
     @printf("  LU 求解: %.1fs\n", t2)
-    Z = nothing; GC.gc()
+    F = nothing; Z = nothing; GC.gc()
 
     k0_val  = Float64(pmchw.k0)
     eta0_val = Float64(pmchw.eta0)

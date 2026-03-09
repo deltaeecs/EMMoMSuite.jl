@@ -7,7 +7,7 @@ using StaticArrays
 using LinearAlgebra
 using Base.Threads
 
-export assemble_generic
+export assemble_generic, assemble_generic!
 
 """
     assemble_generic(operator, basis, interaction_func; symmetric=false)
@@ -26,15 +26,17 @@ causing ~15-25% overhead at N≈14559 (100% contention probability).
 - Each lock is held for only 3 array writes (~30ns critical section).
 - Memory overhead: N × sizeof(SpinLock) ≈ negligible.
 """
-function assemble_generic(
+function assemble_generic!(
+    Z::AbstractMatrix{CT},
     operator,
     basis::RWGBasis{IT,FT},
     interaction_func;
     symmetric::Bool = false,
-) where {IT,FT}
+    accumulate::Bool = false,
+) where {IT,FT,CT}
     N = num_basis(basis)
-    CT = Complex{FT}
-    Z = zeros(CT, N, N)
+    size(Z) == (N, N) || throw(DimensionMismatch("目标矩阵尺寸必须为 $(N)×$(N)，当前为 $(size(Z))"))
+    accumulate || fill!(Z, zero(CT))
 
     mesh = basis.mesh
     nt = num_elements(mesh)
@@ -107,6 +109,18 @@ function assemble_generic(
     end
 
     return Z
+end
+
+function assemble_generic(
+    operator,
+    basis::RWGBasis{IT,FT},
+    interaction_func;
+    symmetric::Bool = false,
+) where {IT,FT}
+    N = num_basis(basis)
+    CT = Complex{FT}
+    Z = zeros(CT, N, N)
+    return assemble_generic!(Z, operator, basis, interaction_func; symmetric)
 end
 
 end

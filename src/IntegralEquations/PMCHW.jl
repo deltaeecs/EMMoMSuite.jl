@@ -249,8 +249,12 @@ PMCHW K 使用 f_m 直接测试，无 n̂_test × 旋转。
 - `basis`: RWG basis（闭合三角面网格）
 - `k`:     传播介质波数（实数）
 """
-function assemble_K_pmchw_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
-    CT = Complex{FT}
+function _assemble_K_pmchw_offdiag!(
+    Z::AbstractMatrix{CT},
+    basis::RWGBasis{IT,FT},
+    k::FT;
+    accumulate::Bool = false,
+) where {IT,FT,CT<:Complex}
     gq    = GaussQuadratureInfo(:Triangle, 4, FT)
     # eta=1 → eta_div_16pi = 1/(16π)，与 assemble_K_offdiag 一致
     mfie_k = MFIE{FT,CT}(zero(FT), k, one(FT), gq)
@@ -284,7 +288,13 @@ function assemble_K_pmchw_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
     end
 
     wrapper = (Z, op, t1, t2) -> k_pmchw_interaction!(Z, op, t1, t2, quad_points)
-    return assemble_generic(mfie_k, basis, wrapper, symmetric = false)
+    return assemble_generic!(Z, mfie_k, basis, wrapper; symmetric = false, accumulate)
+end
+
+function assemble_K_pmchw_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
+    CT = Complex{FT}
+    Z = zeros(CT, num_basis(basis), num_basis(basis))
+    return _assemble_K_pmchw_offdiag!(Z, basis, k)
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -326,28 +336,29 @@ function assemble_impedance_matrix(pmchw::PMCHW{FT,CT}, basis::RWGBasis{IT,FT}) 
     eta1_r = FT(abs(real(eta1_c))) # 实数近似，用于 EFIE 记录字段
 
     Z = zeros(CT, 2N, 2N)
+    Z_ej = @view Z[1:N, 1:N]
+    Z_hm = @view Z[N+1:2N, N+1:2N]
+    Z_em = @view Z[1:N, N+1:2N]
+    Z_hj = @view Z[N+1:2N, 1:N]
 
     # ── Z^EJ = L(k₀) + L(k₁),  factor = jk η / (16π) ──────────────────────
     efie_ej0 = _l_block_operator(k0, eta0, k0_c, eta0_c, :EJ)
     efie_ej1 = _l_block_operator(k1_r, eta1_r, k1_c, eta1_c, :EJ)
-    Z[1:N, 1:N]       .+= assemble_impedance_matrix(efie_ej0, basis)
-    Z[1:N, 1:N]       .+= assemble_impedance_matrix(efie_ej1, basis)
+    EFIEModule.assemble_impedance_matrix!(Z_ej, efie_ej0, basis)
+    EFIEModule.assemble_impedance_matrix!(Z_ej, efie_ej1, basis; accumulate = true)
 
     # ── Z^HM = Lₑ(k₀) + Lₑ(k₁),  factor = jk / (η·16π) ───────────────────
     efie_hm0 = _l_block_operator(k0, eta0, k0_c, eta0_c, :HM)
     efie_hm1 = _l_block_operator(k1_r, eta1_r, k1_c, eta1_c, :HM)
-    Z[N+1:2N, N+1:2N] .+= assemble_impedance_matrix(efie_hm0, basis)
-    Z[N+1:2N, N+1:2N] .+= assemble_impedance_matrix(efie_hm1, basis)
+    EFIEModule.assemble_impedance_matrix!(Z_hm, efie_hm0, basis)
+    EFIEModule.assemble_impedance_matrix!(Z_hm, efie_hm1, basis; accumulate = true)
 
     # ── Z^EM = K^PMCHW(k₀) + K^PMCHW(k₁)，Z^HJ = -Z^EM ────────────────────
     # 使用 PMCHW 专用 K 算子（无 n̂× 测试，区别于 MFIE K）
-    # 就地累加到 K0，避免分配第三个 N×N 临时矩阵
-    K0 = assemble_K_pmchw_offdiag(basis, k0)
-    K1 = assemble_K_pmchw_offdiag(basis, k1_r)  # lossless approx for Green kernel
-    K0 .+= K1
-
-    Z[1:N,   N+1:2N] .=  K0
-    Z[N+1:2N, 1:N]   .= -K0
+    _assemble_K_pmchw_offdiag!(Z_em, basis, k0)
+    _assemble_K_pmchw_offdiag!(Z_em, basis, k1_r; accumulate = true)  # lossless approx for Green kernel
+    copyto!(Z_hj, Z_em)
+    rmul!(Z_hj, -one(CT))
 
     return Z
 end
