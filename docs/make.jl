@@ -13,9 +13,11 @@ makedocs(
         "User Guide" => [
             "Installation" => "guide/installation.md",
             "Quick Start" => "guide/quick_start.md",
+            "Advanced" => "guide/advanced.md",
             "Examples" => "guide/examples.md",
         ],
         "Theory" => [
+            "Overview" => "theory/overview.md",
             "Electromagnetics" => "theory/electromagnetics.md",
             "Integral Equations" => "theory/integral_equations.md",
             "Basis Functions" => "theory/basis_functions.md",
