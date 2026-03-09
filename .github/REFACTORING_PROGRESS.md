@@ -1406,6 +1406,19 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
    - 运行后生成 `test_results/reports/RELEASE_VALIDATION_REPORT.md`
 - Phase 16 当前状态：计划与骨架完成，待执行全量用例填充实测数据并完成 2 轮检视。
 
+### 2026-03-09 Update (Phase 16 首轮实测填充)
+
+- 已执行并回填首轮实测数据到 `test_results/reports/RELEASE_VALIDATION_REPORT.md`：
+   - FEKO链路：`F1/F2/F7` 已重跑并更新 RMSE
+   - 解析/端口链路：`A1-A4` 已重跑并更新 Zin/S11 结论
+   - 介质天线链路：`B1-B5` 已确认纳入汇总
+- 本轮识别的发布阻塞：
+   - `F2` (S-CFIE Jet Direct) 超阈值失败（RMSE 5.460~6.948 dB）
+   - `F7` (V-EFIE Plate Direct) 超阈值失败（RMSE 9.078~11.785 dB）
+   - `P1/P3` PMCHW 大规模 direct 在当前环境 `OutOfMemoryError()`
+   - `F5/F6` 因缺失 `MoM_AllinOne/meshfiles/sphere_600MHz.nas` 未能执行
+- 当前阶段结论：Phase 16 仍处于执行中，发布建议维持 **No-Go**，待阻塞项闭环后进入检视迭代轮次。
+
 ---
 
 ## Legacy 鍥犲瓙瀵圭収琛?

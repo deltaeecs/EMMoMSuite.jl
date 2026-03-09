@@ -536,6 +536,15 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
     - [x] 16.3 报告生成入口脚本（`benchmark/run_release_validation_report.jl`）
     - [ ] 16.4 执行全量用例并填充主报告（`test_results/reports/RELEASE_VALIDATION_REPORT.md`）
     - [ ] 16.5 检视迭代（>=2 轮 clean）并给出发布 Go/No-Go 结论
+
+    ### 2026-03-09 首轮执行状态
+
+    - 已完成首轮实测回填：`F1/F2/F7`、`A1-A4`、`B1-B5` 已写入发布报告
+    - 当前阻塞项：
+        1. `F2` 与 `F7` FEKO 对标超阈值失败
+        2. `P1/P3` 大规模 PMCHW direct 在当前环境 OOM
+        3. `F5/F6` 缺失 `sphere_600MHz.nas` 依赖网格
+    - 因此 `16.4/16.5` 保持未勾选，发布结论暂定 No-Go
         3. 因此 G14 现已与 BG2、Arnoldi、GMRES 轨迹诊断重新对齐：当前 long-Krylov 主线不再表现为 budget 主导的大分叉
 - [x] 15.G15 PMCHW MLFMA medium long-Krylov budget 专门门禁
     - 已新增 `test/test_pmchw_mlfma_budget_krylov_medium.jl`，固定 `N=540` 夹具、固定 long Krylov 配置 `restart=300, maxiter=600, reltol=1e-6`
