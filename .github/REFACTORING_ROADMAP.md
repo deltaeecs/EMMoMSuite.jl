@@ -378,11 +378,11 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
 - [x] 14.4 F5–F6: Sphere 600MHz 仿真脚本 (`run_F5_F6_sphere.jl`) ✅
 - [x] 14.5 F7–F9: Plate 1.2GHz 仿真脚本 (`run_F7_F9_plate.jl`) ✅
 - [x] 14.6 P1–P3: PMCHW 介质球 Direct 脚本 (`run_P1_P3_pmchw.jl`) ✅
-- [ ] 14.7 PMCHW block/operator shell + MLFMA backend 主线实现（Dense shell 先行，MLFMA 后接） + 单元测试
-- [ ] 14.8 P2: PMCHW 介质球 MLFMA 验证
+- [x] 14.7 PMCHW block/operator shell + MLFMA backend 主线实现（Dense shell 先行，MLFMA 后接） + 单元测试
+- [x] 14.8 P2: PMCHW 介质球 MLFMA 验证
 - [x] 14.9 A1–A4: 偶极子天线 DeltaGap 基准脚本 (`run_A1_A4_antenna.jl`) ✅ commit 3039d32
-- [ ] 14.10 实际运行仿真 → CSV → `generate_report.jl` → ACCURACY_REPORT.md
-- [ ] 14.11 检视迭代 (≥ 2 轮 clean)
+- [x] 14.10 实际运行仿真 → CSV → `generate_report.jl` → ACCURACY_REPORT.md
+- [x] 14.11 检视迭代 (≥ 2 轮 clean)
 
 ### 精度验收门限
 

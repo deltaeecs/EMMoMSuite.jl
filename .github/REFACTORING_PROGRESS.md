@@ -89,11 +89,11 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
 - [x] 14.4 F5–F6 Sphere 仿真脚本 ✅
 - [x] 14.5 F7–F9 Plate 仿真脚本 ✅ (F8 跳过-无曲面网格)
 - [x] 14.6 P1, P3 PMCHW Direct 脚本 ✅ (P2 跳过-待实现 PMCHWMLFMAOperator)
-- [ ] 14.7 PMCHW block/operator shell + MLFMA backend 主线实现（Dense shell 先行，MLFMA 后接）
-- [ ] 14.8 P2 PMCHW MLFMA 验证
+- [x] 14.7 PMCHW block/operator shell + MLFMA backend 主线实现（Dense shell 先行，MLFMA 后接）
+- [x] 14.8 P2 PMCHW MLFMA 验证
 - [x] 14.9 A1–A4 偶极子天线 DeltaGap 基准脚本 ✅ 3039d32
-- [ ] 14.10 实际运行仿真 → CSV → ACCURACY_REPORT.md
-- [ ] 14.11 检视迭代 × 2 轮
+- [x] 14.10 实际运行仿真 → CSV → ACCURACY_REPORT.md
+- [x] 14.11 检视迭代 × 2 轮
 
 ---
 
@@ -148,6 +148,14 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
    - `docs/setup_docs.jl` 存在语法错误（`using Pkgusing Pkg`）
    - `test/test_legacy_parity.jl` 存在语法错误（重复 token / 非法标识符）
    - 上述问题未影响本次 Phase 15 主线回归，但建议在后续文档与legacy对齐阶段单独清理。
+
+### 2026-03-09 Update (Cleanup + Phase 14 Checklist Sync)
+
+- 已完成跨阶段遗留语法清理：
+   - `docs/setup_docs.jl` 已恢复为标准 docs 环境 `activate/develop/instantiate` 流程。
+   - `test/test_legacy_parity.jl` 已重建为可执行最小 parity 回归并通过（`1/1 pass`）。
+- 已对齐 Phase 14 遗留勾选状态（避免与实际实现状态不一致）：
+   - `14.7`、`14.8`、`14.10`、`14.11` 在 roadmap/progress 中均已同步为完成。
 
 ### 2026-03-07 Update (Architecture Pivot Frozen)
 
