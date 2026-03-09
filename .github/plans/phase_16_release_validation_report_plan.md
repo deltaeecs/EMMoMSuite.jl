@@ -1,7 +1,7 @@
 # Phase 16 发布前全模块效率与精度验证计划
 
 > 创建日期: 2026-03-09  
-> 状态: 计划已冻结，待执行  
+> 状态: 计划已冻结，执行中  
 > 关联目标: 发布前形成一份覆盖所有核心模块的统一验证报告（效率 + 精度）
 
 ---
@@ -161,3 +161,20 @@
 - Roadmap 勾选位置：`Phase 9` 最后一项（发布到 General Registry）前置质量门
 - Progress 更新点：新增“Phase 16 发布验证计划与执行日志”
 - 模板文件：`test_results/reports/RELEASE_VALIDATION_REPORT_TEMPLATE.md`
+
+---
+
+## 9. 当前执行快照（2026-03-09 第二轮）
+
+- 已完成：
+  - `F5/F6` 球体链路可执行化（半径提取修复后已可稳定运行）
+  - `F5` Direct 对 FEKO 通过（phi0/phi90 RMSE 均低于 2 dB）
+  - `test_results/reports/RELEASE_VALIDATION_REPORT.md` 与 `test_results/accuracy/ACCURACY_REPORT.md` 已回填第二轮数据
+- 当前阻塞（No-Go 保持）：
+  - `F2`（S-CFIE Jet Direct）FEKO 超阈值
+  - `F6`（S-CFIE Sphere MLFMA）FEKO/Mie 超阈值
+  - `F7`（V-EFIE Plate Direct）FEKO 超阈值
+  - `P1/P3` PMCHW direct OOM
+  - `A1/A2/A4` 解析天线门失败
+- 说明：
+  - `F5/F6` “缺失 sphere_600MHz.nas”已确认为过时结论，真实根因是半径提取实现问题，现已修复并有测试覆盖。

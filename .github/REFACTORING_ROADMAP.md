@@ -543,9 +543,18 @@ Z .= sum(Z_local)  # 涓€娆″綊绾?
     - 当前阻塞项：
         1. `F2` 与 `F7` FEKO 对标超阈值失败
         2. `P1/P3` 大规模 PMCHW direct 在当前环境 OOM
-        3. `F5/F6` 缺失 `sphere_600MHz.nas` 依赖网格
+        3. `F6` MLFMA 对 FEKO/Mie 超阈值失败（Direct/FEKO 已通过）
     - 因此 `16.4/16.5` 保持未勾选，发布结论暂定 No-Go
-        3. 因此 G14 现已与 BG2、Arnoldi、GMRES 轨迹诊断重新对齐：当前 long-Krylov 主线不再表现为 budget 主导的大分叉
+
+    ### 2026-03-09 第二轮执行刷新
+
+    - `F5/F6` 球体链路已从“不可执行”推进为“可执行并产出指标”：
+        1. `F5` Direct vs FEKO 通过（phi0 `0.158 dB`, phi90 `0.089 dB`）
+        2. `F6` MLFMA vs FEKO/Mie 仍失败（`3.319 / 4.037 / 9.074 dB`）
+    - `F6` 长 Krylov 排查已执行（`restart=300,maxiter=600,tol=1e-6`），RMSE 基本不变：
+        1. 结论：当前 `F6` 阻塞不由 GMRES 截断主导
+        2. 下一步：优先排查 MLFMA 算子保真与常数链路
+    - 因此 `16.4/16.5` 继续保持未勾选，发布结论维持 No-Go
 - [x] 15.G15 PMCHW MLFMA medium long-Krylov budget 专门门禁
     - 已新增 `test/test_pmchw_mlfma_budget_krylov_medium.jl`，固定 `N=540` 夹具、固定 long Krylov 配置 `restart=300, maxiter=600, reltol=1e-6`
     - 当前门禁只保留最有信息量的两组预算：`default` 与 `loose_near`

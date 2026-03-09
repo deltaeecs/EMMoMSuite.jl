@@ -1416,8 +1416,27 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
    - `F2` (S-CFIE Jet Direct) 超阈值失败（RMSE 5.460~6.948 dB）
    - `F7` (V-EFIE Plate Direct) 超阈值失败（RMSE 9.078~11.785 dB）
    - `P1/P3` PMCHW 大规模 direct 在当前环境 `OutOfMemoryError()`
-   - `F5/F6` 因缺失 `MoM_AllinOne/meshfiles/sphere_600MHz.nas` 未能执行
+   - `F5/F6` 首轮前因球网格半径提取失败未完成（已定位为解析器问题）
 - 当前阶段结论：Phase 16 仍处于执行中，发布建议维持 **No-Go**，待阻塞项闭环后进入检视迭代轮次。
+
+### 2026-03-09 Update (Phase 16 第二轮执行刷新)
+
+- 已完成 `sphere_600MHz.nas` 半径提取链路修复并补齐回归：
+   - `src/Accuracy/ReferenceData.jl`：`extract_sphere_radius` 改为优先走项目 Nastran 读取器，再回退文本解析
+   - `test/test_accuracy_metrics.jl`：新增球半径提取回归，当前全量 `26/26 pass`
+- 已重跑球体 FEKO/Mie 链路并更新报告：
+   - `F5`（S-CFIE Sphere Direct）对 FEKO 通过：phi0 RMSE `0.158 dB`，phi90 RMSE `0.089 dB`
+   - `F6`（S-CFIE Sphere MLFMA）对 FEKO 超阈值：phi0 RMSE `3.319 dB`，phi90 RMSE `4.037 dB`
+   - `F6` 对 Mie 仍超阈值：RMSE `9.074 dB`
+- 阻塞项状态刷新：
+   - 已移除“`F5/F6` 缺文件阻塞”旧结论
+   - 新增/保留精度阻塞：`F6` MLFMA 精度未达门限
+   - 其余阻塞保持：`F2`、`F7`、`P1/P3`、`A1/A2/A4`
+- 已完成 `F6` 求解截断假设排查（长 Krylov 诊断）：
+   - 试验配置：`restart=300, maxiter=600, tol=1e-6`（其余保持不变）
+   - 结果：`F6` 三项 RMSE（3.319 / 4.037 / 9.074 dB）基本不变
+   - 结论：`F6` 阻塞当前不由 GMRES 截断主导，后续需优先排查 MLFMA 算子保真/常数链路
+- 当前阶段结论：Phase 16 仍为 **No-Go**，但球体链路已从“无法执行”推进到“可执行且可量化诊断”。
 
 ---
 
