@@ -1,6 +1,6 @@
-using Pkgusing Pkg
+using Pkg
 
-
-
-Pkg.instantiate()Pkg.develop(path="EMSuite")Pkg.develop(path="EMSuite")
+# Activate docs environment, make local package available, then resolve deps.
+Pkg.activate(@__DIR__)
+Pkg.develop(path = joinpath(@__DIR__, ".."))
 Pkg.instantiate()
