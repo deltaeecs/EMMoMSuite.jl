@@ -16,7 +16,7 @@ using .Singularities
 
 import ..CoreModule: assemble_impedance_matrix
 
-export EFIE, assemble_impedance_matrix, efie_interaction, efie_interaction!, efie_from_keta
+export EFIE, assemble_impedance_matrix, assemble_impedance_matrix!, efie_interaction, efie_interaction!, efie_from_keta
 
 """
     EFIE{FT, CT} <: AbstractIntegralOperator
@@ -102,7 +102,12 @@ function efie_from_keta(k::FT, eta::FT, factor::Complex{FT}) where {FT}
     SSCg    = compute_SSCg(k)  # Singularities.compute_SSCg accessible here
     return EFIE{FT,Complex{FT},4,7}(FT(0), k, eta, gq_far, gq_near, C4divk2, factor, SSCg)
 end
-function assemble_impedance_matrix(efie::EFIE{FT,CT}, basis::RWGBasis{IT,FT}) where {IT,FT,CT}
+function _assemble_impedance_matrix!(
+    Z::AbstractMatrix{CT},
+    efie::EFIE{FT,CT},
+    basis::RWGBasis{IT,FT};
+    accumulate::Bool = false,
+) where {IT,FT,CT}
     # Precompute quadrature points for Far Field
     mesh = basis.mesh
     nt = num_elements(mesh)
@@ -127,7 +132,21 @@ function assemble_impedance_matrix(efie::EFIE{FT,CT}, basis::RWGBasis{IT,FT}) wh
     # Wrapper
     interaction_wrapper = (Z, op, t1, t2) -> efie_interaction!(Z, op, t1, t2, quad_points)
 
-    return assemble_generic(efie, basis, interaction_wrapper, symmetric = true)
+    return assemble_generic!(Z, efie, basis, interaction_wrapper; symmetric = true, accumulate)
+end
+
+function assemble_impedance_matrix!(
+    Z::AbstractMatrix{CT},
+    efie::EFIE{FT,CT},
+    basis::RWGBasis{IT,FT};
+    accumulate::Bool = false,
+) where {IT,FT,CT}
+    return _assemble_impedance_matrix!(Z, efie, basis; accumulate)
+end
+
+function assemble_impedance_matrix(efie::EFIE{FT,CT}, basis::RWGBasis{IT,FT}) where {IT,FT,CT}
+    Z = zeros(CT, num_basis(basis), num_basis(basis))
+    return _assemble_impedance_matrix!(Z, efie, basis)
 end
 
 function efie_interaction!(
