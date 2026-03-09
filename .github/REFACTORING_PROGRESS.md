@@ -1383,6 +1383,17 @@ Phase 9 检视迭代 Round 1 (commit 90787dc, baa0418):
    - `docs/make.jl` 已接入新页面导航；`docs/src/index.md` 已刷新入口与安装说明
    - 验证：`julia --project=docs docs/setup_docs.jl` + `julia --project=docs docs/make.jl`
 
+### 2026-03-09 Update (General Registry Preflight)
+
+- 已补齐发布前置资产（仓内可完成部分）：
+   - 新增发布清单：`.github/RELEASE_CHECKLIST.md`
+   - 新增 TagBot 工作流：`.github/workflows/TagBot.yml`
+   - 新增 Docs CI 工作流：`.github/workflows/Docs.yml`
+   - `CI.yml` 已支持 `master/main` 双分支触发，并支持手动触发
+- 当前唯一未完成项仍为外部动作：
+   - Registrator 提交与 General Registry 审核合并
+   - TagBot/Registrator 所需仓库权限与密钥配置
+
 ---
 
 ## Legacy 鍥犲瓙瀵圭収琛?
