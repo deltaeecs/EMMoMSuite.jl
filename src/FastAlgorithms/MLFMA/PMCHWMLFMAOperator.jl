@@ -366,7 +366,7 @@ function _receive_terms(
     nPoles     = length(poles_r̂)
 
     tri_info = get_triangles_info(basis.mesh, basis)
-    gq       = GaussQuadratureInfo(:Triangle, 3, FT)
+    gq       = GaussQuadratureInfo(:Triangle, 4, FT)
     n_qp     = length(gq.weight)
 
     for i_supp in 1:2
