@@ -8,6 +8,24 @@
 - 当前次主线问题：F7 direct 路径 Round 3 性能回收
 - 发布流程、统一报告、依赖瘦身、README 与理论文档修复已完成当前轮次收口
 
+## 2026-03-11 Update：PMCHW medium 逐层节点定位
+
+- 已新增 `benchmark/compare_pmchw_upward_downward_localization_medium.jl`，用于在 medium `N=540` 夹具上对 `M-pass` 做两类定位：
+  - `upward`：对每一层父盒 `aggS` 使用 exact reintegration（直接按父盒中心/极点重新积分 basis）做点对点对照；
+  - `downward` 末端：在完成 translation + downward 后，对叶层每个 cube 的 receive 输出分别与 far-only dense `EM/HM` 行块对照。
+- 当前数值结论：`upward` 不是首个失配放大点。
+  - default budget 下，`k0` 的 level `4/3/2` 最差父盒相对误差分别约为 `4.99e-4 / 5.30e-4 / 5.22e-4`；
+  - default budget 下，`k1` 的 level `4/3/2` 最差父盒相对误差分别约为 `1.21e-4 / 1.30e-4 / 9.76e-5`；
+  - loose budget 下上述 `upward` 指标基本不变，说明 near-range 放松不会显著改变父盒聚合的 pointwise 误差。
+- 新增 exact-upward 链路对照后，`downward` 中间场也被进一步压缩：
+  - default budget：将 `upward` 替换为 exact parent `aggS` 后，最差 `disaggG` 相对差异仅约 `1.6e-16 (k0)` / `1.8e-16 (k1)`；
+  - loose budget：最差 `disaggG` 相对差异约 `3.04e-4 (k0)` / `4.93e-5 (k1)`，叶层最差盒上的 `disaggG` 差异仍仅约 `7.21e-5` 或机器精度。
+- 叶层 receive 积分规则已同步试验：
+  - 当前实现切到 4 点三角形规则后，default 最差叶盒收敛为 `cube 354`，`k0 rel_total ≈ 5.09e-3`，`k1 rel_total ≈ 2.33e-2`；
+  - loose budget 下，exact-upward + 4-point receive 的最差叶盒为 `cube 439 (k0 ≈ 2.59e-2)` 与 `cube 422 (k1 ≈ 6.08e-2)`；
+  - 已测 worst cube 上 7 点规则未稳定优于 4 点：default `k0/k1` 反而略差，loose `k1` 有改善但 loose `k0` 变差，因此 4 点是当前更稳的折中，不宜回退到 3 点，也暂不直接切到 7 点。
+- 结论：后续不再把主怀疑点放在 `aggregate_upward!` 本身，而是继续下钻 `translate! -> disaggregate_downward! -> disaggregate_leaf_pmchw_m!` 的末端链路，重点围绕最差叶盒 `354/439/422` 做中间 `disaggG` 与 leaf receive testing 的点对点比对。
+
 ## 2026-03-11 Update：全量文档检视修复
 
 - 已完成理论文档全量扫描，确认问题分为两类：
@@ -174,6 +192,7 @@
 - 已确认 EMSuite 与 Legacy 的总系数链一致：`k^2 eta / 16pi^2`
 - 已定位多层误差主源位于 upward/downward pass，而非整体系数、聚合或近场门控
 - 已完成两轮检视，当前进入逐层节点级别排查阶段
+- 已新增 medium 逐层定位脚本，并确认 `upward` 各层父盒的 exact reintegration 误差维持在 `1e-4` 量级；当前首个显著放大点在 leaf receive，而非父盒聚合
 
 ## 历史阶段摘要
 

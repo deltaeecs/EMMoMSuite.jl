@@ -1,6 +1,6 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-03-11（全量文档检视修复完成，理论文档源码数学写法与本地站点跳转链路已校正）
+> 最后更新: 2026-03-11（PMCHW medium 逐层定位已确认 upward 不是主放大点；leaf receive 当前采用 4 点规则，较 3 点明显改善且在已测 worst cube 上比 7 点更稳）
 
 ## 当前焦点
 
@@ -9,6 +9,7 @@
 - [x] 完成 Legacy MLFMA 算法拆解与系数链核对
 - [x] 确认 `nLevels >= 3` 的偏差主要位于 upward/downward pass（插值 / 相移）
 - [ ] 针对 upward/downward pass 做逐层点对点比对，定位首个失配节点
+- 当前定位进展：`benchmark/compare_pmchw_upward_downward_localization_medium.jl` 已用 exact reintegration 对 `upward` 各层父盒做点对点对照；`k0/k1` 在 level 4/3/2 的最差相对误差均低于 `5.4e-4`，且将 `upward` 替换为 exact 链后，default 场景 `disaggG` 差异仅到机器精度、loose 场景最差也仅约 `3.0e-4`，说明主放大点不在 `aggregate_upward!`。当前叶层 receive 最差盒约为 default `cube 354`（`k0 ≈ 5.09e-3`, `k1 ≈ 2.33e-2`）与 loose `cube 439/422`（`k0 ≈ 2.59e-2`, `k1 ≈ 6.08e-2`，均以 exact-upward + 4-point receive 计），下一步应集中排查 downward 末端与 leaf testing 链路
 - [ ] 在修正后补齐回归测试，覆盖 `nLevels >= 3` 多层场景
 - [ ] 完成两轮检视迭代，确认无新问题后再推进下一阶段
 
