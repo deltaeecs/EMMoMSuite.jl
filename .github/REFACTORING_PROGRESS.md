@@ -32,6 +32,21 @@
 - 结论二：`docs/build/` 仍包含旧构建产物，站点展示内容落后于 `docs/src/` 源文档；后续判断必须以源码文档和测试结果为准，且需要补做一次文档重建。
 - 结论三：通用 `test/test_mlfma.jl` 当前仍偏向结构/链路 smoke test，尚未形成针对 `nLevels >= 3` 的通用数值 fidelity 回归，这与路线图中“补齐多层回归测试”的开放项一致。
 
+## 2026-03-11 Update：理论文档按实现约定刷新
+
+- 已将理论文档从“教材版简写”补充为“教材公式 + EMSuite 实现约定”的双层说明，重点覆盖以下高频误读点：
+  - RWG 在仓库中采用 `edge_length + signs` 的存储形式，文档现已给出与“正负半基函数”完全等价的统一写法
+  - MoM 装配中的 RWG-RWG 配对现已明确写为四个 support 子三角形的求和，并说明符号可吸收到局部几何因子中
+  - MLFMA 文档现已覆盖 leaf aggregation、upward pass、translation、downward pass、leaf testing 的完整链路，而不是只有概念性流程图
+  - MLFMA 文档现已明确 `sorted_ids` 只服务于八叉树内部遍历；外部 `mul!` 的输入/输出仍是物理 basis 顺序，避免 benchmark 误用
+  - Solver 文档现已明确当前 GMRES/左预条件写法对应的是 `M^{-1} Z I = M^{-1} V`，并建议同时检查预条件残差与物理残差
+- 本轮刷新文件：
+  - `docs/src/theory/basis_functions.md`
+  - `docs/src/theory/method_of_moments.md`
+  - `docs/src/theory/fast_algorithms.md`
+  - `docs/src/theory/solvers.md`
+- 当前结论：关于“RWG 正负号如何统一写进公式”和“MLFMA / GMRES 在 EMSuite 中的实际使用口径”这两个知识缺口，文档侧已补齐。
+
 ## 2026-03-11 Update：README 刷新
 
 - 已将 `README.md` 从“历史阶段总结页”调整为“当前可执行使用说明页”

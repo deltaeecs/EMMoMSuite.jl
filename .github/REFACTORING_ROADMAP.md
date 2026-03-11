@@ -24,6 +24,7 @@
 - [x] README 已刷新为当前可执行的使用说明
 - [x] 理论文档公式定界符已统一修复为可渲染格式
 - [x] `.github/REFACTORING_ROADMAP.md` / `.github/REFACTORING_PROGRESS.md` 已从损坏文本重建为可维护版本
+- [x] 将理论文档补充为“教材公式 + EMSuite 实现约定”的双层说明，统一记录 RWG 符号折叠、MLFMA 向量顺序与预条件残差口径
 - [ ] 后续若新增 Phase，计划文档需继续遵循 `copilot-instructions.md` 中的计划规范与检视要求
 
 ## 当前状态快照
@@ -89,6 +90,14 @@
 - [x] 确认 `docs/build/` 仍停留在旧构建产物，不能作为判断 MLFMA 现状的事实来源
 - [x] 确认通用 `test/test_mlfma.jl` 目前以 smoke test 为主，尚未形成 `nLevels >= 3` 的通用数值回归闸门
 - [ ] 补齐文档站点重建与更强的多层回归后，再结束本轮 MLFMA 检视迭代
+
+### 2026-03-11 理论文档实现约定补记
+
+- [x] 在 `basis_functions.md` 中补齐 RWG 的统一符号写法，明确仓库采用“公共边长 + support-local sign”等价表示
+- [x] 在 `method_of_moments.md` 中补齐 RWG-RWG 四子三角形配对与符号并入系数后的装配公式
+- [x] 在 `fast_algorithms.md` 中补齐 leaf aggregation / upward pass / translation / downward pass / leaf testing 的完整链路说明
+- [x] 在 `fast_algorithms.md` 中明确 `sorted_ids` 仅用于 MLFMA 内部遍历，外部输入输出仍以物理基函数顺序为准
+- [x] 在 `solvers.md` 中补齐左预条件 GMRES 的数学形式，并记录“预条件残差 + 物理残差”双口径检查建议
 
 ## 模块结构总览
 
