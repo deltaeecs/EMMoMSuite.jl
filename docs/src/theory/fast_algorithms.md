@@ -46,8 +46,7 @@ $$
 
 对 RWG 基函数，EMSuite 当前叶层聚合使用的是“对每个支撑三角形做固定阶高斯积分，再在球面极化基上投影”的形式。若继续使用上一章的统一符号记号，则叶层辐射方向图可写成
 $$
-S_{n,p}(\hat{k})
-=
+S_{n,p}(\hat{k})=
 \sum_{i=1}^2
 \int_{T_{n,i}}
 \hat{e}_p(\hat{k}) \cdot
@@ -72,24 +71,18 @@ $$
 
 理论上可记为
 $$
-\mathbf{S}_{\ell}^{parent}(\hat{k})
-=
-\sum_{c \in \mathrm{kids}(parent)}
+\mathbf{S}_{\ell}^{parent}(\hat{k}) = \sum_{c \in \mathrm{kids}(parent)}
 e^{jk\hat{k}\cdot(\mathbf{r}_c - \mathbf{r}_{parent})}
 \, \mathcal{I}_{c \to parent}
 \mathbf{S}_{\ell+1}^{c}(\hat{k}),
 $$
 $$
-\mathbf{G}_{\ell}^{obs}(\hat{k})
-=
-\sum_{src \in \mathrm{far}(obs)}
+\mathbf{G}_{\ell}^{obs}(\hat{k}) = \sum_{src \in \mathrm{far}(obs)}
 \alpha_{trans}(\hat{k}, \mathbf{D}_{obs,src})
 \, \mathbf{S}_{\ell}^{src}(\hat{k}),
 $$
 $$
-\mathbf{G}_{\ell+1}^{child}(\hat{k})
-=
-\mathcal{I}^{-1}_{parent \to child}
+\mathbf{G}_{\ell+1}^{child}(\hat{k}) = \mathcal{I}^{-1}_{parent \to child}
 \left[
 e^{jk\hat{k}\cdot(\mathbf{r}_{child} - \mathbf{r}_{parent})}
 \mathbf{G}_{\ell}^{parent}(\hat{k})

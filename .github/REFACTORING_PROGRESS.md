@@ -47,6 +47,15 @@
   - `docs/src/theory/solvers.md`
 - 当前结论：关于“RWG 正负号如何统一写进公式”和“MLFMA / GMRES 在 EMSuite 中的实际使用口径”这两个知识缺口，文档侧已补齐。
 
+## 2026-03-11 Update：公式渲染检视 Round 1
+
+- 已按“公式内等号不要单独一行”的规则追加一轮理论文档渲染检视。
+- 本轮定位到两个明确风险点：
+  - `docs/src/theory/fast_algorithms.md` 中 3 组 MLFMA upward / translation / downward 公式把 `=` 单独放在一行
+  - `docs/src/theory/method_of_moments.md` 中面-体耦合块矩阵公式把 `=` 单独放在一行
+- 已全部改为单行等号写法，避免 Documenter / Markdown 数学渲染器把公式切断。
+- 当前结论：本轮新增或近期重写的理论公式中，已确认的“独立等号”渲染风险已清除；文档构建剩余告警当前集中在 `electromagnetics.md`，并且 `fast_algorithms.md` 中仍存在未转义美元符号，`integral_equations.md` 的旧告警仍需在后续轮次复查。
+
 ## 2026-03-11 Update：README 刷新
 
 - 已将 `README.md` 从“历史阶段总结页”调整为“当前可执行使用说明页”

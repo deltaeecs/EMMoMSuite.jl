@@ -75,9 +75,7 @@ Z_{VS} & Z_{VV}
 \begin{bmatrix}
 I_S \\
 I_V
-\end{bmatrix}
-=
-\begin{bmatrix}
+\end{bmatrix} = \begin{bmatrix}
 V_S \\
 V_V
 \end{bmatrix}

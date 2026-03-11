@@ -99,6 +99,13 @@
 - [x] 在 `fast_algorithms.md` 中明确 `sorted_ids` 仅用于 MLFMA 内部遍历，外部输入输出仍以物理基函数顺序为准
 - [x] 在 `solvers.md` 中补齐左预条件 GMRES 的数学形式，并记录“预条件残差 + 物理残差”双口径检查建议
 
+### 2026-03-11 文档渲染检视补记
+
+- [x] 针对理论文档追加“公式内等号不得单独成行”的渲染约束检查
+- [x] 修正 `fast_algorithms.md` 中 upward / downward pass 三条公式的独立等号写法
+- [x] 修正 `method_of_moments.md` 中面-体耦合块矩阵公式的独立等号写法
+- [ ] 继续清理 `electromagnetics.md` / `fast_algorithms.md` / `integral_equations.md` 中残余的 Documenter 公式告警
+
 ## 模块结构总览
 
 ```text
