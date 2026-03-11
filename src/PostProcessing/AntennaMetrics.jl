@@ -7,6 +7,7 @@ using ...CoreModule
 using ...Utilities.Parameters
 using ..FarField: farField
 using ...IntegralEquations.PMCHWModule: PMCHW
+using ...IntegralEquations.NMullerModule: NMuller
 
 export antenna_directivity, input_impedance, beam_metrics
 
@@ -179,6 +180,36 @@ function input_impedance(op::PMCHW, source::DeltaGapSource,
     end
     iszero(I_in) && error(
         "input_impedance(PMCHW): J-part feed current is zero — " *
+        "check DeltaGapSource.edge_indices and that I_2N[1:N] is non-zero at the feed edge"
+    )
+    return ComplexF64(source.voltage) / ComplexF64(I_in)
+end
+
+"""
+    input_impedance(op::NMuller, source::DeltaGapSource, I_2N, basis::RWGBasis) → ComplexF64
+
+N-Muller 系统的输入阻抗计算。
+
+当前实现仅作为 Phase 15 的诊断性启发式：
+- N-Muller 的离散未知量按 2N 排列；
+- 馈电电流暂按前 N 个未知量对应的“front-half”分量读取；
+- 该约定尚未与 formulation-specific 端口模型或外部参考实现完成物理校准。
+
+因此，本方法当前只适合做数值探针，不应被视为已验证的物理输入阻抗定义。
+"""
+function input_impedance(op::NMuller, source::DeltaGapSource,
+                         I_2N::AbstractVector{<:Complex}, basis::RWGBasis)
+    N = num_basis(basis)
+    I_in = zero(ComplexF64)
+    for idx in source.edge_indices
+        if 1 <= idx <= N
+            I_in += I_2N[idx] * basis.functions[idx].edge_length
+        else
+            @warn "NMuller input_impedance: edge index $idx out of bounds (1:$N); skipped"
+        end
+    end
+    iszero(I_in) && error(
+        "input_impedance(NMuller): current-part feed current is zero — " *
         "check DeltaGapSource.edge_indices and that I_2N[1:N] is non-zero at the feed edge"
     )
     return ComplexF64(source.voltage) / ComplexF64(I_in)

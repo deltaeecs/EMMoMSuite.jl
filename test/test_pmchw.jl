@@ -11,6 +11,7 @@ using Test
 using EMSuite
 using LinearAlgebra
 using StaticArrays
+using EMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
 
 # ────────────────────────────────────────────────────────
 # 工具：小型球面网格（用于单元测试，与大 Mie 验证分离）
@@ -120,6 +121,29 @@ end
     @test !any(isnan, Z)
     # Z^HM 应该不再实对称（因为复数 eps_r），但矩阵本身有效
     @test norm(Z) > 0
+end
+
+@testset "22.2 PMCHW complex-k building blocks" begin
+    mesh  = make_small_sphere(n_theta = 4, n_phi = 6)
+    basis = RWGBasis(mesh)
+    N     = num_basis(basis)
+
+    k_complex = 2.8 + 0.35im
+    eta_complex = 210.0 - 15.0im
+    factor = 0.12 + 0.08im
+
+    efie = efie_from_keta(k_complex, eta_complex, factor)
+    Z_l = assemble_impedance_matrix(efie, basis)
+    K_l = assemble_K_pmchw_offdiag(basis, k_complex)
+
+    @test efie.k == k_complex
+    @test efie.eta == eta_complex
+    @test size(Z_l) == (N, N)
+    @test size(K_l) == (N, N)
+    @test norm(Z_l) > 0
+    @test norm(K_l) > 0
+    @test !any(isnan, Z_l)
+    @test !any(isnan, K_l)
 end
 
 # ============================================================

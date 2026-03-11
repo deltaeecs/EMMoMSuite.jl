@@ -145,7 +145,8 @@ function get_tetrahedra_info(
         # PWC: 3 basis functions (x,y,z) per tet, 4th = 0
         bf_ids = SVector{4,IT}(3 * (i - 1) + 1, 3 * (i - 1) + 2, 3 * (i - 1) + 3, 0)
         bf_signs = SVector{4,Int}(1, 1, 1, 0)
-        infos[i] = TetrahedraInfo(mesh, i, bf_ids, bf_signs, permittivities[i])
+        face_is_boundary = SVector{4,Bool}(true, true, true, true)
+        infos[i] = TetrahedraInfo(mesh, i, bf_ids, bf_signs, face_is_boundary, permittivities[i])
     end
 
     return infos
@@ -167,6 +168,7 @@ function get_tetrahedra_info(
     # Initialize basis IDs map: tet_idx -> [bf_id_face1, bf_id_face2, ...]
     tet_bfs = [zeros(IT, 4) for _ = 1:ntet]
     tet_signs = [zeros(Int, 4) for _ = 1:ntet]
+    tet_isbd = [fill(true, 4) for _ = 1:ntet]
 
     # Fill basis IDs and signs
     for bf in basis.functions
@@ -176,6 +178,7 @@ function get_tetrahedra_info(
             face1 = bf.local_face_idx[1]
             tet_bfs[tet1][face1] = bf.id
             tet_signs[tet1][face1] = bf.signs[1]
+            tet_isbd[tet1][face1] = bf.is_boundary
         end
 
         # Support 2
@@ -184,6 +187,7 @@ function get_tetrahedra_info(
             face2 = bf.local_face_idx[2]
             tet_bfs[tet2][face2] = bf.id
             tet_signs[tet2][face2] = bf.signs[2]
+            tet_isbd[tet2][face2] = bf.is_boundary
         end
     end
 
@@ -193,9 +197,12 @@ function get_tetrahedra_info(
             i,
             SVector{4,IT}(tet_bfs[i]...),
             SVector{4,Int}(tet_signs[i]...),
+            SVector{4,Bool}(tet_isbd[i]...),
             permittivities[i],
         )
     end
+
+    set_delta_kappa!(infos)
 
     return infos
 end

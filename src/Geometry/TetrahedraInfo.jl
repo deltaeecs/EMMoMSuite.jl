@@ -6,11 +6,55 @@ using LinearAlgebra
 
 Construct TetrahedraInfo from a mesh and tetrahedron index.
 """
+function build_tetra_face(
+    ::Type{IT},
+    vertex_ids::SVector{3,IT},
+    vertices::SMatrix{3,3,FT,9},
+    is_boundary::Bool,
+) where {IT<:Integer,FT<:AbstractFloat}
+    order = sortperm(collect(vertex_ids))
+    sorted_vertex_ids = SVector{3,IT}(vertex_ids[order[1]], vertex_ids[order[2]], vertex_ids[order[3]])
+    sorted_vertices = SMatrix{3,3,FT,9}(hcat(vertices[:, order[1]], vertices[:, order[2]], vertices[:, order[3]]))
+
+    r1 = sorted_vertices[:, 1]
+    r2 = sorted_vertices[:, 2]
+    r3 = sorted_vertices[:, 3]
+
+    facen̂ = normalize(-cross(r3 - r2, r2 - r1))
+
+    e1 = r3 - r2
+    e2 = r1 - r3
+    e3 = r2 - r1
+
+    l1 = norm(e1)
+    l2 = norm(e2)
+    l3 = norm(e3)
+
+    ev1 = e1 / l1
+    ev2 = e2 / l2
+    ev3 = e3 / l3
+
+    en1 = cross(ev1, facen̂)
+    en2 = cross(ev2, facen̂)
+    en3 = cross(ev3, facen̂)
+
+    return Tris4Tetra{IT,FT}(
+        is_boundary,
+        zero(Complex{FT}),
+        sorted_vertex_ids,
+        sorted_vertices,
+        SVector(l1, l2, l3),
+        SMatrix{3,3,FT,9}(hcat(ev1, ev2, ev3)),
+        SMatrix{3,3,FT,9}(hcat(en1, en2, en3)),
+    )
+end
+
 function TetrahedraInfo(
     mesh::TetrahedraMesh{IT,FT},
     tet_idx::Int,
     inBfsID::SVector{4,IT},
     bfsSign::SVector{4,Int},
+    faceIsBoundary::SVector{4,Bool},
     permittivity::ComplexF64,
 ) where {IT,FT}
     # Vertices indices
@@ -74,13 +118,19 @@ function TetrahedraInfo(
     area3 = 0.5 * norm(n3_raw)
     area4 = 0.5 * norm(n4_raw)
 
-    n1 = normalize(n1_raw)
-    n2 = normalize(n2_raw)
-    n3 = normalize(n3_raw)
-    n4 = normalize(n4_raw)
+    n1 = SVector{3,FT}(normalize(n1_raw))
+    n2 = SVector{3,FT}(normalize(n2_raw))
+    n3 = SVector{3,FT}(normalize(n3_raw))
+    n4 = SVector{3,FT}(normalize(n4_raw))
 
     facesArea = SVector(area1, area2, area3, area4)
     facesn̂ = hcat(n1, n2, n3, n4)
+    faces = Tris4Tetra{IT,FT}[
+        build_tetra_face(IT, SVector(v_indices[2], v_indices[3], v_indices[4]), SMatrix{3,3,FT,9}(hcat(r2, r3, r4)), faceIsBoundary[1]),
+        build_tetra_face(IT, SVector(v_indices[1], v_indices[4], v_indices[3]), SMatrix{3,3,FT,9}(hcat(r1, r4, r3)), faceIsBoundary[2]),
+        build_tetra_face(IT, SVector(v_indices[1], v_indices[2], v_indices[4]), SMatrix{3,3,FT,9}(hcat(r1, r2, r4)), faceIsBoundary[3]),
+        build_tetra_face(IT, SVector(v_indices[1], v_indices[3], v_indices[2]), SMatrix{3,3,FT,9}(hcat(r1, r3, r2)), faceIsBoundary[4]),
+    ]
 
     # Material properties
     ε = permittivity
@@ -95,6 +145,7 @@ function TetrahedraInfo(
         center,
         facesArea,
         facesn̂,
+        faces,
         inBfsID,
         bfsSign,
         κ,

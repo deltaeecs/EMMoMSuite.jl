@@ -46,13 +46,13 @@ where:
 - `C4divk2`: Precomputed constant \$4/k^2\$ (used in some formulations).
 - `factor`: Precomputed scaling factor \$j k \\eta / (16\\pi)\$ (varies by implementation).
 """
-struct EFIE{FT<:AbstractFloat,CT<:Complex,N_FAR,N_NEAR} <: AbstractIntegralOperator
+struct EFIE{FT<:AbstractFloat,CT<:Complex,KT<:Number,ET<:Number,DT<:Number,N_FAR,N_NEAR} <: AbstractIntegralOperator
     freq::FT
-    k::FT
-    eta::FT
+    k::KT
+    eta::ET
     gq_far::GaussQuadratureInfoStruct{FT,N_FAR,3}
     gq_near::GaussQuadratureInfoStruct{FT,N_NEAR,3}
-    C4divk2::FT
+    C4divk2::DT
     factor::CT
     SSCg::Vector{CT}
 end
@@ -71,11 +71,11 @@ function EFIE(freq::FT) where {FT}
     factor = im * k * eta / (16 * π)
     SSCg = compute_SSCg(k)
 
-    return EFIE{FT,Complex{FT},4,7}(freq, k, eta, gq_far, gq_near, C4divk2, factor, SSCg)
+    return EFIE{FT,Complex{FT},FT,FT,FT,4,7}(freq, k, eta, gq_far, gq_near, C4divk2, factor, SSCg)
 end
 
 """
-    efie_from_keta(k::FT, eta::FT, factor::Complex{FT}) where {FT}
+    efie_from_keta(k, eta, factor)
 
 Low-level constructor for EFIE-like operators with an **explicit** wavenumber,
 intrinsic impedance, and overall scaling factor.
@@ -85,29 +85,30 @@ interior/exterior regions and for the ``Z^{HM}`` block (which uses a different
 factor from the standard EFIE).
 
 # Arguments
-- `k`:      Wavenumber of the propagation medium (must be real ≥ 0)
-- `eta`:    Intrinsic impedance ``\\eta = \\sqrt{\\mu/\\varepsilon}`` (for record-keeping)
+- `k`:      Wavenumber of the propagation medium (real or complex)
+- `eta`:    Intrinsic impedance ``\\eta = \\sqrt{\\mu/\\varepsilon}`` (real or complex)
 - `factor`: Scaling factor applied after numerical integration.
   - For ``Z^{EJ}`` block:  ``factor = jk\\eta/(16\\pi)``
   - For ``Z^{HM}`` block:  ``factor = jk/(\\eta \\cdot 16\\pi)``
 
 # Returns
-`EFIE{FT, Complex{FT}, 4, 7}` operator that can be passed to
+`EFIE` operator that can be passed to
 `assemble_impedance_matrix`.
 """
-function efie_from_keta(k::FT, eta::FT, factor::Complex{FT}) where {FT}
+function efie_from_keta(k::KT, eta::ET, factor::CT) where {KT<:Number,ET<:Number,CT<:Complex}
+    FT = promote_type(typeof(float(real(k))), typeof(float(real(eta))), typeof(float(real(factor))))
     gq_far  = GaussQuadratureInfo(:Triangle, 4, FT)
     gq_near = GaussQuadratureInfo(:Triangle, 7, FT)
-    C4divk2 = FT(4) / k^2
+    C4divk2 = FT(4) / (k^2)
     SSCg    = compute_SSCg(k)  # Singularities.compute_SSCg accessible here
-    return EFIE{FT,Complex{FT},4,7}(FT(0), k, eta, gq_far, gq_near, C4divk2, factor, SSCg)
+    return EFIE{FT,CT,KT,ET,typeof(C4divk2),4,7}(FT(0), k, eta, gq_far, gq_near, C4divk2, factor, SSCg)
 end
 function _assemble_impedance_matrix!(
     Z::AbstractMatrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     basis::RWGBasis{IT,FT};
     accumulate::Bool = false,
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     # Precompute quadrature points for Far Field
     mesh = basis.mesh
     nt = num_elements(mesh)
@@ -137,24 +138,24 @@ end
 
 function assemble_impedance_matrix!(
     Z::AbstractMatrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     basis::RWGBasis{IT,FT};
     accumulate::Bool = false,
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     return _assemble_impedance_matrix!(Z, efie, basis; accumulate)
 end
 
-function assemble_impedance_matrix(efie::EFIE{FT,CT}, basis::RWGBasis{IT,FT}) where {IT,FT,CT}
+function assemble_impedance_matrix(efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR}, basis::RWGBasis{IT,FT}) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     Z = zeros(CT, num_basis(basis), num_basis(basis))
     return _assemble_impedance_matrix!(Z, efie, basis)
 end
 
 function efie_interaction!(
     Z_local::AbstractMatrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     tri_test::TriangleInfo{IT,FT},
     tri_source::TriangleInfo{IT,FT},
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     # Slow path: compute points on the fly
     r_test = get_global_quad_points(tri_test, efie.gq_far)
     r_src = get_global_quad_points(tri_source, efie.gq_far)
@@ -163,11 +164,11 @@ end
 
 function efie_interaction!(
     Z_local::Matrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     tri_test::TriangleInfo{IT,FT},
     tri_source::TriangleInfo{IT,FT},
     quad_points::Vector,
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     # Fast path: use precomputed points
     r_test = quad_points[tri_test.triID]
     r_src = quad_points[tri_source.triID]
@@ -176,12 +177,12 @@ end
 
 function efie_interaction!(
     Z_local::AbstractMatrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     tri_test::TriangleInfo{IT,FT},
     tri_source::TriangleInfo{IT,FT},
     r_test,
     r_src,
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     if tri_test.triID == tri_source.triID
         # Self-term (Singular)
         calc_self_interaction!(Z_local, efie, tri_test)
@@ -218,9 +219,9 @@ end
 
 function calc_self_interaction!(
     Z_local::AbstractMatrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     tri::TriangleInfo{IT,FT},
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     gq = efie.gq_near
     C4divk2 = efie.C4divk2
 
@@ -293,7 +294,7 @@ function calc_self_interaction!(
             # = \int \int (rho_m . rho_n) / R - C4divk2 * \int \int 1/R
             # = F2 - F1
 
-            val_singular = zero(FT)
+            val_singular = zero(CT)
 
             if m == n
                 # F21
@@ -410,10 +411,10 @@ end
 
 function calc_near_interaction!(
     Z_local::AbstractMatrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     tri_test::TriangleInfo{IT,FT},
     tri_source::TriangleInfo{IT,FT},
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     gq = efie.gq_near
     C4divk2 = efie.C4divk2
 
@@ -485,12 +486,12 @@ end
 
 function calc_interaction!(
     Z_local::AbstractMatrix{CT},
-    efie::EFIE{FT,CT},
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
     tri_test::TriangleInfo{IT,FT},
     tri_source::TriangleInfo{IT,FT},
     r_test,
     r_src,
-) where {IT,FT,CT}
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     gq = efie.gq_far
     C4divk2 = efie.C4divk2
     k = efie.k

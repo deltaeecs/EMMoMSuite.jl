@@ -17,7 +17,16 @@ struct PlaneWave <: AbstractSource
 
     function PlaneWave(frequency, theta, phi, polarization)
         k = 2 * pi * frequency / Constants.c0
-        new(frequency, theta, phi, normalize(polarization), k)
+        st, ct = sincos(theta)
+        sp, cp = sincos(phi)
+        k_dir = [st * cp, st * sp, ct]
+
+        pol_vec = Vector{Float64}(polarization)
+        pol_transverse = pol_vec .- dot(pol_vec, k_dir) .* k_dir
+        norm(pol_transverse) > sqrt(eps(Float64)) ||
+            throw(ArgumentError("PlaneWave polarization must have a non-zero component transverse to the propagation direction"))
+
+        new(frequency, theta, phi, normalize(pol_transverse), k)
     end
 end
 

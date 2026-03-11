@@ -169,3 +169,13 @@ end
     @test size(Z) == (1, 1)
     @test abs(Z[1, 1]) > 0.0
 end
+
+@testset "PlaneWave Polarization" begin
+    src = PlaneWave(1.0e9, π / 4, π, [0.0, 0.0, 1.0])
+    k_hat = [sin(src.theta) * cos(src.phi), sin(src.theta) * sin(src.phi), cos(src.theta)]
+
+    @test isapprox(norm(src.polarization), 1.0; atol = 1e-12)
+    @test isapprox(dot(src.polarization, k_hat), 0.0; atol = 1e-12)
+
+    @test_throws ArgumentError PlaneWave(1.0e9, 0.0, 0.0, [0.0, 0.0, 2.0])
+end

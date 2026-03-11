@@ -27,9 +27,12 @@ using LinearAlgebra
 using SparseArrays
 using Printf
 using Statistics
+using Dates
 
 const MESH_DIR = joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles")
 const REPORT_FILE = joinpath(@__DIR__, "..", "test_results", "PERFORMANCE_BASELINE.md")
+const REPORT_DIR = joinpath(@__DIR__, "..", "test_results", "reports")
+const REPORT_CSV_FILE = joinpath(REPORT_DIR, "PERFORMANCE_BASELINE.csv")
 
 # --- 简单 RCS 观测点 (8 方向, 不做全球面) ---
 const THETA_PERF = collect(LinRange(0, π, 37))  # 5° 间隔
@@ -221,8 +224,6 @@ function bench_3_jet_efie_mlfma()
     end
     println("  MLFMA setup: $(round(r.t_assembly, digits=3))s")
     
-    V_sorted = V[Z_mlfma.sorted_ids]
-    
     # 预条件器 (Sparse LU of Z_near — UMFPACK, optimal for ill-conditioned EFIE)
     r.t_precond = @elapsed begin
         P_near = lu(Z_mlfma.Z_near)
@@ -233,13 +234,9 @@ function bench_3_jet_efie_mlfma()
     # GMRES
     solver = GMRESSolver(restart=50, maxiter=100, tol=1e-3, verbose=true)
     r.t_solve = @elapsed begin
-        I_sorted = solve!(solver, Z_mlfma, V_sorted; Pl=P)
+        I_mlfma = solve!(solver, Z_mlfma, V; Pl=P)
     end
     println("  GMRES: $(round(r.t_solve, digits=3))s")
-    
-    # 恢复排序 → RCS
-    I_mlfma = similar(I_sorted)
-    I_mlfma[Z_mlfma.sorted_ids] = I_sorted
     
     r.t_rcs = @elapsed begin
         radarCrossSection(THETA_PERF, PHI_PERF, I_mlfma, basis)
@@ -286,8 +283,6 @@ function bench_4_sphere_cfie_mlfma()
     end
     println("  MLFMA setup: $(round(r.t_assembly, digits=3))s")
     
-    V_sorted = V[Z_mlfma.sorted_ids]
-    
     r.t_precond = @elapsed begin
         P_near = lu(Z_mlfma.Z_near)
     end
@@ -296,12 +291,9 @@ function bench_4_sphere_cfie_mlfma()
     
     solver = GMRESSolver(restart=50, maxiter=100, tol=1e-3, verbose=true)
     r.t_solve = @elapsed begin
-        I_sorted = solve!(solver, Z_mlfma, V_sorted; Pl=P)
+        I_mlfma = solve!(solver, Z_mlfma, V; Pl=P)
     end
     println("  GMRES: $(round(r.t_solve, digits=3))s")
-    
-    I_mlfma = similar(I_sorted)
-    I_mlfma[Z_mlfma.sorted_ids] = I_sorted
     
     r.t_rcs = @elapsed begin
         radarCrossSection(THETA_PERF, PHI_PERF, I_mlfma, basis)
@@ -426,6 +418,7 @@ end
 # =================================================================
 function generate_report()
     mkpath(dirname(REPORT_FILE))
+    mkpath(REPORT_DIR)
     
     open(REPORT_FILE, "w") do io
         println(io, "# EMSuite 性能基线报告")
@@ -475,11 +468,20 @@ function generate_report()
             println(io, "| $(r.case_name) | TBD | $(round(r.t_total, digits=2)) | TBD | — |")
         end
     end
+
+    open(REPORT_CSV_FILE, "w") do io
+        println(io, "case_name,equation,solver,N,t_mesh,t_assembly,t_precond,t_solve,t_rcs,t_total,notes")
+        for r in RESULTS
+            notes = replace(r.notes, "," => ";")
+            @printf(io, "%s,%s,%s,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%s\n",
+                r.case_name, r.equation, r.solver, r.N,
+                r.t_mesh, r.t_assembly, r.t_precond, r.t_solve, r.t_rcs, r.t_total, notes)
+        end
+    end
     
     println("\n报告已生成: $REPORT_FILE")
+    println("性能 CSV 已生成: $REPORT_CSV_FILE")
 end
-
-using Dates
 
 # =================================================================
 #  主入口

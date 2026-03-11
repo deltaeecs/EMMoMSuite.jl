@@ -17,14 +17,14 @@ Compute translation factors (alpha) for all levels.
 function compute_translation_factors!(
     nLevels::Int,
     levels::Dict{Int,LV},
-    k::Real,
+    k::Real;
+    near_range::Int = 4,
 ) where {LV<:AbstractLevel}
 
-    # Precompute the far neighbor relative indices
-    # With 4-box buffer, parent neighbors are -4:4.
-    # Child neighbors can be up to 2*4+1 = 9.
-    # So we need range -9:9.
-    max_range = 9
+    # Precompute the far neighbor relative indices.
+    # Theory: parent near_range = N → child far offset ≤ 2N+1 (proven by child-ID arithmetic).
+    # Far condition: at least one dimension |Δ| > near_range (matches searchNearCubes).
+    max_range = 2 * near_range + 1
     n_max = (2 * max_range + 1)^3
 
     all316FarNeighID = zeros(Int, 3, n_max)
@@ -39,8 +39,7 @@ function compute_translation_factors!(
     for kz = -max_range:max_range
         for ky = -max_range:max_range
             for kx = -max_range:max_range
-                # Use 4-box buffer to improve accuracy
-                if (abs(kx) > 4) || (abs(ky) > 4) || (abs(kz) > 4)
+                if (abs(kx) > near_range) || (abs(ky) > near_range) || (abs(kz) > near_range)
                     indexfar316 += 1
                     all343InFar316[kx, ky, kz] = indexfar316
                     all316FarNeighID[:, indexfar316] .= [kx, ky, kz]

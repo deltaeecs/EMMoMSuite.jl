@@ -175,6 +175,37 @@ function gaussQuadratureTet(num::Integer, FT::DataType = Float64)
             0.5,
         )
         weight = SVector{5,FT}(-0.8, 0.45, 0.45, 0.45, 0.45)
+    elseif num == 11
+        a1 = FT(0.714285714286)
+        b1 = FT(0.095238095238)
+        a2 = FT(0.399403576167)
+        b2 = FT(0.100596423833)
+        coordinate = SMatrix{4,11,FT}(
+            FT(1 / 4), FT(1 / 4), FT(1 / 4), FT(1 / 4),
+            a1, b1, b1, b1,
+            b1, a1, b1, b1,
+            b1, b1, a1, b1,
+            b1, b1, b1, a1,
+            a2, a2, b2, b2,
+            b2, a2, a2, b2,
+            b2, b2, a2, a2,
+            a2, b2, b2, a2,
+            b2, a2, b2, a2,
+            a2, b2, a2, b2,
+        )
+        weight = SVector{11,FT}(
+            FT(-0.078933333333),
+            FT(0.0457333333333),
+            FT(0.0457333333333),
+            FT(0.0457333333333),
+            FT(0.0457333333333),
+            FT(0.1493333333333),
+            FT(0.1493333333333),
+            FT(0.1493333333333),
+            FT(0.1493333333333),
+            FT(0.1493333333333),
+            FT(0.1493333333333),
+        )
     else
         error("Tetrahedron quadrature rule for N=$num not implemented.")
     end

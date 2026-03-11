@@ -132,6 +132,86 @@ function geoElectricJCal(
     return Jtris
 end
 
+"""
+    geoElectricJCal(ICoeff, basis::SWGBasis, permittivities)
+
+Calculate Legacy-style weighted equivalent currents on tetrahedra for SWG
+basis functions. The returned current is one 3-vector per tetrahedron.
+"""
+function geoElectricJCal(
+    ICoeff::Vector{CT},
+    basis::SWGBasis{IT,FT},
+    permittivities::Vector{CT},
+) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
+    mesh = basis.mesh
+    ntet = num_elements(mesh)
+    Jtetras = zeros(CT, 3, ntet)
+
+    points, weights = Geometry.gaussQuadratureTet(4, FT)
+    n_points = length(weights)
+
+    verts = vertices(mesh)
+    elems = elements(mesh)
+
+    tet_bfs = [zeros(IT, 4) for _ = 1:ntet]
+    tet_signs = [zeros(Int, 4) for _ = 1:ntet]
+
+    for bf in basis.functions
+        tet1 = bf.support[1]
+        if tet1 > 0
+            face1 = bf.local_face_idx[1]
+            tet_bfs[tet1][face1] = bf.id
+            tet_signs[tet1][face1] = bf.signs[1]
+        end
+
+        tet2 = bf.support[2]
+        if tet2 > 0
+            face2 = bf.local_face_idx[2]
+            tet_bfs[tet2][face2] = bf.id
+            tet_signs[tet2][face2] = bf.signs[2]
+        end
+    end
+
+    for t = 1:ntet
+        Jtetra = @view Jtetras[:, t]
+
+        v_indices = elems[:, t]
+        r1 = verts[:, v_indices[1]]
+        r2 = verts[:, v_indices[2]]
+        r3 = verts[:, v_indices[3]]
+        r4 = verts[:, v_indices[4]]
+        vol = abs(det(hcat(r2 - r1, r3 - r1, r4 - r1))) / 6.0
+
+        for gi = 1:n_points
+            u = points[1, gi]
+            v = points[2, gi]
+            w = points[3, gi]
+            x = points[4, gi]
+            rgi = u * r1 + v * r2 + w * r3 + x * r4
+
+            Jtemp = zero(MVector{3,CT})
+
+            for local_face = 1:4
+                bf_id = tet_bfs[t][local_face]
+                bf_id == 0 && continue
+
+                sign = tet_signs[t][local_face]
+                rho = rgi - verts[:, v_indices[local_face]]
+                area_signed = sign * basis.functions[bf_id].area
+                Jtemp .+= ICoeff[bf_id] .* (area_signed .* rho)
+            end
+
+            Jtetra .+= Jtemp .* weights[gi]
+        end
+
+        eps_r = permittivities[t]
+        kappa = (eps_r - one(CT)) / eps_r
+        Jtetra .*= kappa / (3.0 * vol)
+    end
+
+    return Jtetras
+end
+
 # ─── Phase 17.3: Volume equivalent currents ─────────────────────────────────
 
 """

@@ -9,6 +9,8 @@ using LinearAlgebra
 export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere,
        calculate_mie_rcs_pec_sphere_fullpol
 
+_emsuite_to_bh_materials(eps_r, mu_r) = conj(Complex(eps_r)), conj(Complex(mu_r))
+
 """
     calculate_mie_rcs_pec_sphere(radius, freq, theta_range) -> rcs_E
 
@@ -108,23 +110,7 @@ function calculate_mie_rcs_pec_sphere_fullpol(radius, freq, theta_range)
     return rcs_S2, rcs_S1
 end
 
-"""
-    calculate_mie_rcs_dielectric_sphere(radius, freq, theta_range, eps_r, mu_r=1.0)
-    -> (rcs_E, rcs_H, rcs_unpol)
-
-计算均匀介质球双站 RCS (m²), Bohren & Huffman (1983) Ch.4 公式.
-
-约定: 入射波 +z 方向, x 极化 (PlaneWave(freq,0,0,[1,0,0]))
-- rcs_E : E-plane φ=0, θ-component (S₂), 对应 RCSθsϕs[1,:,:] at φ=0
-- rcs_H : H-plane φ=π/2, ϕ-component (S₁), 对应 RCSθsϕs[2,:,:] at φ=π/2
-
-Mie 系数用对数导数下行递推 (B&H App.A):
-  D_{n-1}(z) = n/z - 1/(D_n+n/z), 从 D_{n+1}=0 开始
-  a_n = [Dn(mx)/m + n/x] ψn(x) - ψ_{n-1}(x)
-        ──────────────────────────────────────
-        [Dn(mx)/m + n/x] ξn(x) - ξ_{n-1}(x)
-"""
-function calculate_mie_rcs_dielectric_sphere(
+function _calculate_mie_rcs_dielectric_sphere_bh(
     radius, freq, theta_range, eps_r, mu_r = 1.0,
 )
     c0 = 299792458.0
@@ -191,6 +177,27 @@ function calculate_mie_rcs_dielectric_sphere(
         rcs_unpol[i] = 0.5*(rcs_E[i] + rcs_H[i])
     end
     return rcs_E, rcs_H, rcs_unpol
+end
+
+"""
+    calculate_mie_rcs_dielectric_sphere(radius, freq, theta_range, eps_r, mu_r=1.0)
+    -> (rcs_E, rcs_H, rcs_unpol)
+
+计算均匀介质球双站 RCS (m²), Bohren & Huffman (1983) Ch.4 公式.
+
+EMSuite 全库采用 `e^{-jωt}` 约定，因此被动有损介质满足 `imag(εr) < 0`。
+本文件的 B&H 级数内核按其原始材料参数约定实现，因此在进入内核前将
+EMSuite 约定的 `eps_r`/`mu_r` 做复共轭映射。
+
+约定: 入射波 +z 方向, x 极化 (PlaneWave(freq,0,0,[1,0,0]))
+- rcs_E : E-plane φ=0, θ-component (S₂), 对应 RCSθsϕs[1,:,:] at φ=0
+- rcs_H : H-plane φ=π/2, ϕ-component (S₁), 对应 RCSθsϕs[2,:,:] at φ=π/2
+"""
+function calculate_mie_rcs_dielectric_sphere(
+    radius, freq, theta_range, eps_r, mu_r = 1.0,
+)
+    eps_bh, mu_bh = _emsuite_to_bh_materials(eps_r, mu_r)
+    return _calculate_mie_rcs_dielectric_sphere_bh(radius, freq, theta_range, eps_bh, mu_bh)
 end
 
 end # module MieSeries

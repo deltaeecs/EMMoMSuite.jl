@@ -34,6 +34,7 @@ using ....CoreModule
 using ....Geometry
 using ....BasisFunctions
 using ....IntegralEquations
+import ....Solvers: BlockJacobiPreconditioner
 using ..Octree
 using ..OctreeBuilder
 using ..Translation
@@ -48,7 +49,48 @@ using ....IntegralEquations.PMCHWModule: PMCHW
 using ....IntegralEquations.PMCHWModule: assemble_impedance_matrix
 const pmchw_assemble_full = assemble_impedance_matrix
 
-export PMCHWMLFMAOperator, assemble_near_field_pmchw
+export PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
+
+struct PMCHWMLFMAErrorBudget{FT<:AbstractFloat}
+    leaf_wavelength_divisor::FT
+    near_range_scale::FT
+    min_near_range::Int
+    max_near_range::Int
+    L_min::Int
+    fixed_near_range::Int
+    fixed_leaf_size_eff::FT
+end
+
+function PMCHWMLFMAErrorBudget(
+    ::Type{FT} = Float64;
+    leaf_wavelength_divisor::Real = 10.0,
+    near_range_scale::Real = 8.0,
+    min_near_range::Int = 8,
+    max_near_range::Int = 32,
+    L_min::Int = 0,
+    fixed_near_range::Int = 0,
+    fixed_leaf_size_eff::Real = 0.0,
+) where {FT<:AbstractFloat}
+    return PMCHWMLFMAErrorBudget{FT}(
+        FT(leaf_wavelength_divisor),
+        FT(near_range_scale),
+        min_near_range,
+        max_near_range,
+        L_min,
+        fixed_near_range,
+        FT(fixed_leaf_size_eff),
+    )
+end
+
+function _resolve_budget_parameters(budget::PMCHWMLFMAErrorBudget{FT}, λ_min::FT, leaf_size::FT) where {FT<:AbstractFloat}
+    leaf_size_eff = iszero(budget.fixed_leaf_size_eff) ? λ_min / budget.leaf_wavelength_divisor : budget.fixed_leaf_size_eff
+    near_range = budget.fixed_near_range > 0 ? budget.fixed_near_range : clamp(
+        round(Int, leaf_size / leaf_size_eff * budget.near_range_scale),
+        budget.min_near_range,
+        budget.max_near_range,
+    )
+    return leaf_size_eff, near_range
+end
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Struct
@@ -63,6 +105,9 @@ struct PMCHWMLFMAOperator{FT<:AbstractFloat,CT<:Complex} <: AbstractIntegralOper
     pmchw           :: PMCHW{FT,CT}
     basis           :: RWGBasis
     Z_near          :: SparseMatrixCSC{CT,Int}
+    budget          :: PMCHWMLFMAErrorBudget{FT}
+    leaf_size_eff   :: FT
+    near_range      :: Int
     octree0         :: OctreeInfo
     octree1         :: OctreeInfo
     sorted_ids0     :: Vector{Int}
@@ -76,11 +121,34 @@ Base.size(op::PMCHWMLFMAOperator)         = (2 * num_basis(op.basis), 2 * num_ba
 Base.size(op::PMCHWMLFMAOperator, d::Int) = 2 * num_basis(op.basis)
 Base.eltype(::PMCHWMLFMAOperator{FT,CT}) where {FT,CT} = CT
 
+function _leaf_block_indices(op::PMCHWMLFMAOperator)
+    leaf_level = op.octree0.levels[op.octree0.nLevels]
+    N = num_basis(op.basis)
+    blocks = Vector{Vector{Int}}()
+
+    for cube in leaf_level.cubes
+        isempty(cube.bfInterval) && continue
+        leaf_ids = collect(op.sorted_ids0[cube.bfInterval])
+        n_leaf = length(leaf_ids)
+        block = Vector{Int}(undef, 2 * n_leaf)
+        copyto!(block, 1, leaf_ids, 1, n_leaf)
+        @inbounds for i in 1:n_leaf
+            block[n_leaf + i] = leaf_ids[i] + N
+        end
+        push!(blocks, block)
+    end
+
+    return blocks
+end
+
+BlockJacobiPreconditioner(op::PMCHWMLFMAOperator) = BlockJacobiPreconditioner(op.Z_near, _leaf_block_indices(op))
+BlockJacobiPreconditioner(op::PMCHWMLFMAOperator, ::Any) = BlockJacobiPreconditioner(op)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 构造函数
 # ─────────────────────────────────────────────────────────────────────────────
 
-function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64)
+function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64; budget = PMCHWMLFMAErrorBudget(Float64))
     N  = num_basis(basis)
     FT = typeof(real(pmchw.freq))
     CT = Complex{FT}
@@ -90,8 +158,20 @@ function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64)
     λ0 = FT(2π) / real(pmchw.k0)
     λ1 = FT(2π) / real(pmchw.k1)
 
-    octree0, sorted_ids0 = build_octree(centers, leaf_size; λ = Float64(λ0))
-    octree1, sorted_ids1 = build_octree(centers, leaf_size; λ = Float64(λ1))
+    λ0f = Float64(λ0); λ1f = Float64(λ1)
+    λ_min = FT(min(λ0f, λ1f))
+    budget_ft = budget isa PMCHWMLFMAErrorBudget{FT} ? budget : PMCHWMLFMAErrorBudget(FT;
+        leaf_wavelength_divisor = budget.leaf_wavelength_divisor,
+        near_range_scale = budget.near_range_scale,
+        min_near_range = budget.min_near_range,
+        max_near_range = budget.max_near_range,
+        L_min = budget.L_min,
+        fixed_near_range = budget.fixed_near_range,
+        fixed_leaf_size_eff = budget.fixed_leaf_size_eff,
+    )
+    leaf_size_eff, near_range = _resolve_budget_parameters(budget_ft, λ_min, FT(leaf_size))
+    octree0, sorted_ids0 = build_octree(centers, leaf_size_eff; λ = λ0f, near_range = near_range, L_min = budget_ft.L_min)
+    octree1, sorted_ids1 = build_octree(centers, leaf_size_eff; λ = λ1f, near_range = near_range, L_min = budget_ft.L_min)
 
     inv_sorted_ids0 = Vector{Int}(undef, N)
     inv_sorted_ids1 = Vector{Int}(undef, N)
@@ -104,6 +184,9 @@ function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64)
 
     return PMCHWMLFMAOperator{FT,CT}(
         pmchw, basis, Z_near,
+        budget_ft,
+        leaf_size_eff,
+        near_range,
         octree0, octree1,
         sorted_ids0, inv_sorted_ids0,
         sorted_ids1, inv_sorted_ids1,
@@ -276,7 +359,6 @@ function _receive_terms(
     te        = zero(CT)
     tm        = zero(CT)
     JK        = CT(im * k)
-    inv_η     = CT(1 / η)
 
     poles_r̂    = [p.r̂    for p in poles.r̂sθsϕs]
     poles_θhat = [p.θhat for p in poles.r̂sθsϕs]
@@ -320,8 +402,8 @@ function _receive_terms(
                 E_inc = (Eθ * θhat + Eϕ * ϕhat) * phase
                 te   += dot(rho, E_inc) * w_f
 
-                H_inc  = (Eθ * ϕhat - Eϕ * θhat) * (phase * inv_η)
-                tm    += dot(cross(rho, normal), H_inc) * w_f
+                rhat_cross_E = (Eθ * ϕhat - Eϕ * θhat) * phase
+                tm          += dot(rho, rhat_cross_E) * w_f
             end
         end
     end
@@ -344,7 +426,7 @@ function disaggregate_leaf_pmchw_j!(
     k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
 
     factor_EJ = im * k * η / (4π)
-    factor_HJ = -im * k      / (4π)
+    factor_HJ =  im * k     / (4π)
 
     leaf_level = octree.levels[octree.nLevels]
     isdefined(leaf_level, :disaggG) || return
@@ -381,7 +463,7 @@ function disaggregate_leaf_pmchw_m!(
     N    = num_basis(basis)
     k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
 
-    factor_EM =  im * k / (4π)
+    factor_EM = -im * k / (4π)
     factor_HM =  im * k / (η * 4π)
 
     leaf_level = octree.levels[octree.nLevels]

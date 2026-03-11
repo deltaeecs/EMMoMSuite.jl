@@ -3,10 +3,10 @@ run_B1_B5_antenna.jl — Phase 15 精度基准：介质天线输入阻抗 B1-B5
 
 用例:
   B1 — PMCHW Direct (εᵣ=4, 介质球, delta-gap)  物理自洽检验
-  B2 — PMCHW MLFMA  (同 B1)                    ⚠️ 待实现 PMCHWMLFMAOperator
+    B2 — PMCHW MLFMA  (同 B1)                    shell + MatrixFree backend + strong-form GMRES
   B3 — VS-EFIE Direct (SCFIE α=0, RWG+SWG)     金属-介质混合 delta-gap
   B4 — VS-CFIE Direct (SCFIE α=0.5)            与 B3 比较稳定性
-  B5 — VS-CFIE MLFMA                           ⚠️ 待实现
+    B5 — VS-CFIE MLFMA                           TriTetra + MLFMAOperator + GMRES
 
 验证准则:
   B1  Re(Z_in) > 0; εᵣ→1 时 |Z_in - Z_EFIE| / |Z_EFIE| < 10%
@@ -16,14 +16,23 @@ run_B1_B5_antenna.jl — Phase 15 精度基准：介质天线输入阻抗 B1-B5
   B5  ΔZ_in vs B4: Re<5%, Im<20Ω
 
 运行方式:
-  julia --project=. benchmark/accuracy/run_B1_B5_antenna.jl [B1] [B3] [B4]
-  (不带参数时运行 B1, B3, B4)
+    julia --project=. benchmark/accuracy/run_B1_B5_antenna.jl [B1] [B2] [B3] [B4] [B5]
+    (不带参数时默认运行 B1, B3, B4；B2/B5 可按需单独或联合启用)
 """
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
 using EMSuite
+using IterativeSolvers
 using LinearAlgebra, Printf, Statistics, Dates, CSV, DataFrames
+using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+
+struct LUPreconditioner
+    F
+end
+
+LinearAlgebra.ldiv!(y, P::LUPreconditioner, x) = (y .= P.F \ x)
+LinearAlgebra.ldiv!(P::LUPreconditioner, x) = (x .= P.F \ x)
 
 # ─── 路径 ─────────────────────────────────────────────────────────────────────
 const ROOT_DIR   = joinpath(@__DIR__, "..", "..")
@@ -70,6 +79,45 @@ function solve_direct_pmchw(pmchw::PMCHW, basis::RWGBasis, source::DeltaGapSourc
 end
 
 """
+    solve_mlfma_pmchw(pmchw, basis, source; leaf_size=0.10, reltol=1e-4, maxiter=100)
+        → (I_2N, t_elapsed, resnorm)
+
+使用 PMCHW block/operator shell 包装当前 matrix-free MLFMA backend，
+并走 shell 层 strong-form GMRES 路径。
+"""
+function solve_mlfma_pmchw(
+    pmchw::PMCHW,
+    basis::RWGBasis,
+    source::DeltaGapSource;
+    leaf_size::Float64 = 0.10,
+    reltol::Float64 = 1e-4,
+    maxiter::Int = 100,
+)
+    rhs = excitation_vector(pmchw, source, basis)
+    dense_source = assemble_impedance_matrix(pmchw, basis)
+    shell = PMCHWBlockOperator(
+        pmchw,
+        basis,
+        MatrixFreePMCHWBackend(PMCHWMLFMAOperator(pmchw, basis, leaf_size));
+        block_source = dense_source,
+    )
+
+    t0 = time()
+    coeffs_sf, hist = gmres(
+        strong_form(shell),
+        strong_form_rhs(shell, rhs);
+        reltol = reltol,
+        maxiter = maxiter,
+        log = true,
+    )
+    t = time() - t0
+
+    I = recover_trial_coefficients(shell, coeffs_sf)
+    resnorm = hist.data[:resnorm][end]
+    return I, t, resnorm
+end
+
+"""
     solve_direct_efie(efie, basis, source) → (I_N, t_elapsed)
 """
 function solve_direct_efie(efie::EFIE, basis::RWGBasis, source::DeltaGapSource)
@@ -95,6 +143,30 @@ function solve_direct_scfie(scfie::SCFIE, surf_basis::RWGBasis, vol_basis::SWGBa
 end
 
 """
+    solve_mlfma_scfie(scfie, surf_basis, vol_basis, source; leaf_size, restart, maxiter, tol)
+        → (I, t_setup, t_solve)
+
+使用通用 `MLFMAOperator` 跑 SCFIE fast solve，并以 `Z_near` LU 作为左预条件。
+"""
+function solve_mlfma_scfie(
+    scfie::SCFIE,
+    surf_basis::RWGBasis,
+    vol_basis::SWGBasis,
+    source::DeltaGapSource;
+    leaf_size::Float64,
+    restart::Int = 50,
+    maxiter::Int = 200,
+    tol::Float64 = 1e-3,
+)
+    t_setup = @elapsed mlfma_op = MLFMAOperator(scfie, [surf_basis, vol_basis], leaf_size)
+    V = excitation_vector(scfie, source, surf_basis, vol_basis)
+    precond = LUPreconditioner(lu(mlfma_op.Z_near))
+    solver = GMRESSolver(restart = restart, maxiter = maxiter, tol = tol, verbose = true)
+    t_solve = @elapsed I = solve!(solver, mlfma_op, V, Pl = precond)
+    return I, t_setup, t_solve
+end
+
+"""
     save_antenna_result(label, Z_in, Z_ref, re_tol_pct, im_tol_ohm, extra)
 
 打印并保存天线输入阻抗基准结果。
@@ -102,6 +174,7 @@ end
 function save_antenna_result(label, Z_in;
                              Z_ref=nothing,
                              re_tol_pct=10.0,
+                             re_ref_floor_ohm=0.0,
                              im_tol_ohm=20.0,
                              extra_info=nothing)
     println("\n  ─────────────────────────────────────────────────────")
@@ -115,13 +188,15 @@ function save_antenna_result(label, Z_in;
     im_err_ohm = NaN
 
     if Z_ref !== nothing
-        re_err_pct = abs(real(Z_in) - real(Z_ref)) / (abs(real(Z_ref)) + 1e-30) * 100
+        re_scale = max(abs(real(Z_ref)), re_ref_floor_ohm)
+        re_err_pct = abs(real(Z_in) - real(Z_ref)) / (re_scale + 1e-30) * 100
         im_err_ohm = abs(imag(Z_in) - imag(Z_ref))
         passed_re  = re_err_pct < re_tol_pct
         passed_im  = im_err_ohm < im_tol_ohm
         @printf("  Ref Z_in = %+.3f + j(%+.3f)  Ω\n", real(Z_ref), imag(Z_ref))
         @printf("  Re 误差  = %.2f %%  (门限 %.1f %%)\n", re_err_pct, re_tol_pct)
         @printf("  Im 误差  = %.2f Ω   (门限 %.1f Ω)\n",  im_err_ohm, im_tol_ohm)
+        re_ref_floor_ohm > 0 && @printf("  Re 参考尺度下限 = %.3f Ω\n", re_ref_floor_ohm)
     else
         @printf("  Re(Z_in) > 0: %s\n", real(Z_in) > 0 ? "✓" : "✗")
     end
@@ -141,6 +216,30 @@ function save_antenna_result(label, Z_in;
         re_err_pct = [re_err_pct],
         im_err_ohm = [im_err_ohm],
         passed     = [passed],
+    )
+    CSV.write(csv_path, df)
+    println("  -> 已保存 $(basename(csv_path))")
+    return (; label, Z_in, Z_ref, passed)
+end
+
+function save_limit_check_result(label, Z_in, Z_ref;
+                                 rel_diff_pct::Float64,
+                                 abs_diff_ohm::Float64,
+                                 passed::Bool,
+                                 note::String)
+    csv_path = joinpath(RESULT_DIR, "$(label)_Zin.csv")
+    df = DataFrame(
+        label = [label],
+        Zin_re = [real(Z_in)],
+        Zin_im = [imag(Z_in)],
+        Zref_re = [real(Z_ref)],
+        Zref_im = [imag(Z_ref)],
+        re_err_pct = [rel_diff_pct],
+        im_err_ohm = [abs_diff_ohm],
+        abs_diff_ohm = [abs_diff_ohm],
+        rel_diff_pct = [rel_diff_pct],
+        note = [note],
+        passed = [passed],
     )
     CSV.write(csv_path, df)
     println("  -> 已保存 $(basename(csv_path))")
@@ -218,16 +317,58 @@ if "B1" ∈ enabled
     println("  2×Z_EFIE       = $(round(Z_ref_2efie; digits=5)) Ω")
     @printf("  |ΔZ|           = %.2e Ω  (相对 %.2f %%)\n", abs_diff, rel_diff*100)
     println("  判定: $(limit_pass ? "PASS ✓" : "FAIL ✗")  (相对 < 1%% 或绝对 < 1e-3 Ω)")
-    push!(results_all, (; label="B1_PMCHW_eps1_vs_2xEFIE", Z_in=Z_pec, Z_ref=Z_ref_2efie, passed=limit_pass))
+    res_B1_limit = save_limit_check_result(
+        "B1_PMCHW_eps1_vs_2xEFIE",
+        Z_pec,
+        Z_ref_2efie;
+        rel_diff_pct = rel_diff * 100,
+        abs_diff_ohm = abs_diff,
+        passed = limit_pass,
+        note = "判据: |ΔZ|/|2×Z_EFIE| < 1% or |ΔZ| < 1e-3 Ω",
+    )
+    push!(results_all, res_B1_limit)
 end
 
 # ══════════════════════════════════════════════════════════════════════════════
-# B2: PMCHW MLFMA — 待实现
+# B2: PMCHW MLFMA — shell + matrix-free backend
 # ══════════════════════════════════════════════════════════════════════════════
 if "B2" ∈ enabled
     println("\n" * "─" ^ 70)
-    println("  B2: PMCHW MLFMA — ⚠️ 待实现 PMCHWMLFMAOperator (步骤 15.7-15.11)")
-    println("  B2 跳过。")
+    println("  B2: PMCHW MLFMA (shell + strong-form GMRES, 介质球, delta-gap, 300 MHz)")
+
+    freq  = 3e8
+    eps_r = 4.0
+    set_frequency!(freq)
+
+    mesh  = generate_sphere_mesh(0.1, 12, 16)
+    basis = RWGBasis(mesh)
+    N     = num_basis(basis)
+    @printf("  RWG 未知量: %d (2N=%d)\n", N, 2N)
+
+    pmchw    = PMCHW(freq, eps_r)
+    feed_idx = find_top_feed_edge(basis)
+    source   = DeltaGapSource(freq, feed_idx, 1.0 + 0im)
+    @printf("  feed 边数: %d\n", length(feed_idx))
+
+    I_direct, t_direct = solve_direct_pmchw(pmchw, basis, source)
+    Z_in_direct = input_impedance(pmchw, source, I_direct, basis)
+    @printf("  PMCHW Direct 参考解: %.2f s\n", t_direct)
+
+    I_mlfma, t_mlfma, res_mlfma = solve_mlfma_pmchw(pmchw, basis, source)
+    Z_in_mlfma = input_impedance(pmchw, source, I_mlfma, basis)
+    @printf("  PMCHW MLFMA strong-form GMRES: %.2f s\n", t_mlfma)
+    @printf("  最终相对残差: %.3e\n", res_mlfma)
+
+    res_B2 = save_antenna_result(
+        "B2_PMCHW_MLFMA",
+        Z_in_mlfma;
+        Z_ref = Z_in_direct,
+        re_tol_pct = 5.0,
+        re_ref_floor_ohm = 1.0,
+        im_tol_ohm = 20.0,
+        extra_info = @sprintf("参考=Direct, 路径=shell strong-form GMRES, res=%.3e", res_mlfma),
+    )
+    push!(results_all, res_B2)
 end
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -260,11 +401,8 @@ if "B3" ∈ enabled || "B4" ∈ enabled
             I_b3, t_b3 = solve_direct_scfie(scfie_b3, surf_basis, vol_basis, feed_surf)
             @printf("  SCFIE(α=0) Direct 求解: %.2f s\n", t_b3)
 
-            # 仅用 surf 部分计算 Z_in
             I_surf_b3 = I_b3[1:N_surf]
-            source_surf = DeltaGapSource(freq, [1], 1.0 + 0im)
-            I_in_b3 = I_surf_b3[1] * surf_basis.functions[1].edge_length
-            Z_in_b3 = ComplexF64(feed_surf.voltage) / I_in_b3
+            Z_in_b3 = input_impedance(feed_surf, I_surf_b3, surf_basis)
 
             res_B3 = save_antenna_result("B3_VEFIE_TriTetra_direct", Z_in_b3;
                      extra_info="VS-EFIE (α=0): 自洽检验 Re(Z_in)>0")
@@ -280,8 +418,7 @@ if "B3" ∈ enabled || "B4" ∈ enabled
                 @printf("  SCFIE(α=0.5) Direct 求解: %.2f s\n", t_b4)
 
                 I_surf_b4 = I_b4[1:N_surf]
-                I_in_b4 = I_surf_b4[1] * surf_basis.functions[1].edge_length
-                Z_in_b4 = ComplexF64(feed_surf.voltage) / I_in_b4
+                Z_in_b4 = input_impedance(feed_surf, I_surf_b4, surf_basis)
 
                 # B4 精度门限: Re(Z_in) > 0 (物理自洽)
                 # 注意: EFIE 与 CFIE delta-gap 天线 Z_in 存在数值差异，不作交叉比较
@@ -294,12 +431,58 @@ if "B3" ∈ enabled || "B4" ∈ enabled
 end
 
 # ══════════════════════════════════════════════════════════════════════════════
-# B5: VS-CFIE MLFMA — 待实现
+# B5: VS-CFIE MLFMA
 # ══════════════════════════════════════════════════════════════════════════════
 if "B5" ∈ enabled
     println("\n" * "─" ^ 70)
-    println("  B5: VS-CFIE MLFMA — ⚠️ 待实现 (步骤 15.11)")
-    println("  B5 跳过。")
+    println("  B5: VS-CFIE MLFMA (TriTetra, 100 MHz, α=0.5 + GMRES)")
+
+    if isempty(TRITRETRA_FILE)
+        println("  TriTetra.nas 未找到 — 跳过 B5")
+    else
+        surf_mesh, vol_mesh = read_mixed_nas_mesh(TRITRETRA_FILE; scale = 0.001)
+        surf_basis = RWGBasis(surf_mesh)
+        vol_basis  = SWGBasis(vol_mesh)
+        N_surf = num_basis(surf_basis)
+        N_vol  = num_basis(vol_basis)
+        @printf("  混合网格: N_surf=%d, N_vol=%d, N_total=%d\n", N_surf, N_vol, N_surf + N_vol)
+
+        freq  = 1e8
+        eps_r = ComplexF64(2.0)
+        perms = fill(eps_r, num_elements(vol_mesh))
+        scfie_b5 = SCFIE(freq, perms; alpha = 0.5)
+        feed_surf = DeltaGapSource(freq, [1], 1.0 + 0im)
+
+        I_b4_ref, t_b4_ref = solve_direct_scfie(scfie_b5, surf_basis, vol_basis, feed_surf)
+        @printf("  SCFIE(α=0.5) Direct 参考解: %.2f s\n", t_b4_ref)
+        Z_in_b4_ref = input_impedance(feed_surf, I_b4_ref[1:N_surf], surf_basis)
+
+        lambda = 299792458.0 / freq
+        leaf_size = 0.25 * lambda
+        I_b5, t_setup, t_solve = solve_mlfma_scfie(
+            scfie_b5,
+            surf_basis,
+            vol_basis,
+            feed_surf;
+            leaf_size = leaf_size,
+            restart = 50,
+            maxiter = 200,
+            tol = 1e-3,
+        )
+        @printf("  MLFMA Setup: %.2f s\n", t_setup)
+        @printf("  GMRES Solve: %.2f s\n", t_solve)
+
+        Z_in_b5 = input_impedance(feed_surf, I_b5[1:N_surf], surf_basis)
+        res_B5 = save_antenna_result(
+            "B5_VCFIE_TriTetra_MLFMA",
+            Z_in_b5;
+            Z_ref = Z_in_b4_ref,
+            re_tol_pct = 5.0,
+            im_tol_ohm = 20.0,
+            extra_info = @sprintf("参考=B4 Direct, leaf=%.3f λ, setup=%.2fs, gmres=%.2fs", leaf_size / lambda, t_setup, t_solve),
+        )
+        push!(results_all, res_B5)
+    end
 end
 
 # ══════════════════════════════════════════════════════════════════════════════

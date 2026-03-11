@@ -186,7 +186,7 @@ open(report_path, "w") do io
         ("B2_PMCHW_MLFMA",            "B2 PMCHW MLFMA"),
         ("B3_VEFIE_TriTetra_direct",  "B3 VS-EFIE Direct"),
         ("B4_VCFIE_TriTetra_direct",  "B4 VS-CFIE Direct"),
-        ("B5_PMCHW_MLFMA_large",      "B5 PMCHW MLFMA (大网格)"),
+        ("B5_VCFIE_TriTetra_MLFMA",   "B5 VS-CFIE MLFMA"),
     ]
 
     for (fname, desc) in b_antenna_cases
@@ -245,13 +245,13 @@ let b_found = 0, b_pass = 0
     # B2:  PMCHW MLFMA
     # B3:  VS-EFIE Direct
     # B4:  VS-CFIE Direct
-    # B5:  PMCHW MLFMA 大网格
+    # B5:  VS-CFIE MLFMA
     b_cases = [
         ("B1_PMCHW_sphere_eps4",  "B1 PMCHW Direct (εᵣ=4)"),
         ("B2_PMCHW_MLFMA",        "B2 PMCHW MLFMA"),
         ("B3_VEFIE_TriTetra_direct",  "B3 VS-EFIE Direct"),
         ("B4_VCFIE_TriTetra_direct",  "B4 VS-CFIE Direct"),
-        ("B5_PMCHW_MLFMA_large",  "B5 PMCHW MLFMA (大网格)"),
+        ("B5_VCFIE_TriTetra_MLFMA",   "B5 VS-CFIE MLFMA"),
     ]
     println("\n── B1-B5 介质天线基准 ──────────────────────────────")
     for (fname, desc) in b_cases

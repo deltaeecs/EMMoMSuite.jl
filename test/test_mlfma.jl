@@ -14,6 +14,12 @@ struct MockOperator <: AbstractIntegralOperator
     k::Float64
 end
 
+struct LUPreconditioner
+    F
+end
+LinearAlgebra.ldiv!(y, P::LUPreconditioner, x) = (y .= P.F \ x)
+LinearAlgebra.ldiv!(P::LUPreconditioner, x) = (x .= P.F \ x)
+
 @testset "MLFMA System" begin
     # 1. Setup Geometry and Basis
     # Create a larger mesh (2x2 grid of squares, 8 triangles) to ensure enough basis functions
@@ -204,4 +210,33 @@ end
     # On P=1, results must be bitwise identical
     @test maximum(abs.(y_mpi .- y_serial)) == 0.0
     @test norm(y_mpi) ≈ norm(y_serial)
+end
+
+@testset "MLFMAOperator preserves physical basis ordering" begin
+    radius = 0.5
+    freq = 300e6
+    mesh = generate_sphere_mesh(radius, 6, 12)
+    basis = RWGBasis(mesh)
+    efie = EFIE(freq)
+
+    set_frequency!(freq)
+    Z_direct = assemble_impedance_matrix(efie, basis)
+    source = PlaneWave(freq, π / 2, π, [0.0, 0.0, 1.0])
+    V = excitation_vector(efie, source, basis)
+    I_direct = Z_direct \ V
+
+    op = MLFMAOperator(efie, basis, 0.3)
+    precond = LUPreconditioner(lu(op.Z_near))
+
+    solver_phys = GMRESSolver(restart = 20, maxiter = 80, tol = 1e-3, verbose = false)
+    I_phys = solve!(solver_phys, op, V; Pl = precond)
+
+    solver_sorted = GMRESSolver(restart = 20, maxiter = 80, tol = 1e-3, verbose = false)
+    I_sorted_rhs = solve!(solver_sorted, op, V[op.sorted_ids]; Pl = precond)
+
+    err_phys = norm(I_phys - I_direct) / norm(I_direct)
+    err_sorted_rhs = norm(I_sorted_rhs - I_direct) / norm(I_direct)
+
+    @test err_phys < 1e-8
+    @test err_sorted_rhs > 1e-1
 end

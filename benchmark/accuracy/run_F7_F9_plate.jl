@@ -63,8 +63,9 @@ freq = 1.2e9
 set_frequency!(freq)
 
 εr = ComplexF64(2.0 * (1 - 0.0002im))
-# 入射: 仰角 45°，从 +z 前广角入射（与 Legacy 对齐）
-source = PlaneWave(freq, π/4, π, [0.0, 0.0, 1.0])
+# Legacy PlaneWave(θ=π/4, ϕ=0, α=0) maps to propagation along
+# (-sinθ, 0, -cosθ) with polarization -θhat = (-cosθ, 0, sinθ).
+source = PlaneWave(freq, 3π / 4, π, [-1.0, 0.0, 1.0])
 
 all_results = AccuracyResult[]
 
@@ -83,7 +84,7 @@ if "F7" in enabled
     perms = fill(εr, n_tet)
     vefie = VEFIE(freq, perms)
 
-    V = excitation_vector(source, swg_basis)
+    V = excitation_vector(vefie, source, swg_basis, perms)
 
     t1 = @elapsed Z = assemble_impedance_matrix(vefie, swg_basis)
     @printf("  VEFIE 组装: %.1fs  (%d×%d)\n", t1, size(Z)...)
