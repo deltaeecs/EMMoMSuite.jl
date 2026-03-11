@@ -56,6 +56,29 @@
 - 已全部改为单行等号写法，避免 Documenter / Markdown 数学渲染器把公式切断。
 - 当前结论：本轮新增或近期重写的理论公式中，已确认的“独立等号”渲染风险已清除；文档构建剩余告警当前集中在 `electromagnetics.md`，并且 `fast_algorithms.md` 中仍存在未转义美元符号，`integral_equations.md` 的旧告警仍需在后续轮次复查。
 
+## 2026-03-11 Update：公式渲染检视 Round 2
+
+- 已将理论文档中残余的通用 Markdown 数学定界符统一迁移为 Documenter / Julia Markdown 兼容语法：
+  - 行内数学：`$...$` -> ``...``
+  - 展示数学：`$$...$$` -> `math` 代码块
+- 本轮覆盖文件：
+  - `docs/src/theory/basis_functions.md`
+  - `docs/src/theory/electromagnetics.md`
+  - `docs/src/theory/excitations.md`
+  - `docs/src/theory/fast_algorithms.md`
+  - `docs/src/theory/integral_equations.md`
+  - `docs/src/theory/method_of_moments.md`
+  - `docs/src/theory/post_processing.md`
+  - `docs/src/theory/solvers.md`
+- 额外修正：
+  - 消除 `method_of_moments.md` 与 `fast_algorithms.md` 的独立等号渲染风险
+  - 修正 `integral_equations.md` 中 CFIE 公式的 `\text` 拼写损坏
+  - 修正 `basis_functions.md` 中 `\tilde` 拼写损坏
+- 验证结果：
+  - `julia --project=docs docs/make.jl` 已通过
+  - theory 目录不再出现 Documenter 的 “Unexpected Julia interpolation in the Markdown” 告警
+- 当前结论：理论文档公式渲染问题已完成本轮收口；文档构建剩余提示仅是 Documenter 无法自动推断 `edit_link` 分支的环境告警，与公式渲染无关。
+
 ## 2026-03-11 Update：README 刷新
 
 - 已将 `README.md` 从“历史阶段总结页”调整为“当前可执行使用说明页”

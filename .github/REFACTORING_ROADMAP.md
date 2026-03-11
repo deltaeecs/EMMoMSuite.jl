@@ -104,7 +104,9 @@
 - [x] 针对理论文档追加“公式内等号不得单独成行”的渲染约束检查
 - [x] 修正 `fast_algorithms.md` 中 upward / downward pass 三条公式的独立等号写法
 - [x] 修正 `method_of_moments.md` 中面-体耦合块矩阵公式的独立等号写法
-- [ ] 继续清理 `electromagnetics.md` / `fast_algorithms.md` / `integral_equations.md` 中残余的 Documenter 公式告警
+- [x] 将 `docs/src/theory/*.md` 中残余的 `$...$` / `$$...$$` 数学定界符统一迁移为 Documenter 兼容语法
+- [x] 完成 `docs/src/theory/` 全目录重建验证，确认理论文档不再触发 Documenter 数学渲染告警
+- [ ] 如需消除文档构建的剩余环境告警，后续单独处理 Documenter `edit_link` 的分支推断配置
 
 ## 模块结构总览
 
