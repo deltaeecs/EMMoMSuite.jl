@@ -28,11 +28,28 @@ using .SCFIEModule
 include("PMCHW.jl")
 using .PMCHWModule
 
+include("PMCHWBlockOperators.jl")
+using .PMCHWBlockOperatorsModule
+
+include("NMuller.jl")
+using .NMullerModule
+
 include("Excitation.jl")
 using .Excitation
 
-export EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, assemble_impedance_matrix
+export EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, NMuller, assemble_impedance_matrix
 export green_function_free_space
 export assemble_K_offdiag, efie_from_keta, excitation_vector
+export AbstractPMCHWBackend,
+	DensePMCHWBackend,
+	MatrixFreePMCHWBackend,
+	PMCHWBlockOperator,
+	pmchw_blocks,
+	pmchw_surface_gram_matrix,
+	pmchw_block_pairing_matrix,
+	strong_form_rhs,
+	recover_trial_coefficients,
+	weak_form,
+	strong_form
 
 end

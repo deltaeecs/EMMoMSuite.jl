@@ -92,9 +92,9 @@ function truncationLCal(cubel::FT; λ = 1.0) where {FT<:Real}
     return L
 end
 
-function levelIntegralInfoCal(levelCubeEdgel::FT; λ = 1.0) where {FT<:Real}
+function levelIntegralInfoCal(levelCubeEdgel::FT; λ = 1.0, L_min::Int = 0) where {FT<:Real}
     ## Calculate truncation number
-    L = truncationLCal(levelCubeEdgel; λ = λ)
+    L = max(truncationLCal(levelCubeEdgel; λ = λ), L_min)
 
     ## Integration points and weights
     # Theta direction (Gauss-Legendre)

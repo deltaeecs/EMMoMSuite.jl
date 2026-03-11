@@ -9,12 +9,14 @@ include("RWG.jl")
 include("SWG.jl")
 include("PWC.jl")
 include("RBF.jl")
+include("AntennaFeeds.jl")
 include("BasisUtilities.jl")
 
 export RWGBasis, RWG
 export SWGBasis, SWG, evaluate_swg
 export PWCBasis, PWCHexBasis, PWC
 export RBFBasis, RBF
+export select_gap_feed_edges
 export get_triangle_info, get_triangles_info, get_tetrahedra_info, get_hexahedra_info
 
 # Re-export utilities

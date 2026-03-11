@@ -13,6 +13,7 @@ using EMSuite.Solvers:
     ILUPreconditioner,
     SPAIPreconditioner,
     BlockJacobiPreconditioner
+using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 @testset "Preconditioners" begin
     # 构造简单测试矩阵：5×5 对角占优复数稀疏矩阵
@@ -91,5 +92,36 @@ using EMSuite.Solvers:
         ldiv!(P, copy(b_real))
         x_bs = P \ b_real
         @test all(isfinite, x_bs)
+    end
+
+    @testset "BlockJacobiPreconditioner arbitrary index blocks" begin
+        A_real_sp = sparse(Diagonal(fill(20.0, n)) + 0.3 * sprand(n, n, 0.3))
+        block_indices = [[1, 3], [2, 4], [5, 7], [6, 8]]
+        P = BlockJacobiPreconditioner(A_real_sp, block_indices)
+        b_real = rand(n)
+        y_real = similar(b_real)
+        ldiv!(y_real, P, b_real)
+        @test all(isfinite, y_real)
+        x_bs = P \ b_real
+        @test all(isfinite, x_bs)
+    end
+
+    @testset "BlockJacobiPreconditioner PMCHW MLFMA constructor" begin
+        mesh = generate_sphere_mesh(0.5, 3, 6)
+        basis = RWGBasis(mesh)
+        pmchw = PMCHW(300e6, 4.0)
+        op = PMCHWMLFMAOperator(pmchw, basis, 0.10)
+
+        P = BlockJacobiPreconditioner(op)
+        P_compat = BlockJacobiPreconditioner(op, basis)
+        x = randn(ComplexF64, 2 * num_basis(basis))
+        y = similar(x)
+        ldiv!(y, P, x)
+        y_compat = P_compat \ x
+
+        @test length(y) == length(x)
+        @test y_compat ≈ (P \ x)
+        @test all(isfinite, real.(y))
+        @test all(isfinite, imag.(y))
     end
 end

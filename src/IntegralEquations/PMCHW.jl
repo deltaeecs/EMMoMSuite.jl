@@ -99,30 +99,31 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 
 """
-    _l_block_operator(k_real, eta_real, k_c, eta_c, mode) → EFIE
+    _l_block_operator(k, eta, k_c, eta_c, mode) → EFIE
 
 构造局部 L 算子（EFIE-like），供 PMCHW 内部使用。
 
-- `k_real`:   用于 Green 函数的实数波数（lossless 积分核参数）
-- `eta_real`: 仅用于 EFIE 记录字段
+- `k`:        用于 Green 函数的波数（可为复数）
+- `eta`:      仅用于 EFIE 记录字段（可为复数）
 - `k_c`:      完整复数波数（用于计算 factor）
 - `eta_c`:    完整复数波阻抗
 - `mode`:     :EJ（factor = jk η / 16π）或 :HM（factor = jk / (η·16π)）
 """
 function _l_block_operator(
-    k_real::FT,
-    eta_real::FT,
+    k,
+    eta,
     k_c::CT,
     eta_c::CT,
     mode::Symbol,
-) where {FT,CT<:Complex}
+) where {CT<:Complex}
+    FT = typeof(float(real(k_c)))
     π16 = FT(16π)
     factor = if mode === :EJ
         CT(im * k_c * eta_c / π16)   # jk η / (16π) → Z^EJ 因子 = jωμ 相关
     else
         CT(im * k_c / (eta_c * π16)) # jk / (η·16π) → Z^HM 因子 = jωε 相关
     end
-    return efie_from_keta(k_real, eta_real, factor)
+    return efie_from_keta(k, eta, factor)
 end
 
 """
@@ -169,23 +170,23 @@ function calc_k_pmchw_term!(
     r_test,  # SVector{N_pts, SVector{3,FT}} — 测试点集
     r_src,   # SVector{N_pts, SVector{3,FT}} — 源点集
 )
-    gq    = mfie.gq_info
+    gq    = mfie.gq_far
     w     = gq.weight
     n_pts = length(w)
 
+    RT           = typeof(tri_test.area)
     JK_0         = im * mfie.k
-    FT           = typeof(mfie.k)
-    eta_div_16pi = mfie.eta / (16 * FT(π))
+    eta_div_16pi = mfie.eta / (16 * RT(π))
 
-    v_test = SVector{3, SVector{3,FT}}(
-        SVector{3,FT}(tri_test.vertices[:, 1]),
-        SVector{3,FT}(tri_test.vertices[:, 2]),
-        SVector{3,FT}(tri_test.vertices[:, 3]),
+    v_test = SVector{3, SVector{3,RT}}(
+        SVector{3,RT}(tri_test.vertices[:, 1]),
+        SVector{3,RT}(tri_test.vertices[:, 2]),
+        SVector{3,RT}(tri_test.vertices[:, 3]),
     )
-    v_src = SVector{3, SVector{3,FT}}(
-        SVector{3,FT}(tri_src.vertices[:, 1]),
-        SVector{3,FT}(tri_src.vertices[:, 2]),
-        SVector{3,FT}(tri_src.vertices[:, 3]),
+    v_src = SVector{3, SVector{3,RT}}(
+        SVector{3,RT}(tri_src.vertices[:, 1]),
+        SVector{3,RT}(tri_src.vertices[:, 2]),
+        SVector{3,RT}(tri_src.vertices[:, 3]),
     )
 
     @inbounds for j = 1:n_pts
@@ -201,8 +202,8 @@ function calc_k_pmchw_term!(
 
             rvec = rgi - rgj
             R    = norm(rvec)
-            R < FT(1e-12) && continue
-            divr = one(FT) / R
+            R < RT(1e-12) && continue
+            divr = one(RT) / R
 
             # Green 函数及梯度因子：∇G = -temp × rvec
             G_over_R = exp(-JK_0 * R) * divr
@@ -252,16 +253,17 @@ PMCHW K 使用 f_m 直接测试，无 n̂_test × 旋转。
 function _assemble_K_pmchw_offdiag!(
     Z::AbstractMatrix{CT},
     basis::RWGBasis{IT,FT},
-    k::FT;
+    k::Number;
     accumulate::Bool = false,
 ) where {IT,FT,CT<:Complex}
-    gq    = GaussQuadratureInfo(:Triangle, 4, FT)
+    gq_far = GaussQuadratureInfo(:Triangle, 4, FT)
+    gq_near = GaussQuadratureInfo(:Triangle, 7, FT)
     # eta=1 → eta_div_16pi = 1/(16π)，与 assemble_K_offdiag 一致
-    mfie_k = MFIE{FT,CT}(zero(FT), k, one(FT), gq)
+    mfie_k = (k = k, eta = one(k), gq_far = gq_far, gq_near = gq_near)
 
     mesh     = basis.mesh
     nt       = num_elements(mesh)
-    N_points = length(gq.weight)
+    N_points = length(gq_far.weight)
 
     # 预计算每个三角形的高斯点（与 assemble_K_offdiag 相同）
     quad_points = Vector{SVector{N_points,SVector{3,FT}}}(undef, nt)
@@ -271,7 +273,7 @@ function _assemble_K_pmchw_offdiag!(
         v2 = SVector{3,FT}(mesh.node[:, v_idx[2]])
         v3 = SVector{3,FT}(mesh.node[:, v_idx[3]])
         quad_points[t] = SVector{N_points,SVector{3,FT}}(
-            v1 * gq.coordinate[1, i] + v2 * gq.coordinate[2, i] + v3 * gq.coordinate[3, i]
+            v1 * gq_far.coordinate[1, i] + v2 * gq_far.coordinate[2, i] + v3 * gq_far.coordinate[3, i]
             for i in 1:N_points
         )
     end
@@ -291,8 +293,9 @@ function _assemble_K_pmchw_offdiag!(
     return assemble_generic!(Z, mfie_k, basis, wrapper; symmetric = false, accumulate)
 end
 
-function assemble_K_pmchw_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
-    CT = Complex{FT}
+function assemble_K_pmchw_offdiag(basis::RWGBasis{IT,FT}, k::Number) where {IT,FT}
+    RT = promote_type(FT, typeof(float(real(k))))
+    CT = Complex{RT}
     Z = zeros(CT, num_basis(basis), num_basis(basis))
     return _assemble_K_pmchw_offdiag!(Z, basis, k)
 end
@@ -317,9 +320,8 @@ Z = [Z^EJ   Z^EM ]
 - Z^HM [N+1:2N, N+1:2N]: jωε₀ L(k₀) + jωε₁ L(k₁)
 
 # 精度说明
-对于**有损介质**（eps_r 有虚部），Z^EJ 和 Z^HM 中的 Green 函数使用 Re(k₁)
-作为近似（忽略指数衰减项），因子仍使用完整复数 k₁, η₁。
-无损介质（eps_r 实数）结果精确。
+对于**有损介质**（eps_r 有虚部），内部 L/K 子块使用完整复数 k₁, η₁，
+保留传播与衰减两部分贡献。
 """
 function assemble_impedance_matrix(pmchw::PMCHW{FT,CT}, basis::RWGBasis{IT,FT}) where {IT,FT,CT}
     N = num_basis(basis)
@@ -332,10 +334,10 @@ function assemble_impedance_matrix(pmchw::PMCHW{FT,CT}, basis::RWGBasis{IT,FT}) 
 
     k1_c   = pmchw.k1
     eta1_c = pmchw.eta1
-    k1_r   = FT(_k_real(k1_c))     # 实数近似，用于 Green 函数
-    eta1_r = FT(abs(real(eta1_c))) # 实数近似，用于 EFIE 记录字段
 
-    Z = zeros(CT, 2N, 2N)
+    # Avoid eagerly touching the full 2N×2N storage. Each block assembler
+    # initializes its target view, which keeps peak commit closer to the live block writes.
+    Z = Matrix{CT}(undef, 2N, 2N)
     Z_ej = @view Z[1:N, 1:N]
     Z_hm = @view Z[N+1:2N, N+1:2N]
     Z_em = @view Z[1:N, N+1:2N]
@@ -343,20 +345,20 @@ function assemble_impedance_matrix(pmchw::PMCHW{FT,CT}, basis::RWGBasis{IT,FT}) 
 
     # ── Z^EJ = L(k₀) + L(k₁),  factor = jk η / (16π) ──────────────────────
     efie_ej0 = _l_block_operator(k0, eta0, k0_c, eta0_c, :EJ)
-    efie_ej1 = _l_block_operator(k1_r, eta1_r, k1_c, eta1_c, :EJ)
+    efie_ej1 = _l_block_operator(k1_c, eta1_c, k1_c, eta1_c, :EJ)
     EFIEModule.assemble_impedance_matrix!(Z_ej, efie_ej0, basis)
     EFIEModule.assemble_impedance_matrix!(Z_ej, efie_ej1, basis; accumulate = true)
 
     # ── Z^HM = Lₑ(k₀) + Lₑ(k₁),  factor = jk / (η·16π) ───────────────────
     efie_hm0 = _l_block_operator(k0, eta0, k0_c, eta0_c, :HM)
-    efie_hm1 = _l_block_operator(k1_r, eta1_r, k1_c, eta1_c, :HM)
+    efie_hm1 = _l_block_operator(k1_c, eta1_c, k1_c, eta1_c, :HM)
     EFIEModule.assemble_impedance_matrix!(Z_hm, efie_hm0, basis)
     EFIEModule.assemble_impedance_matrix!(Z_hm, efie_hm1, basis; accumulate = true)
 
     # ── Z^EM = K^PMCHW(k₀) + K^PMCHW(k₁)，Z^HJ = -Z^EM ────────────────────
     # 使用 PMCHW 专用 K 算子（无 n̂× 测试，区别于 MFIE K）
     _assemble_K_pmchw_offdiag!(Z_em, basis, k0)
-    _assemble_K_pmchw_offdiag!(Z_em, basis, k1_r; accumulate = true)  # lossless approx for Green kernel
+    _assemble_K_pmchw_offdiag!(Z_em, basis, k1_c; accumulate = true)
     copyto!(Z_hj, Z_em)
     rmul!(Z_hj, -one(CT))
 

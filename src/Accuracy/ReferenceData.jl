@@ -11,12 +11,15 @@
 module ReferenceData
 
 using LinearAlgebra
+using Statistics: mean
 
 # 使用 EMSuite Utilities 中已有的 Mie 级数
 import ..Accuracy  # 使用父包的 Utilities
+import ...Geometry: read_nas_mesh
 # 直接调用 EMSuite 模块级导出（在运行时可访问）
 
-export mie_pec_rcs_dBsm, mie_dielectric_rcs_dBsm,
+export mie_pec_rcs_dBsm, mie_pec_bistatic_rcs_dBsm,
+       mie_dielectric_rcs_dBsm, mie_dielectric_bistatic_rcs_dBsm,
        dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic,
        dipole_halfwave_farfield_analytic,
        extract_sphere_radius
@@ -32,12 +35,27 @@ export mie_pec_rcs_dBsm, mie_dielectric_rcs_dBsm,
 """
 function extract_sphere_radius(nas_file::AbstractString)
     isfile(nas_file) || throw(ArgumentError("网格文件不存在: $nas_file"))
+
+    # Prefer the project's Nastran reader since it already handles GRID*,
+    # fixed/free field and compressed scientific notation robustly.
+    try
+        mesh = read_nas_mesh(String(nas_file); scale = 1.0)
+        nodes = getfield(mesh, :node)
+        if size(nodes, 1) == 3 && size(nodes, 2) > 0
+            rs = vec(sqrt.(sum(abs2, nodes; dims = 1)))
+            return mean(rs)
+        end
+    catch
+        # Fallback to lightweight text parsing below.
+    end
+
     rs = Float64[]
     open(nas_file, "r") do io
         for line in eachline(io)
-            startswith(strip(line), "GRID") || continue
+            sline = strip(line)
+            startswith(sline, "GRID") || continue
             # Nastran 格式：GRID    id    cp    x     y     z
-            parts = split(line)
+            parts = split(sline)
             length(parts) < 6 && continue
             x = tryparse(Float64, parts[end-2])
             y = tryparse(Float64, parts[end-1])
@@ -79,6 +97,54 @@ function mie_pec_rcs_dBsm(mesh_file::AbstractString, freq_hz::Real, theta_rad_ve
     return mie_pec_rcs_dBsm(r, freq_hz, theta_rad_vec)
 end
 
+"""
+    mie_pec_bistatic_rcs_dBsm(radius_m, freq_hz, theta_obs, phi_obs, theta_inc, phi_inc, polarization)
+        -> rcs_dBsm
+
+将 EMSuite 使用的全局观测角 `(theta_obs, phi_obs)` 映射为相对入射方向的散射角，
+并使用 PEC 球 Mie 全极化解重建总双站 RCS。
+
+# 参数
+- `theta_obs`: 全局观测极角（弧度）
+- `phi_obs`: 全局观测方位角（弧度，标量或与 `theta_obs` 等长向量）
+- `theta_inc`, `phi_inc`: 入射方向的全局球坐标（弧度）
+- `polarization`: 入射电场极化向量（自动投影到垂直于传播方向的平面）
+"""
+function mie_pec_bistatic_rcs_dBsm(
+    radius_m::Real,
+    freq_hz::Real,
+    theta_obs::AbstractVector,
+    phi_obs,
+    theta_inc::Real,
+    phi_inc::Real,
+    polarization::AbstractVector,
+)
+    phi_vec = _expand_phi_obs(phi_obs, length(theta_obs))
+    theta_scat, phi_local = _bistatic_angles(theta_obs, phi_vec, theta_inc, phi_inc, polarization)
+    rcs_s2, rcs_s1 = _call_mie_pec_fullpol(radius_m, freq_hz, theta_scat)
+
+    rcs_total = similar(rcs_s2)
+    @inbounds for i in eachindex(rcs_total)
+        cφ = cos(phi_local[i])
+        sφ = sin(phi_local[i])
+        rcs_total[i] = rcs_s2[i] * cφ^2 + rcs_s1[i] * sφ^2
+    end
+    return 10.0 .* log10.(max.(rcs_total, 1e-100))
+end
+
+function mie_pec_bistatic_rcs_dBsm(
+    mesh_file::AbstractString,
+    freq_hz::Real,
+    theta_obs::AbstractVector,
+    phi_obs,
+    theta_inc::Real,
+    phi_inc::Real,
+    polarization::AbstractVector,
+)
+    r = extract_sphere_radius(mesh_file)
+    return mie_pec_bistatic_rcs_dBsm(r, freq_hz, theta_obs, phi_obs, theta_inc, phi_inc, polarization)
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Mie 均匀介质球
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +152,7 @@ end
 """
     mie_dielectric_rcs_dBsm(radius_m, freq_hz, eps_r, mu_r, theta_rad_vec) -> rcs_dBsm
 
-计算均匀介质球 Mie 级数 RCS，返回 dBsm。
+计算均匀介质球 Mie 级数的非偏振总 RCS，返回 dBsm。
 
 # 参数
 - `eps_r`: 相对介电常数（实数=无损，复数=有损）
@@ -100,23 +166,113 @@ function mie_dielectric_rcs_dBsm(
     mu_r::Number,
     theta_rad_vec::AbstractVector,
 )
-    rcs_sqm = _call_mie_dielectric(radius_m, freq_hz, theta_rad_vec, eps_r, mu_r)
-    return 10.0 .* log10.(max.(rcs_sqm, 1e-100))
+    _, _, rcs_unpol = _call_mie_dielectric_fullpol(radius_m, freq_hz, theta_rad_vec, eps_r, mu_r)
+    return 10.0 .* log10.(max.(rcs_unpol, 1e-100))
+end
+
+"""
+    mie_dielectric_bistatic_rcs_dBsm(radius_m, freq_hz, eps_r, mu_r, theta_obs, phi_obs, theta_inc, phi_inc, polarization)
+        -> rcs_dBsm
+
+将 EMSuite 使用的全局观测角 `(theta_obs, phi_obs)` 映射为相对入射方向的散射角，
+并使用均匀介质球 Mie 全极化解重建总双站 RCS。
+"""
+function mie_dielectric_bistatic_rcs_dBsm(
+    radius_m::Real,
+    freq_hz::Real,
+    eps_r::Number,
+    mu_r::Number,
+    theta_obs::AbstractVector,
+    phi_obs,
+    theta_inc::Real,
+    phi_inc::Real,
+    polarization::AbstractVector,
+)
+    phi_vec = _expand_phi_obs(phi_obs, length(theta_obs))
+    theta_scat, phi_local = _bistatic_angles(theta_obs, phi_vec, theta_inc, phi_inc, polarization)
+    rcs_s2, rcs_s1, _ = _call_mie_dielectric_fullpol(radius_m, freq_hz, theta_scat, eps_r, mu_r)
+
+    rcs_total = similar(rcs_s2)
+    @inbounds for i in eachindex(rcs_total)
+        cφ = cos(phi_local[i])
+        sφ = sin(phi_local[i])
+        rcs_total[i] = rcs_s2[i] * cφ^2 + rcs_s1[i] * sφ^2
+    end
+    return 10.0 .* log10.(max.(rcs_total, 1e-100))
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 内部辅助：延迟调用 EMSuite 顶层 Mie 函数
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 运行时通过 Main.EMSuite 调用，避免循环引用
+# 运行时通过顶层 EMSuite 模块调用，避免循环引用
 function _call_mie_pec(radius, freq, theta_vec)
-    f = getfield(Main.EMSuite, :calculate_mie_rcs_pec_sphere)
+    f = getfield(_emsuite_module(), :calculate_mie_rcs_pec_sphere)
     return f(radius, freq, theta_vec)
 end
 
 function _call_mie_dielectric(radius, freq, theta_vec, eps_r, mu_r)
-    f = getfield(Main.EMSuite, :calculate_mie_rcs_dielectric_sphere)
+    f = getfield(_emsuite_module(), :calculate_mie_rcs_dielectric_sphere)
     return f(radius, freq, theta_vec, eps_r, mu_r)
+end
+
+function _call_mie_dielectric_fullpol(radius, freq, theta_vec, eps_r, mu_r)
+    return _call_mie_dielectric(radius, freq, theta_vec, eps_r, mu_r)
+end
+
+function _call_mie_pec_fullpol(radius, freq, theta_vec)
+    f = getfield(_emsuite_module(), :calculate_mie_rcs_pec_sphere_fullpol)
+    return f(radius, freq, theta_vec)
+end
+
+function _emsuite_module()
+    return parentmodule(parentmodule(@__MODULE__))
+end
+
+function _expand_phi_obs(phi_obs::Real, n::Integer)
+    return fill(float(phi_obs), n)
+end
+
+function _expand_phi_obs(phi_obs::AbstractVector, n::Integer)
+    length(phi_obs) == n || throw(ArgumentError("phi_obs length must match theta_obs length"))
+    return collect(float.(phi_obs))
+end
+
+function _bistatic_angles(theta_obs, phi_obs, theta_inc, phi_inc, polarization)
+    k_hat = _spherical_unit_vector(theta_inc, phi_inc)
+
+    pol_vec = collect(float.(polarization))
+    pol_transverse = pol_vec .- dot(pol_vec, k_hat) .* k_hat
+    pol_norm = norm(pol_transverse)
+    pol_norm > sqrt(eps(Float64)) ||
+        throw(ArgumentError("polarization must have a non-zero component transverse to the propagation direction"))
+
+    e_parallel = pol_transverse ./ pol_norm
+    e_perp = cross(k_hat, e_parallel)
+
+    theta_scat = Vector{Float64}(undef, length(theta_obs))
+    phi_local = Vector{Float64}(undef, length(theta_obs))
+    @inbounds for i in eachindex(theta_obs)
+        r_hat = _spherical_unit_vector(theta_obs[i], phi_obs[i])
+        cosθ = clamp(dot(r_hat, k_hat), -1.0, 1.0)
+        theta_scat[i] = acos(cosθ)
+
+        transverse = r_hat .- cosθ .* k_hat
+        sinθ = norm(transverse)
+        if sinθ <= 1e-12
+            phi_local[i] = 0.0
+        else
+            transverse ./= sinθ
+            phi_local[i] = atan(dot(transverse, e_perp), dot(transverse, e_parallel))
+        end
+    end
+    return theta_scat, phi_local
+end
+
+function _spherical_unit_vector(theta::Real, phi::Real)
+    sθ, cθ = sincos(theta)
+    sφ, cφ = sincos(phi)
+    return [sθ * cφ, sθ * sφ, cθ]
 end
 
 # ─────────────────────────────────────────────────────────────────────────────

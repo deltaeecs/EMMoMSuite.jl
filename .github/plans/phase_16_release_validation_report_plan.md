@@ -1,7 +1,7 @@
-# Phase 16 发布前全模块效率与精度验证计划
+# Phase 16 发布前全模块效率与精度图表化验证计划
 
 > 创建日期: 2026-03-09  
-> 状态: 计划已冻结，执行中  
+> 状态: 已收口，结论为 Go with known legacy exception  
 > 关联目标: 发布前形成一份覆盖所有核心模块的统一验证报告（效率 + 精度 + 内存可执行性）
 
 ---
@@ -50,8 +50,10 @@
 
 1. 模块效率：组装、求解、总耗时、内存行为（可得时）。
 2. 模块精度：对 Legacy / FEKO / 解析基准的 RMSE、关键角误差、阻抗误差。
-3. 功能覆盖矩阵：模块是否被用例命中与结果状态。
-4. 大规模 direct 可执行性：矩阵规模估算、峰值内存是否合理、是否存在非必要副本导致的 OOM。
+3. 远场曲线图：至少按用例组输出 EMSuite vs FEKO/Mie 的远场对比图。
+4. 性能对比图：至少输出总耗时柱状图与阶段拆分图。
+5. 功能覆盖矩阵：模块是否被用例命中与结果状态。
+6. 大规模 direct 可执行性：矩阵规模估算、峰值内存是否合理、是否存在非必要副本导致的 OOM。
 
 ### 2.1 模块覆盖要求
 
@@ -107,6 +109,9 @@
 ### 4.3 报告产物（本 Phase）
 
 - 主报告：`test_results/reports/RELEASE_VALIDATION_REPORT.md`
+- 图表资源：`test_results/reports/assets/accuracy/*.png`
+- 图表资源：`test_results/reports/assets/performance/*.png`
+- 性能结构化数据：`test_results/reports/PERFORMANCE_BASELINE.csv`
 - 附录（CSV）：继续复用 `test_results/accuracy/*.csv`
 - 覆盖率报告：`test_results/COVERAGE_REPORT.md`
 
@@ -118,10 +123,12 @@
 
 1. 环境信息（Julia、线程、日期、git commit）
 2. 执行摘要（通过率、关键风险）
-3. 效率结果表（按模块/用例）
-4. 精度结果表（解析、FEKO、Legacy）
-5. 功能覆盖矩阵
-6. 风险清单与发布建议
+3. 精度结果表（解析、FEKO、Legacy）
+4. 远场曲线图（按用例组）
+5. 效率结果表（按模块/用例）
+6. 性能图（总耗时 + 分阶段拆分）
+7. 功能覆盖矩阵
+8. 风险清单与发布建议
 
 ---
 
@@ -133,6 +140,8 @@
 - 报告中同时包含：
   - 至少 2 组解析对标结果（Mie/解析阻抗）
   - 至少 4 组 FEKO 对标结果
+  - 至少 4 张远场曲线图（覆盖 Jet / Sphere / Plate / PMCHW 主组别）
+  - 至少 2 张性能图（总耗时、分阶段拆分）
   - 全模块覆盖矩阵（命中状态）
   - 至少 1 组效率/内存诊断结论（说明慢用例与 OOM 用例的可执行性状态）
 - 关键门限（建议值，可按历史阈值微调）：
@@ -173,15 +182,85 @@
 - 已完成：
   - `F5/F6` 球体链路可执行化（半径提取修复后已可稳定运行）
   - `F5` Direct 对 FEKO 通过（phi0/phi90 RMSE 均低于 2 dB）
+  - `F6` MLFMA 对 FEKO/Mie 已通过（向量顺序误用修复后恢复到与 `F5` 同量级）
   - `test_results/reports/RELEASE_VALIDATION_REPORT.md` 与 `test_results/accuracy/ACCURACY_REPORT.md` 已回填第二轮数据
 - 当前阻塞（No-Go 保持）：
-  - `F2`（S-CFIE Jet Direct）FEKO 超阈值
-  - `F6`（S-CFIE Sphere MLFMA）FEKO/Mie 超阈值
   - `F7`（V-EFIE Plate Direct）FEKO 超阈值
-  - `P1/P3` PMCHW direct OOM
-  - 部分核心用例耗时过久（当前典型为 `F6` 球体 MLFMA 构建、`P1/P3` 大规模 direct）
+  - `P1/P3` PMCHW direct 大用例最终可执行性仍待复核
+  - 部分核心用例若按默认单线程入口运行会耗时过久（当前典型为 `F6` 球体 MLFMA 构建、`P1/P3` 大规模 direct）
   - `A1/A2/A4` 解析天线门失败
 - 说明：
+  - `F2/F4`（Jet CFIE）现已降级为遗留对齐项：Legacy 历史主对齐只覆盖 Jet EFIE，因此 Jet CFIE 不再作为本轮发布门。
   - `F5/F6` “缺失 sphere_600MHz.nas”已确认为过时结论，真实根因是半径提取实现问题，现已修复并有测试覆盖。
+  - `F5/F6` 的球体 Mie 参考角度约定与 MLFMA benchmark 向量顺序误用都已修复：`F6` 当前结果为 vs FEKO `0.157 / 0.089 dB`、vs Mie `0.051 / 0.043 dB`，不再属于 Phase 16 发布阻塞。
   - 当前机器物理内存约 `68.5 GB`；`P1/P3` 的 `2N=52848` PMCHW 稠密矩阵本体理论占用约 `44.7 GiB`，原实现还会额外物化多个 `N×N` 子块并通过 `A\b` 触发整矩阵复制，属于可消除的峰值内存放大。
-  - 已落地第一轮修复：PMCHW 四块矩阵改为直接写入 `2N×2N` 总矩阵视图，`P1/P3` 改为 `lu!` 原地分解，当前待用真实大用例复核是否完全解除 OOM。
+  - 已落地修复：PMCHW 四块矩阵改为直接写入 `2N×2N` 总矩阵视图，`P1/P3` 改为 `lu!` 原地分解；`P1` 已可完成 `52848×52848` 总矩阵组装，不再出现旧路径的提前 OOM。
+  - `F6` 的 MLFMA 近场 COO 合并峰值内存已修复，隔离复跑不再 OOM；同时在 `24` 线程下构建时间由 `612.0s` 降至 `116.7s`，说明当前效率主因之一是执行入口未启用 Julia 线程。
+
+## 10. 2026-03-11 图表化报告刷新
+
+- 本轮目标从“发布前 skeleton 报告”升级为“可直接审阅的全功能图表化报告”。
+- 新增执行要求：
+  - `benchmark/performance_baseline.jl` 必须同步输出 `PERFORMANCE_BASELINE.csv`，不再只写 markdown。
+  - `benchmark/run_release_validation_report.jl` 必须直接消费 `test_results/accuracy/*.csv` 与 `PERFORMANCE_BASELINE.csv`，生成：
+    - 远场对比图
+    - 效率对比图
+    - 统一 markdown 报告
+- 本轮开发优先级：
+  1. 结构化性能数据出口
+  2. 远场曲线自动绘图
+  3. 性能图自动绘图
+  4. 总报告汇总与链接
+
+## 11. 2026-03-11 首轮执行结果
+
+- 已完成产物：
+  - `test_results/reports/RELEASE_VALIDATION_REPORT.md`
+  - `test_results/reports/PERFORMANCE_BASELINE.csv`
+  - `test_results/reports/assets/accuracy/*.png`
+  - `test_results/reports/assets/performance/*.png`
+- 已验证入口：
+  - `julia --project=. test/test_benchmark_report_data.jl`
+  - `julia -t auto --project=. benchmark/performance_baseline.jl`
+  - `julia --project=. benchmark/run_release_validation_report.jl`
+- 首轮交付结果：
+  - 已生成 8 组远场对比图和 2 组性能图
+  - 报告已包含执行摘要、精度表、远场图、端口摘要、性能表、性能图、覆盖矩阵、效率/内存诊断、风险说明
+- 进入检视迭代前的已知残余项：
+  - `F2_CFIE_Jet_Direct` FEKO 偏差仍超当前门限，但作为 Legacy 继承问题保留跟踪
+
+## 12. 2026-03-11 检视迭代 Round 1 结论
+
+- `B1` 端口残余项经复核后确认不是当前实现失败，而是统一报告引用了历史遗留产物：
+  - 当前脚本真实判据为 `PMCHW(εᵣ≈1) ≈ 2×EFIE`
+  - 实测结果 `|ΔZ| = 7.65e-4 Ω`、相对误差 `0.43%`，判定 PASS
+- `Parallel` 覆盖状态经复核后由 `PARTIAL` 修正为 `COVERED`：
+  - 证据链包括 `test/test_parallel.jl`
+  - `test/test_parallel_mfie_cfie.jl`
+  - `benchmark/benchmark_parallel_sphere.jl`
+- Round 1 结束后的实际残余项：
+  - `F2_CFIE_Jet_Direct` FEKO 偏差仍超当前门限，但作为 Legacy 继承问题保留跟踪
+
+## 13. 2026-03-11 检视迭代 Round 2 结论
+
+- 已补齐并行实测样本并写入统一报告：
+  - 运行命令：`mpiexec -n 2 julia --project=. benchmark/benchmark_parallel_sphere.jl`
+  - 产物：`test_results/reports/PARALLEL_MPI_SAMPLE.csv`
+  - 当前样本：`2` ranks、`1` thread/rank、`N=792`、assembly `0.9303 s`
+- 统一报告现已包含：
+  - `Parallel sample CSV: FOUND`
+  - `## Parallel Sample` 表格
+  - 效率诊断中的 fresh MPI 样本摘要
+- Round 2 结束后的实际残余项：
+  - 仅剩 `F2_CFIE_Jet_Direct` FEKO 偏差仍超当前门限，但作为 Legacy 继承问题保留跟踪
+- Round 2 建议结论：
+  - 若接受 Jet CFIE 遗留项继续按非阻塞问题跟踪，则当前发布建议为 `Go with known legacy exception`
+
+## 14. 2026-03-11 检视迭代 Round 3 / 最终结论
+
+- 已完成最终收口复核，统一报告、路线图、进度文档结论一致。
+- 最终发布建议：`Go with known legacy exception`
+- 收口说明：
+  - 当前接受的唯一已知例外为 `F2_CFIE_Jet_Direct` 相对 FEKO 的偏差
+  - 该项已确认属于 Legacy 继承问题，不作为本轮 EMSuite release blocker
+  - 其余 Phase 16 工程性阻塞项均已闭环

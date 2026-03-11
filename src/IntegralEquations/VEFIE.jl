@@ -11,6 +11,11 @@ using Base.Threads
 
 include("FastExp.jl")
 using .FastExpModule
+using ..EFIEModule.Singularities: singularF1,
+    faceSingularityIg,
+    compute_SSCg,
+    greenfunc_star,
+    volumeSingularityIgIvecg
 
 import ..CoreModule: assemble_impedance_matrix
 
@@ -42,6 +47,12 @@ struct VEFIE{FT<:AbstractFloat,CT<:Complex,N_GQ,N_GQ_FAR} <: AbstractIntegralOpe
     exp_table::FastExpTable{FT}  # Fast exponential lookup table
 end
 
+@inline function _vefie_regular_threshold(vefie::VEFIE, tet::TetrahedraInfo)
+    eps_r = one(tet.κ) / (one(tet.κ) - tet.κ)
+    lambda0 = 2π / vefie.k
+    return 0.15 * lambda0 / sqrt(abs(eps_r))
+end
+
 struct TetBasisCache{CT,NQ,NQ_FAR}
     r_q::SMatrix{3,NQ,Float64}
     f_vals::SMatrix{4,NQ,SVector{3,CT}}
@@ -49,6 +60,56 @@ struct TetBasisCache{CT,NQ,NQ_FAR}
 
     r_q_far::SMatrix{3,NQ_FAR,Float64}
     f_vals_far::SMatrix{4,NQ_FAR,SVector{3,CT}}
+    face_r_q_far::NTuple{4,SMatrix{3,4,Float64,12}}
+end
+
+const TRI_GQ_FAR_F64 = GaussQuadratureInfo(:Triangle, 4, Float64)
+const TRI_GQ_SAME_FACE_F64 = GaussQuadratureInfo(:Triangle, 7, Float64)
+const MATRIX_LOCK_STRIPES = 256
+
+@inline function _matrix_lock_index(basis_id::Int)
+    return mod1(basis_id, MATRIX_LOCK_STRIPES)
+end
+
+@inline function _collect_lock_stripes!(stripes::MVector{8,Int}, ids::NTuple{8,Int})
+    count = 0
+    @inbounds for basis_id in ids
+        basis_id == 0 && continue
+        stripe = _matrix_lock_index(basis_id)
+        inserted = false
+        for pos = 1:count
+            existing = stripes[pos]
+            if stripe == existing
+                inserted = true
+                break
+            elseif stripe < existing
+                for shift = count:-1:pos
+                    stripes[shift + 1] = stripes[shift]
+                end
+                stripes[pos] = stripe
+                count += 1
+                inserted = true
+                break
+            end
+        end
+        if !inserted
+            count += 1
+            stripes[count] = stripe
+        end
+    end
+    return count
+end
+
+@inline function _lock_matrix_stripes!(locks, stripes::MVector{8,Int}, count::Int)
+    @inbounds for idx = 1:count
+        lock(locks[stripes[idx]])
+    end
+end
+
+@inline function _unlock_matrix_stripes!(locks, stripes::MVector{8,Int}, count::Int)
+    @inbounds for idx = count:-1:1
+        unlock(locks[stripes[idx]])
+    end
 end
 
 function VEFIE(freq::FT, permittivities::Vector{Complex{FT}}) where {FT}
@@ -60,13 +121,13 @@ function VEFIE(freq::FT, permittivities::Vector{Complex{FT}}) where {FT}
 
     # Use 5-point rule for near field
     gq_info = GaussQuadratureInfo(:Tetrahedron, 5, FT)
-    # Use 1-point rule for far field
-    gq_far = GaussQuadratureInfo(:Tetrahedron, 1, FT)
+    # Legacy far tetra interactions use the same 5-point regular rule.
+    gq_far = GaussQuadratureInfo(:Tetrahedron, 5, FT)
     
     # Create fast exponential lookup table (20λ range, 10000 entries ≈ 80KB)
     exp_table = FastExpTable(k)
 
-    return VEFIE{FT,Complex{FT},5,1}(freq, k, eta, gq_info, gq_far, permittivities, exp_table)
+    return VEFIE{FT,Complex{FT},5,5}(freq, k, eta, gq_info, gq_far, permittivities, exp_table)
 end
 
 """
@@ -99,15 +160,7 @@ function assemble_impedance_matrix(
     ntet = length(tetras)
     basis_cache = precompute_vefie_basis(vefie, tetras)
 
-    # Symmetry exploitation (FastExp-optimized version):
-    #   Outer loop on test tet `it`, inner loop on source `js` from it to ntet.
-    #   For js > it: compute Z_ts once, derive Z_st[j,i] = (κ_t/κ_s) * Z_ts[i,j]
-    #   (exact for homogeneous; correct scaling for inhomogeneous media).
-    #   Write BOTH Z[m,n] and Z[n,m] in one pass → ~2× speedup.
-    #
-    # Locking strategy: Fine-grained SpinLock (tested optimal for FastExp regime).
-    #   Alternative thread-local buffers cause 63% slowdown due to 16 GB memory overhead.
-    lockZ = SpinLock()
+    matrix_locks = [SpinLock() for _ = 1:MATRIX_LOCK_STRIPES]
     next_it = Threads.Atomic{Int}(1)
     n_threads = Threads.nthreads()
 
@@ -118,21 +171,25 @@ function assemble_impedance_matrix(
 
             tet_t = tetras[it]
             cache_t = basis_cache[it]
+            stripes = MVector{8,Int}(ntuple(_ -> 0, 8))
 
             # ── Self term (it == it) ────────────────────────────────────────────
-            Z_self = vefie_element_interaction_kernel(vefie, tet_t, tet_t, cache_t, cache_t)
-            M = vefie_mass_matrix_cached(vefie, tet_t, cache_t)
-            lock(lockZ)
+            Z_self = _ordered_swg_self_kernel(vefie, tet_t)
+            self_count = _collect_lock_stripes!(
+                stripes,
+                (tet_t.inBfsID[1], tet_t.inBfsID[2], tet_t.inBfsID[3], tet_t.inBfsID[4], 0, 0, 0, 0),
+            )
+            _lock_matrix_stripes!(matrix_locks, stripes, self_count)
             @inbounds for i = 1:4
                 m = tet_t.inBfsID[i]
                 m == 0 && continue
                 @inbounds for j = 1:4
                     n = tet_t.inBfsID[j]
                     n == 0 && continue
-                    Z[m, n] += Z_self[i, j] + M[i, j]
+                    Z[m, n] += Z_self[i, j]
                 end
             end
-            unlock(lockZ)
+            _unlock_matrix_stripes!(matrix_locks, stripes, self_count)
 
             # ── Upper tet triangle: js > it ─────────────────────────────────────
             # Z_st[j,i] = (κ_t / κ_s) * Z_ts[i,j]  (from κ-weighted Green's function)
@@ -141,9 +198,16 @@ function assemble_impedance_matrix(
                 tet_s = tetras[js]
                 cache_s = basis_cache[js]
                 Z_ts = vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s)
-                kappa_ratio = kappa_t / tet_s.κ   # scalar (CT), precomputed outside lock
+                kappa_ratio = kappa_t / tet_s.κ
 
-                lock(lockZ)
+                pair_count = _collect_lock_stripes!(
+                    stripes,
+                    (
+                        tet_t.inBfsID[1], tet_t.inBfsID[2], tet_t.inBfsID[3], tet_t.inBfsID[4],
+                        tet_s.inBfsID[1], tet_s.inBfsID[2], tet_s.inBfsID[3], tet_s.inBfsID[4],
+                    ),
+                )
+                _lock_matrix_stripes!(matrix_locks, stripes, pair_count)
                 @inbounds for i = 1:4
                     m = tet_t.inBfsID[i]
                     m == 0 && continue
@@ -151,11 +215,11 @@ function assemble_impedance_matrix(
                         n = tet_s.inBfsID[j]
                         n == 0 && continue
                         zval = Z_ts[i, j]
-                        Z[m, n] += zval                          # Z_ts: test=t, source=s
-                        Z[n, m] += kappa_ratio * zval            # Z_st[j,i] by symmetry
+                        Z[m, n] += zval
+                        Z[n, m] += kappa_ratio * zval
                     end
                 end
-                unlock(lockZ)
+                _unlock_matrix_stripes!(matrix_locks, stripes, pair_count)
             end
         end
     end
@@ -220,6 +284,7 @@ function vefie_element_interaction(
     omega = 2π * vefie.freq
     mu0 = 4π * 1e-7
     eps0 = 8.854187817e-12
+    div4π = one(FT) / (4π)
 
     # Material properties
     κs = tet_s.κ
@@ -443,6 +508,7 @@ function precompute_vefie_basis(
         # Far (1-point)
         r_q_far = tet.vertices * gq_far.coordinate
         f_vals_far = MMatrix{4,Nq_far,SVector{3,CT}}(undef)
+        face_r_q_far = ntuple(face_idx -> SMatrix{3,4,Float64,12}(tet.faces[face_idx].vertices * TRI_GQ_FAR_F64.coordinate), 4)
 
         for m = 1:4
             # Divergence (constant)
@@ -472,6 +538,7 @@ function precompute_vefie_basis(
             SVector(div_f),
             SMatrix(r_q_far),
             SMatrix(f_vals_far),
+            face_r_q_far,
         )
     end
 
@@ -508,6 +575,461 @@ function vefie_mass_matrix_cached(vefie::VEFIE, tet::TetrahedraInfo, cache::TetB
     return SMatrix(M)
 end
 
+@inline _signed_face_area(tet::TetrahedraInfo, face_idx::Int) = tet.facesArea[face_idx] * tet.bfsSign[face_idx]
+
+@inline function _triangle_points(face::Tris4Tetra, gq)
+    return face.vertices * gq.coordinate
+end
+
+function _swg_regular_kernel_from_cache(
+    vefie::VEFIE,
+    tet_t::TetrahedraInfo,
+    tet_s::TetrahedraInfo,
+    cache_t::TetBasisCache,
+    cache_s::TetBasisCache,
+    use_far::Bool,
+)
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+
+    zts = @MMatrix zeros(CT, 4, 4)
+    k = vefie.k
+    omega = 2π * vefie.freq
+    mu0 = 4π * 1e-7
+    eps0 = 8.854187817e-12
+    div4π = one(FT) / (4π)
+    κs = tet_s.κ
+    c1_ts = im * omega * mu0 * κs
+    c2_ts = one(FT) / (im * omega * eps0) * κs
+    vol_factor = tet_t.volume * tet_s.volume
+
+    if use_far
+        gq = vefie.gq_far
+        rq_t = cache_t.r_q_far
+        rq_s = cache_s.r_q_far
+        f_vals_t = cache_t.f_vals_far
+        f_vals_s = cache_s.f_vals_far
+    else
+        gq = vefie.gq_info
+        rq_t = cache_t.r_q
+        rq_s = cache_s.r_q
+        f_vals_t = cache_t.f_vals
+        f_vals_s = cache_s.f_vals
+    end
+
+    div_f_t = cache_t.div_f
+    div_f_s = cache_s.div_f
+
+    for j = 1:length(gq.weight)
+        wj = gq.weight[j]
+        rj = @view rq_s[:, j]
+        for i = 1:length(gq.weight)
+            wi = gq.weight[i]
+            ri = @view rq_t[:, i]
+            R = norm(ri - rj)
+            factor = wi * wj * vol_factor * (div4π * exp(-im * k * R) / R)
+            for m = 1:4
+                f_m = f_vals_t[m, i]
+                d_m = div_f_t[m]
+                for n = 1:4
+                    f_n = f_vals_s[n, j]
+                    d_n = div_f_s[n]
+                    zts[m, n] += (c1_ts * dot(f_m, f_n) + c2_ts * d_m * d_n) * factor
+                end
+            end
+        end
+    end
+
+    return SMatrix(zts)
+end
+
+function _same_face_f6(face::Tris4Tetra, gq_tri_sglr, k, div4π)
+    rq_face = _triangle_points(face, gq_tri_sglr)
+    f6 = zero(Complex{eltype(face.vertices)})
+    for gj = 1:length(gq_tri_sglr.weight)
+        rgj = @view rq_face[:, gj]
+        for gi = 1:length(gq_tri_sglr.weight)
+            rgi = @view rq_face[:, gi]
+            f6 +=
+                div4π * greenfunc_star(norm(rgi - rgj), k) * gq_tri_sglr.weight[gi] * gq_tri_sglr.weight[gj]
+        end
+    end
+    return f6 + div4π * singularF1(face.edgel...)
+end
+
+function _ordered_swg_far_kernel(
+    vefie::VEFIE,
+    tet_t::TetrahedraInfo,
+    tet_s::TetrahedraInfo,
+    cache_t::TetBasisCache,
+    cache_s::TetBasisCache,
+    gq_tri,
+)
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    k = vefie.k
+    omega = 2π * vefie.freq
+    eps0 = FT(8.854187817e-12)
+    div4π = one(FT) / (4π)
+    κs = tet_s.κ
+    gq_tet = vefie.gq_far
+    rgt = cache_t.r_q_far
+    rgs = cache_s.r_q_far
+    zts = @MMatrix zeros(CT, 4, 4)
+
+    gw = MMatrix{length(gq_tet.weight),length(gq_tet.weight),CT}(undef)
+    @inbounds for gj = 1:length(gq_tet.weight)
+        rgj = @view rgs[:, gj]
+        for gi = 1:length(gq_tet.weight)
+            rgi = @view rgt[:, gi]
+            gw[gi, gj] = fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tet.weight[gi] * gq_tet.weight[gj]
+        end
+    end
+    f3 = sum(gw)
+
+    f4s = MVector{4,CT}(zero(CT), zero(CT), zero(CT), zero(CT))
+    @inbounds for ni = 1:4
+        arean = _signed_face_area(tet_s, ni)
+        δκn = tet_s.faces[ni].δκ
+        isbdn = tet_s.faces[ni].isbd
+        if isbdn || ((δκn != 0) && (arean > 0))
+            rq_face = cache_s.face_r_q_far[ni]
+            gtemp = zero(CT)
+            for gj = 1:length(gq_tri.weight)
+                rgj = @view rq_face[:, gj]
+                for gi = 1:length(gq_tet.weight)
+                    rgi = @view rgt[:, gi]
+                    gtemp += fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tet.weight[gi] * gq_tri.weight[gj]
+                end
+            end
+            f4s[ni] = gtemp
+        end
+    end
+
+    f5t = MVector{4,CT}(zero(CT), zero(CT), zero(CT), zero(CT))
+    @inbounds for mi = 1:4
+        aream = _signed_face_area(tet_t, mi)
+        δκm = tet_t.faces[mi].δκ
+        isbdm = tet_t.faces[mi].isbd
+        if isbdm || ((δκm != 0) && (aream > 0))
+            rq_face = cache_t.face_r_q_far[mi]
+            gtemp = zero(CT)
+            for gj = 1:length(gq_tet.weight)
+                rgj = @view rgs[:, gj]
+                for gi = 1:length(gq_tri.weight)
+                    rgi = @view rq_face[:, gi]
+                    gtemp += fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tri.weight[gi] * gq_tet.weight[gj]
+                end
+            end
+            f5t[mi] = gtemp
+        end
+    end
+
+    @inbounds for ni = 1:4
+        arean = _signed_face_area(tet_s, ni)
+        free_vn = @view tet_s.vertices[:, ni]
+        δκn = tet_s.faces[ni].δκ
+        n_global = tet_s.inBfsID[ni]
+        for mi = 1:4
+            aream = _signed_face_area(tet_t, mi)
+            free_vm = @view tet_t.vertices[:, mi]
+            isbdm = tet_t.faces[mi].isbd
+            aman = aream * arean
+            c3 = aman / (im * omega * eps0)
+
+            f2 = zero(CT)
+            for gj = 1:length(gq_tet.weight)
+                rgj = @view rgs[:, gj]
+                ρn = rgj - free_vn
+                for gi = 1:length(gq_tet.weight)
+                    rgi = @view rgt[:, gi]
+                    ρm = rgi - free_vm
+                    f2 += dot(ρm, ρn) * gw[gi, gj]
+                end
+            end
+
+            zmn = κs * c3 * (-(k^2 / 9) * f2 + f3)
+            (δκn != 0) && (arean > 0) && (zmn -= δκn * c3 * f4s[ni])
+            isbdm && (zmn -= κs * c3 * f5t[mi])
+
+            if isbdm && (δκn != 0) && (arean > 0)
+                m_global = tet_t.inBfsID[mi]
+                f6 = zero(CT)
+                if m_global != n_global
+                    rq_face_t = cache_t.face_r_q_far[mi]
+                    rq_face_s = cache_s.face_r_q_far[ni]
+                    for gj = 1:length(gq_tri.weight)
+                        rgj = @view rq_face_t[:, gj]
+                        for gi = 1:length(gq_tri.weight)
+                            rgi = @view rq_face_s[:, gi]
+                            f6 += fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tri.weight[gi] * gq_tri.weight[gj]
+                        end
+                    end
+                else
+                    f6 = _same_face_f6(tet_s.faces[ni], TRI_GQ_SAME_FACE_F64, k, div4π)
+                end
+                zmn += δκn * c3 * f6
+            end
+
+            zts[mi, ni] = zmn
+        end
+    end
+
+    return SMatrix(zts)
+end
+
+function _ordered_swg_far_kernel(vefie::VEFIE, tet_t::TetrahedraInfo, tet_s::TetrahedraInfo, gq_tet, gq_tri)
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    cache_t = TetBasisCache{CT,length(gq_tet.weight),length(gq_tet.weight)}(
+        SMatrix{3,length(gq_tet.weight),Float64}(tet_t.vertices * gq_tet.coordinate),
+        zeros(SMatrix{4,length(gq_tet.weight),SVector{3,CT}}),
+        zeros(SVector{4,CT}),
+        SMatrix{3,length(gq_tet.weight),Float64}(tet_t.vertices * gq_tet.coordinate),
+        zeros(SMatrix{4,length(gq_tet.weight),SVector{3,CT}}),
+        ntuple(face_idx -> SMatrix{3,4,Float64,12}(tet_t.faces[face_idx].vertices * TRI_GQ_FAR_F64.coordinate), 4),
+    )
+    cache_s = TetBasisCache{CT,length(gq_tet.weight),length(gq_tet.weight)}(
+        SMatrix{3,length(gq_tet.weight),Float64}(tet_s.vertices * gq_tet.coordinate),
+        zeros(SMatrix{4,length(gq_tet.weight),SVector{3,CT}}),
+        zeros(SVector{4,CT}),
+        SMatrix{3,length(gq_tet.weight),Float64}(tet_s.vertices * gq_tet.coordinate),
+        zeros(SMatrix{4,length(gq_tet.weight),SVector{3,CT}}),
+        ntuple(face_idx -> SMatrix{3,4,Float64,12}(tet_s.faces[face_idx].vertices * TRI_GQ_FAR_F64.coordinate), 4),
+    )
+    return _ordered_swg_far_kernel(vefie, tet_t, tet_s, cache_t, cache_s, gq_tri)
+end
+
+function _ordered_swg_near_kernel(vefie::VEFIE, tet_t::TetrahedraInfo, tet_s::TetrahedraInfo)
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    k = vefie.k
+    omega = 2π * vefie.freq
+    eps0 = FT(8.854187817e-12)
+    div4π = one(FT) / (4π)
+    κs = tet_s.κ
+    sscg = div4π .* compute_SSCg(k)
+    gq_tet = GaussQuadratureInfo(:Tetrahedron, 11, FT)
+    gq_tri = TRI_GQ_SAME_FACE_F64
+
+    rgt = tet_t.vertices * gq_tet.coordinate
+    zts = @MMatrix zeros(CT, 4, 4)
+
+    ig_div_vs = zeros(CT, length(gq_tet.weight))
+    ivecg_div_vs = Matrix{CT}(undef, 3, length(gq_tet.weight))
+    @inbounds for gi = 1:length(gq_tet.weight)
+        rgi = @view rgt[:, gi]
+        ig_v, ivecg_v = volumeSingularityIgIvecg(rgi, tet_s, sscg)
+        ig_div_vs[gi] = ig_v / tet_s.volume
+        ivecg_div_vs[:, gi] .= ivecg_v / tet_s.volume
+    end
+
+    f3 = sum(gq_tet.weight[gi] * ig_div_vs[gi] for gi = 1:length(gq_tet.weight))
+
+    f4s = zeros(CT, 4)
+    @inbounds for ni = 1:4
+        arean = _signed_face_area(tet_s, ni)
+        δκn = tet_s.faces[ni].δκ
+        isbdn = tet_s.faces[ni].isbd
+        if isbdn || ((δκn != 0) && (arean > 0))
+            ig_s_div_s = zero(CT)
+            for gi = 1:length(gq_tet.weight)
+                rgi = @view rgt[:, gi]
+                ig = faceSingularityIg(
+                    rgi,
+                    tet_s.faces[ni].vertices,
+                    tet_s.faces[ni].edgel,
+                    tet_s.faces[ni].edgev̂,
+                    tet_s.faces[ni].edgen̂,
+                    abs(arean),
+                    view(tet_s.facesn̂, :, ni),
+                    sscg,
+                )
+                ig_s_div_s += gq_tet.weight[gi] * ig
+            end
+            f4s[ni] = ig_s_div_s / abs(arean)
+        end
+    end
+
+    rgs = tet_s.vertices * gq_tet.coordinate
+    f5t = zeros(CT, 4)
+    @inbounds for mi = 1:4
+        aream = _signed_face_area(tet_t, mi)
+        δκm = tet_t.faces[mi].δκ
+        isbdm = tet_t.faces[mi].isbd
+        if isbdm || ((δκm != 0) && (aream > 0))
+            ig_s_div_s = zero(CT)
+            for gj = 1:length(gq_tet.weight)
+                rgj = @view rgs[:, gj]
+                ig = faceSingularityIg(
+                    rgj,
+                    tet_t.faces[mi].vertices,
+                    tet_t.faces[mi].edgel,
+                    tet_t.faces[mi].edgev̂,
+                    tet_t.faces[mi].edgen̂,
+                    abs(aream),
+                    view(tet_t.facesn̂, :, mi),
+                    sscg,
+                )
+                ig_s_div_s += gq_tet.weight[gj] * ig
+            end
+            f5t[mi] = ig_s_div_s / abs(aream)
+        end
+    end
+
+    @inbounds for ni = 1:4
+        arean = _signed_face_area(tet_s, ni)
+        free_vn = @view tet_s.vertices[:, ni]
+        δκn = tet_s.faces[ni].δκ
+        n_global = tet_s.inBfsID[ni]
+        for mi = 1:4
+            aream = _signed_face_area(tet_t, mi)
+            free_vm = @view tet_t.vertices[:, mi]
+            isbdm = tet_t.faces[mi].isbd
+            aman = aream * arean
+            c3 = aman / (im * omega * eps0)
+
+            f2 = zero(CT)
+            for gi = 1:length(gq_tet.weight)
+                rgi = @view rgt[:, gi]
+                ρm = rgi - free_vm
+                ρmn = rgi - free_vn
+                f2 += gq_tet.weight[gi] * (-dot(ρm, @view ivecg_div_vs[:, gi]) + dot(ρm, ρmn) * ig_div_vs[gi])
+            end
+
+            zmn = κs * c3 * (-(k^2 / 9) * f2 + f3)
+            (δκn != 0) && (arean > 0) && (zmn -= δκn * c3 * f4s[ni])
+            isbdm && (zmn -= κs * c3 * f5t[mi])
+
+            if isbdm && (δκn != 0) && (arean > 0)
+                m_global = tet_t.inBfsID[mi]
+                f6 = m_global == n_global ?
+                    _same_face_f6(tet_s.faces[ni], gq_tri, k, div4π) :
+                    begin
+                        rq_face_t = _triangle_points(tet_t.faces[mi], gq_tri)
+                        rq_face_s = _triangle_points(tet_s.faces[ni], gq_tri)
+                        acc = zero(CT)
+                        for gj = 1:length(gq_tri.weight)
+                            rgj = @view rq_face_t[:, gj]
+                            for gi = 1:length(gq_tri.weight)
+                                rgi = @view rq_face_s[:, gi]
+                                acc += fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tri.weight[gi] * gq_tri.weight[gj]
+                            end
+                        end
+                        acc
+                    end
+                zmn += δκn * c3 * f6
+            end
+
+            zts[mi, ni] = zmn
+        end
+    end
+
+    return SMatrix(zts)
+end
+
+function _ordered_swg_self_kernel(vefie::VEFIE, tet::TetrahedraInfo)
+    FT = eltype(vefie.freq)
+    CT = Complex{FT}
+    k = vefie.k
+    omega = 2π * vefie.freq
+    eps0 = FT(8.854187817e-12)
+    div4π = one(FT) / (4π)
+    κ = tet.κ
+    sscg = div4π .* compute_SSCg(k)
+    gq_tet = GaussQuadratureInfo(:Tetrahedron, 11, FT)
+    gq_tri = TRI_GQ_SAME_FACE_F64
+    rgt = tet.vertices * gq_tet.coordinate
+    ztt = @MMatrix zeros(CT, 4, 4)
+
+    ig_div_vs = zeros(CT, length(gq_tet.weight))
+    ivecg_div_vs = Matrix{CT}(undef, 3, length(gq_tet.weight))
+    @inbounds for gi = 1:length(gq_tet.weight)
+        rgi = @view rgt[:, gi]
+        ig_v, ivecg_v = volumeSingularityIgIvecg(rgi, tet, sscg)
+        ig_div_vs[gi] = ig_v / tet.volume
+        ivecg_div_vs[:, gi] .= ivecg_v / tet.volume
+    end
+    f3 = sum(gq_tet.weight[gi] * ig_div_vs[gi] for gi = 1:length(gq_tet.weight))
+
+    f4s = zeros(CT, 4)
+    @inbounds for ni = 1:4
+        arean = _signed_face_area(tet, ni)
+        δκn = tet.faces[ni].δκ
+        isbdn = tet.faces[ni].isbd
+        if isbdn || ((δκn != 0) && (arean > 0))
+            ig_s_div_s = zero(CT)
+            for gi = 1:length(gq_tet.weight)
+                rgi = @view rgt[:, gi]
+                ig = faceSingularityIg(
+                    rgi,
+                    tet.faces[ni].vertices,
+                    tet.faces[ni].edgel,
+                    tet.faces[ni].edgev̂,
+                    tet.faces[ni].edgen̂,
+                    abs(arean),
+                    view(tet.facesn̂, :, ni),
+                    sscg,
+                )
+                ig_s_div_s += gq_tet.weight[gi] * ig
+            end
+            f4s[ni] = ig_s_div_s / abs(arean)
+        end
+    end
+
+    div_v_eps = one(FT) / (tet.volume * tet.ε * eps0)
+    @inbounds for ni = 1:4
+        arean = _signed_face_area(tet, ni)
+        free_vn = @view tet.vertices[:, ni]
+        δκn = tet.faces[ni].δκ
+        n_global = tet.inBfsID[ni]
+        for mi = 1:4
+            aream = _signed_face_area(tet, mi)
+            free_vm = @view tet.vertices[:, mi]
+            isbdm = tet.faces[mi].isbd
+            aman = aream * arean
+            c1 = aman * div_v_eps / (im * omega * 9)
+            c3 = aman / (im * omega * eps0)
+
+            f1 = zero(FT)
+            f2 = zero(CT)
+            for gi = 1:length(gq_tet.weight)
+                rgi = @view rgt[:, gi]
+                ρm = rgi - free_vm
+                ρmn = rgi - free_vn
+                ρmρn = dot(ρm, ρmn)
+                f1 += gq_tet.weight[gi] * ρmρn
+                f2 += gq_tet.weight[gi] * (-dot(ρm, @view ivecg_div_vs[:, gi]) + ρmρn * ig_div_vs[gi])
+            end
+
+            zmn = c1 * f1 + κ * c3 * (-(k^2 / 9) * f2 + f3)
+            (δκn != 0) && (arean > 0) && (zmn -= δκn * c3 * f4s[ni])
+            isbdm && (zmn -= κ * c3 * f4s[mi])
+
+            if isbdm && (δκn != 0) && (arean > 0)
+                f6 = n_global == tet.inBfsID[mi] ? _same_face_f6(tet.faces[ni], gq_tri, k, div4π) : begin
+                    rq_face_m = _triangle_points(tet.faces[mi], gq_tri)
+                    rq_face_n = _triangle_points(tet.faces[ni], gq_tri)
+                    acc = zero(CT)
+                    for gj = 1:length(gq_tri.weight)
+                        rgj = @view rq_face_m[:, gj]
+                        for gi = 1:length(gq_tri.weight)
+                            rgi = @view rq_face_n[:, gi]
+                            acc += fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tri.weight[gi] * gq_tri.weight[gj]
+                        end
+                    end
+                    acc
+                end
+                zmn += δκn * c3 * f6
+            end
+
+            ztt[mi, ni] = zmn
+        end
+    end
+
+    return SMatrix(ztt)
+end
+
 function vefie_element_interaction_kernel(
     vefie::VEFIE,
     tet_t::TetrahedraInfo,
@@ -516,24 +1038,6 @@ function vefie_element_interaction_kernel(
     cache_s::TetBasisCache,
 )
     FT = eltype(vefie.freq)
-    CT = Complex{FT}
-
-    Z_ts = @MMatrix zeros(CT, 4, 4)
-
-    # Constants
-    k = vefie.k
-    omega = 2π * vefie.freq
-    mu0 = 4π * 1e-7
-    eps0 = 8.854187817e-12
-
-    # Material properties
-    κs = tet_s.κ
-
-    # Constants for terms (Scaled by 1/jw)
-    c1_ts = im * omega * mu0 * κs
-    c2_ts = 1.0 / (im * omega * eps0) * κs
-
-    vol_factor = tet_t.volume * tet_s.volume
 
     # Adaptive Quadrature Check
     # Use centroids (1-point quadrature)
@@ -541,69 +1045,13 @@ function vefie_element_interaction_kernel(
     C_s = cache_s.r_q_far[:, 1]
     dist = norm(C_t - C_s)
 
-    # Threshold: 3.0 * (radius_t + radius_s)
-    # radius approx cbrt(vol)
-    rad_t = cbrt(tet_t.volume)
-    rad_s = cbrt(tet_s.volume)
-    threshold = 3.0 * (rad_t + rad_s)
+    threshold = _vefie_regular_threshold(vefie, tet_t)
 
-    if dist > threshold
-        # Use Far (1-point)
-        gq = vefie.gq_far
-        Nq = length(gq.weight)
-        r_q_t = cache_t.r_q_far
-        r_q_s = cache_s.r_q_far
-        f_vals_t = cache_t.f_vals_far
-        f_vals_s = cache_s.f_vals_far
-    else
-        # Use Near (5-point)
-        gq = vefie.gq_info
-        Nq = length(gq.weight)
-        r_q_t = cache_t.r_q
-        r_q_s = cache_s.r_q
-        f_vals_t = cache_t.f_vals
-        f_vals_s = cache_s.f_vals
+    if dist <= threshold
+        return _ordered_swg_near_kernel(vefie, tet_t, tet_s)
     end
 
-    div_f_t = cache_t.div_f
-    div_f_s = cache_s.div_f
-
-    # Double loop over quadrature points
-    for j = 1:Nq # Source
-        w_j = gq.weight[j]
-        r_j = r_q_s[:, j]
-
-        for i = 1:Nq # Test
-            w_i = gq.weight[i]
-            r_i = r_q_t[:, i]
-
-            # Green's function (using FastExp lookup table)
-            R_vec = r_i - r_j
-            R = norm(R_vec)
-            
-            G = fast_green_func(vefie.exp_table, R)
-
-            factor = w_i * w_j * vol_factor * G
-
-            # Accumulate
-            for m = 1:4
-                f_m = f_vals_t[m, i]
-                d_m = div_f_t[m]
-
-                for n = 1:4
-                    f_n = f_vals_s[n, j]
-                    d_n = div_f_s[n]
-
-                    # Z_ts
-                    term1 = c1_ts * dot(f_m, f_n)
-                    term2 = c2_ts * d_m * d_n
-                    Z_ts[m, n] += (term1 + term2) * factor
-                end
-            end
-        end
-    end
-
-    return Z_ts
+    return _ordered_swg_far_kernel(vefie, tet_t, tet_s, cache_t, cache_s, TRI_GQ_FAR_F64)
 end
 
 # ============================================================================

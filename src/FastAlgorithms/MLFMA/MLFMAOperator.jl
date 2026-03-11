@@ -8,6 +8,7 @@ using ....CoreModule
 using ....Geometry
 using ....BasisFunctions
 using ....IntegralEquations
+import ....Solvers: BlockJacobiPreconditioner
 using ..Octree
 using ..OctreeBuilder
 using ..Aggregation
@@ -141,6 +142,19 @@ function get_leaf_intervals(op::MLFMAOperator)
     leaf_level = op.octree.levels[op.octree.nLevels]
     return [cube.bfInterval for cube in leaf_level.cubes]
 end
+
+function _leaf_block_indices(op::MLFMAOperator)
+    leaf_level = op.octree.levels[op.octree.nLevels]
+    blocks = Vector{Vector{Int}}()
+    for cube in leaf_level.cubes
+        isempty(cube.bfInterval) && continue
+        push!(blocks, collect(op.sorted_ids[cube.bfInterval]))
+    end
+    return blocks
+end
+
+BlockJacobiPreconditioner(op::MLFMAOperator) = BlockJacobiPreconditioner(op.Z_near, _leaf_block_indices(op))
+BlockJacobiPreconditioner(op::MLFMAOperator, ::Any) = BlockJacobiPreconditioner(op)
 
 function Base.:*(A::MLFMAOperator, x::AbstractVector)
     y = similar(x)
@@ -559,11 +573,26 @@ function assemble_near_field(
         resize!(Js[tid], ct)
         resize!(Vs[tid], ct)
     end
-    I_total = reduce(vcat, Is)
-    J_total = reduce(vcat, Js)
-    V_total = reduce(vcat, Vs)
+    I_total = _concat_thread_buffers(Is, counts)
+    J_total = _concat_thread_buffers(Js, counts)
+    V_total = _concat_thread_buffers(Vs, counts)
 
     return sparse(I_total, J_total, V_total, N, N)
+end
+
+@inline function _concat_thread_buffers(buffers::Vector{Vector{T}}, counts::Vector{Int}) where {T}
+    total_count = sum(counts)
+    merged = Vector{T}(undef, total_count)
+    offset = 0
+    @inbounds for tid in eachindex(buffers)
+        ct = counts[tid]
+        if ct == 0
+            continue
+        end
+        copyto!(merged, offset + 1, buffers[tid], 1, ct)
+        offset += ct
+    end
+    return merged
 end
 
 # Specialized interaction functions to ensure type stability

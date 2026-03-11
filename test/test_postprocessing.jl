@@ -158,7 +158,7 @@ end
 # Phase 17.3 — geoVolumeCurrentCal
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "geoVolumeCurrentCal" begin
-    using EMSuite.PostProcessing: geoVolumeCurrentCal
+    using EMSuite.PostProcessing: geoElectricJCal, geoVolumeCurrentCal
 
     freq = 300e6
     set_frequency!(freq)
@@ -176,11 +176,15 @@ end
     perms_swg = fill(CT(ε_r), num_elements(mesh))
 
     J_swg = geoVolumeCurrentCal(I_swg, basis_swg, perms_swg)
+    Jw_swg = geoElectricJCal(I_swg, basis_swg, perms_swg)
 
     # 返回每个 tet 一个 SVector{3,CT}
     @test length(J_swg) == num_elements(mesh)
     @test eltype(J_swg) <: SVector{3}
     @test all(all(isfinite, j) for j in J_swg)
+    @test size(Jw_swg) == (3, num_elements(mesh))
+    @test all(isfinite, Jw_swg)
+    @test maximum(abs.(Jw_swg)) > 0.0
     # 对称网格上合力矩应接近 0（各向同性均匀 mesh 期望净 J≈0）
     J_mag = norm.(J_swg)
     @test maximum(J_mag) > 0.0   # 场不全为零

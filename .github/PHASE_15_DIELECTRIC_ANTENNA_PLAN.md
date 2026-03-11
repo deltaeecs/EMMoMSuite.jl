@@ -1,21 +1,58 @@
-# Phase 15: 介质与金属-介质混合天线精度测试 + PMCHWMLFMAOperator
+# Phase 15: 介质与金属-介质混合天线精度测试 + PMCHW Transmission Block/Operator 架构
 
 > 创建日期: 2026-03-07  
 > 状态: 计划中  
 > 前置: Phase 14 完成（A1–A4, F1–F9, P1–P3 基准脚本已创建）
 
+> 2026-03-07 下一子流补记：B1–B5 与 PMCHW shell / Gate S 已完成后，Phase 15 的下一正式开发焦点已切换为 alternative formulation 基线，优先项为 N-Muller dense baseline。对应执行文档：`.github/plans/phase_15_nmuller_dense_baseline.md`。
+> 2026-03-07 子流续记：`NMuller` 已补齐 `DeltaGapSource` 激励与 `input_impedance` 最小链路；`PMCHWMLFMAOperator` 已新增 `PMCHWMLFMAErrorBudget`，把 `near_range / L_min / leaf_size_eff` 从隐式启发式提升为显式接口。
+> 2026-03-07 预算子流补记：已新增 `benchmark/compare_pmchw_mlfma_budget.jl`，用于在固定 small / medium 夹具上量化比较不同 `PMCHWMLFMAErrorBudget` 配置对 `nnz_near`、matvec 误差、强形式 `Z_in` 误差与耗时的影响。
+> 2026-03-07 预算子流续记：默认预算集合现已冻结为 `default / loose_near / fixed_leaf_0p04_nr9` 三组代表性配置；并已新增 `benchmark/compare_pmchw_mlfma_budget_krylov.jl`，把这三组预算直接接入 medium 夹具的 `short/long` Krylov 对照。
+> 2026-03-08 主线修正：PMCHW K-type receive 修复后，旧的 `7`–`16Ω` long-Krylov budget 大分叉已被推翻。现行 `BG2`、Arnoldi 子空间诊断与 GMRES 轨迹诊断一致表明：`MLFMA strong` 与 `dense strong` 在 medium 夹具上已基本贴合；剩余问题应继续收敛到 **更深 Krylov 轨迹 / formulation 条件数放大**，而不是继续停留在 budget 主导的 backend fidelity 归因。
+
+## 当前总计划
+
+### A. 当前主线
+
+1. **PMCHW 仍是主交付 formulation**：继续围绕 PMCHW shell + strong-form + MLFMA backend 做 medium 级精度与收敛治理。
+2. **N-Muller 是对照组，不是当前阻塞主线**：它只用于回答“剩余问题更像 formulation 还是 backend”这个归因问题。
+3. **当前剩余问题已经从 receive bug / budget 大分叉 收缩到更深 Krylov / conditioning 机制**。
+
+### B. 当前已完成的主干
+
+1. B1–B5 天线基准已打通。
+2. PMCHW block/operator shell 与 Gate S 四路对照已完成。
+3. PMCHW M-pass receive 链错误已修复，BF1 / BG2 / budget benchmark 已同步更新。
+4. Medium 级 Arnoldi 子空间与 GMRES 轨迹诊断已落地。
+
+### C. N-Muller 的明确角色
+
+1. **已完成**：dense baseline、small/medium dense 对照、conditioning / GMRES 行为对照。
+2. **未作为当前主线**：N-Muller 的 DeltaGap / input_impedance 端口语义仍未校准，因此不进入正式天线阻抗验收门。
+3. **后续使用方式**：只在需要区分 PMCHW formulation 问题与 PMCHW MLFMA backend 问题时作为 dense 对照基线使用。
+
+### D. 下一阶段执行顺序
+
+1. 先继续推进 PMCHW 的更深 Krylov 诊断，而不是扩展 N-Muller 天线语义。
+2. 已完成：在同一 medium 夹具上，已分别用 random RHS 与 `PlaneWave` 物理激励把 PMCHW / N-Muller 的 dense GMRES 轨迹做成正式对照；但该结论现已被 restart 扫描进一步细化。
+3. 已完成：PMCHW 自身的 medium dense `weak/strong` plane-wave 轨迹也已固化；当前结果表明 strong-form 只有边际改善，不能单独解除主问题。
+4. 已完成：plane-wave dense restart 扫描已证明默认 `restart=20` 会显著夸大 PMCHW 的坏轨迹；把 `restart` 提升到 `250` 后，PMCHW 可把相对残差压到 `~1e-5`，但相对 LU 误差仍明显落后于 `NMuller`。
+5. 下一步若要继续收缩剩余边界，应进入更深 Arnoldi 子空间或显式 full-restart / full-GMRES 轨迹诊断，而不是扩展 N-Muller 天线语义。
+
 ---
 
 ## 0. 开发原则遵循声明
+
+> 2026-03-07 实施状态补记：PMCHW/SCFIE 的 DeltaGap 激励与 PMCHW 输入阻抗 API 已在源码中落地，并已通过 `test/test_pmchw_excitation.jl` 与 `test/test_scfie_delta_gap.jl` 验证且纳入默认 `runtests.jl`。Dense shell 最小实现已落地，新增 `PMCHWBlockOperator`、`DensePMCHWBackend` 与 `test/test_pmchw_operator_shell.jl`；默认 `strong_form` 现已接入真实 RWG surface Gram 的 2N block pairing。另已新增 `test/test_pmchw_gate_s_dense.jl`，完成 Gate S 的 dense 半边回归；`PMCHWMLFMAOperator` 也已通过 `MatrixFreePMCHWBackend` 接入 shell，并由 `test/test_pmchw_operator_shell_mlfma.jl` 在小夹具上验证 weak/strong 链路可执行。最新已新增 `test/test_pmchw_gate_s_mlfma_medium.jl`，在 `N=540` 夹具上正式完成 `dense weak / dense strong / MLFMA weak / MLFMA strong` 四路 Gate S 对照并通过；该回归运行约 9 分钟，暂不并入默认 `runtests.jl`。Phase 15 天线基准脚本 `benchmark/accuracy/run_B1_B5_antenna.jl` 现已完整跑通 `B1`–`B5`，对应 `generate_report.jl` 汇总也已对齐。另：`NMuller` 已补齐 `DeltaGapSource` + `input_impedance` 最小天线接口链，并由 `test/test_nmuller_excitation.jl` 锁定；PMCHW MLFMA backend 现已新增 `PMCHWMLFMAErrorBudget`，可显式控制 `near_range`、`L_min` 与 `leaf_size_eff`，旧构造入口保持兼容。
 
 本 Phase 适用以下核心原则（见 `copilot-instructions.md`）：
 
 | 原则 | 适用内容 |
 |------|---------|
-| **原则 1 (TDD)** | 新增激励 API、`PMCHWMLFMAOperator`、`input_impedance_pmchw` 均先写单元测试 |
+| **原则 1 (TDD)** | 新增激励 API、PMCHW block/operator shell、backend 适配层、`input_impedance_pmchw` 均先写单元测试 |
 | **原则 2 (Legacy 对齐)** | PMCHW 激励及 MLFMA 结果必须与 Direct 结果一致，不使用经验常数 |
 | **原则 3 (差异排查)** | MLFMA 结果与 Direct 偏差时逐块比较：Z_near 是否正确、far-field k0/k1 分离是否正确 |
-| **原则 5 (Git 提交)** | 每类子任务独立提交：API 扩展、单元测试、基准脚本、PMCHWMLFMAOperator |
+| **原则 5 (Git 提交)** | 每类子任务独立提交：API 扩展、block/operator 外壳、backend 适配、单元测试、基准脚本 |
 | **原则 6 (终端输出)** | 不重定向；使用 `get_terminal_output` 获取结果 |
 | **原则 7 (Phase 结束检视)** | 完成后至少 2 轮 clean 检视 |
 | **原则 9 (计划文档规范)** | 本文档已包含所有必要节 |
@@ -29,7 +66,8 @@
 | PMCHW DeltaGap 激励 | `PMCHW.jl` L/K 算子 + EFIE DeltaGap 类比 | V_E 行施加 delta-gap，V_H 行为零 |
 | PMCHW input_impedance | PMCHW direct solve（作为参考） | MLFMA vs Direct 结果自洽 |
 | SCFIE DeltaGap | `SCFIE.jl` + 现有 DeltaGap of RWGBasis | 激励只进表面块，体块为零 |
-| PMCHWMLFMAOperator | `PMCHW.jl` `assemble_impedance_matrix` | MLFMA 的 Z_near + Z_far 近似全矩阵 |
+| PMCHW block/operator shell | `PMCHW.jl` `assemble_impedance_matrix` | 四块 `EJ/EM/HJ/HM` 组合必须与 Direct PMCHW 一致 |
+| PMCHW MLFMA backend | `PMCHW.jl` `assemble_impedance_matrix` + 现有 MLFMA shared core | 只负责 nonlocal evaluator，不再承载顶层 transmission 语义 |
 
 ---
 
@@ -39,16 +77,18 @@
 
 1. **B1–B2**: 介质谐振体（PMCHW）Delta-Gap 馈电天线，输入阻抗测试
 2. **B3–B5**: 金属-介质混合天线（VS-EFIE/VS-CFIE, 即 SCFIE），输入阻抗测试
-3. **PMCHWMLFMAOperator**: 实现 2×2 块 MLFMA 算子，支持 B2 的 MLFMA 路径
+3. **PMCHW block/operator shell**: 先实现 Bempp 风格 2×2 块 transmission 外壳，支持 weak/strong form 与 backend 切换
+4. **PMCHW MLFMA backend**: 将现有 PMCHWMLFMA 路径收编为 backend，服务于 B2 的 fast 求解路径
 
-### 方程类型与代号对应
+> 2026-03-07 子流补记：`15.14` 与 `15.15` 已在小球 dense 基线层面完成；当前已有 `test/test_nmuller.jl`、`test/test_nmuller_comparison.jl`、`test/test_nmuller_excitation.jl` 与 `benchmark/compare_pmchw_nmuller_sphere.jl` 作为正式回归/对照入口。与此同时，PMCHW fast backend 已新增 `PMCHWMLFMAErrorBudget` 作为显式误差预算接口。
 
 | 代号 | EMSuite 方程 | 激励方式 | 求解 |
 |------|-------------|---------|------|
 | VS-EFIE | `SCFIE(freq, perms; alpha=0.0)` | DeltaGap (表面) | Direct |
 | VS-CFIE | `SCFIE(freq, perms; alpha=0.5)` | DeltaGap (表面) | Direct |
 | PMCHW Direct | `PMCHW(freq, eps_r, mu_r)` | DeltaGap (新增) | Direct |
-| PMCHW MLFMA | `PMCHWMLFMAOperator` (新增) | DeltaGap | GMRES |
+| PMCHW Dense Shell | PMCHW block/operator shell + Dense backend | DeltaGap | Direct / GMRES |
+| PMCHW MLFMA | PMCHW block/operator shell + MLFMA backend | DeltaGap | GMRES |
 
 ---
 
@@ -122,9 +162,9 @@ end
 
 **导出**: 在 `EMSuite.jl` 中不需要额外 export（已通过 `excitation_vector` 多分派）
 
-### 3.3 PMCHWMLFMAOperator（新文件）
+### 3.3 PMCHW transmission block/operator shell（新主线）
 
-**位置**: `src/FastAlgorithms/MLFMA/PMCHWMLFMAOperator.jl`
+**目标位置**: transmission operator 层（顶层） + backend 层（Dense / MLFMA / 未来 H-matrix）
 
 #### 数学结构
 
@@ -137,44 +177,46 @@ $$Z = \begin{bmatrix} Z^{EJ} & Z^{EM} \\ Z^{HJ} & Z^{HM} \end{bmatrix}$$
 - $Z^{HJ} = -Z^{EM}$（结构不变量，精确成立）
 - $Z^{HM}(k_0, 1/\eta_0) + Z^{HM}(k_1, 1/\eta_1)$：倒 η 的 EFIE-型
 
-#### 设计方案: 双算子 + 4 块矩阵
+#### 设计方案: Bempp 风格 block/operator 外壳 + backend
 
 ```
-PMCHWMLFMAOperator
-├── mlfma_efie_k0  : MLFMAOperator（EFIE with k0, η0）[处理 Z_EJ_k0, Z_HM_k0]
-├── mlfma_efie_k1  : MLFMAOperator（EFIE with k1, η1）[处理 Z_EJ_k1, Z_HM_k1]
-├── mlfma_cfie_k0  : MLFMAOperator（CFIE with k0, pure K-part）[Z_EM_k0]
-├── mlfma_cfie_k1  : MLFMAOperator（CFIE with k1, pure K-part）[Z_EM_k1]
-└── Z_near         : 2N×2N 稀疏矩阵（直接从 PMCHW.assemble_near_field 获得）
+PMCHWBlockOperator
+├── EJ block operator
+├── EM block operator
+├── HJ block operator
+├── HM block operator
+├── weak_form()
+├── strong_form()
+└── backend binding
+        ├── DenseBackend
+        ├── MLFMABackend
+        └── HMatrixBackend (deferred)
 ```
 
-**mul! 逻辑**（`y = PMCHWMLFMAOperator * x`）：
+**backend 责任划分**：
 
 ```
-x = [x_J; x_M]   (N + N 向量)
-y = [y_E; y_H]   (N + N 输出)
+顶层 shell:
+- 保留四块语义
+- 定义 weak_form / strong_form
+- 负责 block algebra 与 mass-matrix-aware solve
 
-# 计算远场 J -> E 贡献 (Z_EJ 部分)
-y_EJ = sum_k(L_k * x_J)  → 用 k0/k1 EFIE MLFMA far-field
+DenseBackend:
+- 为四块提供 dense block matvec / matrix
 
-# 计算远场 M -> E 贡献 (Z_EM 部分)  
-y_EM = sum_k(K_k * x_M)  → 用 k0/k1 K-type far-field (从 CFIE 分离 MFIE 部分)
+MLFMABackend:
+- 为四块提供 nonlocal evaluator
+- 近场 singular / near part 仍由 shell 显式组合
 
-# H-方程：Z_HJ = -Z_EM^T, Z_HM = Lη 类算子
-y_HJ = -sum_k(K_k^T * x_J)   # 等于 -Z_EM 的转置
-y_HM = sum_k(Lη_k * x_M)
-
-y_E = y_EJ + y_EM
-y_H = y_HJ + y_HM
+HMatrixBackend:
+- 后续阶段再接入
 ```
 
 **实现策略**：
-- 阶段 1 (先行可行版): Dense Z_near + **仅近场**（即只用 Z_near，不实现 Z_far）
-  - 可验证 PMCHWMLFMAOperator 的接口和 GMRES 收敛性
-  - 等价于 Block-Diagonal preconditioned direct solve
-- 阶段 2 (完整实现): 添加 Z_far 的 4 块计算
-
-> **注意**: 阶段 1 已可通过 GMRES+Z_near 的精度测试（等同于直接法，只是慢一些）。完整 MLFMA 在阶段 2。
+- 阶段 1: 先完成 PMCHW block/operator shell + Dense backend
+- 阶段 2: 把现有 `PMCHWMLFMAOperator` 收编成 MLFMABackend，并保留兼容 facade
+- 阶段 3: 在统一 shell 下完成 weak/strong 对照与 Gate S
+- 阶段 4: 未来再接入 HMatrixBackend
 
 ---
 
@@ -239,12 +281,11 @@ vol_basis = SWGBasis(dielectric_mesh)
 
 ---
 
-## 5. PMCHWMLFMAOperator 原生实现方案
+## 5. PMCHW MLFMA backend 收编方案
 
-> **第三次修订（依据 Gibson《MoM》Ch.11 Algorithm 14）**  
-> 前两版设计（独立算子包装 / MagneticRWGBasis 标签）均被放弃。  
-> 正确方案：**两个 N 点八叉树（k0/k1 各一套）+ J/M 两遍 × k0/k1 两遍 = 四遍远场 + 四种解聚核函数**。  
-> 本节是面向"无 CEM 背景的软件工程师"的完整实现规格。
+> **第四次修订**  
+> Gibson Algorithm 14 仍然是本地 MLFMA backend 的理论依据；但它不再定义顶层 transmission 架构。  
+> 顶层架构已切换为 **Bempp 风格 block/operator shell**，而“双八叉树 + 四遍远场”只作为 MLFMABackend 的内部实现保留。
 
 ### 5.0 核心设计原则（依据 Gibson Algorithm 14）
 
@@ -269,111 +310,64 @@ vol_basis = SWGBasis(dielectric_mesh)
 | 平移步骤 | 每遍用各自的八叉树执行 M2M/M2L/L2L，代码无需改动 |
 | aggS 必须清零 | 每遍聚合之前必须 `fill!(aggS, 0)`，防止同一棵树上前后两遍叠加 |
 
-### 5.1 文件结构（最简化）
+### 5.1 文件结构（修订后主线）
 
 ```
-src/FastAlgorithms/MLFMA/
-└── PMCHWMLFMAOperator.jl   ← 新建（自包含：struct + 构造函数 + mul! + 全部辅助函数）
+src/
+├── IntegralEquations/
+│   └── PMCHW*.jl                  ← shell 层: 四块 block/operator 语义 + weak/strong form
+├── Solvers/
+│   └── ...                        ← shell 层强形式与 mass-matrix-aware solve 的调用点
+└── FastAlgorithms/
+    ├── MLFMA/
+    │   └── PMCHWMLFMAOperator.jl  ← MLFMA backend / 兼容 facade
+    └── HMatrix/                   ← 未来阶段再引入
 ```
 
-**不需要**：
-- ~~`src/BasisFunctions/MagneticRWG.jl`~~ — J/M 同用 `RWGBasis`，无需新类型
-- ~~扩展 `Aggregation.jl`~~ — 直接在 `PMCHWMLFMAOperator.jl` 内写专用聚合函数
-- ~~扩展 `Disaggregation.jl`~~ — 同上
+**冻结规则**：
+- 顶层 transmission 语义必须留在 shell 层，不再由单个 `PMCHWMLFMAOperator.jl` 独占。
+- `PMCHWMLFMAOperator.jl` 允许继续存在，但角色改为 backend 内核或兼容 facade。
+- H-matrix 目录/后端在本 Phase 不落地，只保留接口预留。
 
-需要修改：
-- `src/FastAlgorithms/MLFMA/MLFMAOperator.jl`（或在 `PMCHWMLFMAOperator.jl` 内独立实现）：`assemble_near_field_pmchw`（2N×2N 稀疏矩阵）
+### 5.2 shell / backend 分工
 
-### 5.2 struct PMCHWMLFMAOperator
+| 层级 | 责任 | 当前阶段 |
+|------|------|---------|
+| PMCHW block/operator shell | 定义 `EJ/EM/HJ/HM` 四块、`weak_form()`、`strong_form()`、block algebra | **先实现** |
+| Dense backend | 作为 shell 的第一条可验证后端，建立 direct/GMRES/strong-form 基线 | **先实现** |
+| MLFMA backend | 收编现有双八叉树 + 四遍远场实现，提供 fast matvec | **第二阶段** |
+| H-matrix backend | 参考 FreeFEM/Htool，提供压缩矩阵 backend | **后续阶段** |
 
-> **双波数设计说明**：PMCHW 矩阵的每个块都是 k0 和 k1 贡献之和（如 Z^EJ = L(k0) + L(k1)）。MLFMA 的聚合权重 $e^{jk\hat{r}\cdot r}$、平移算子 $T_L(k|d|)$ 均依赖 k，因此 k0 和 k1 的贡献**必须分别用各自的八叉树计算**，不能共用一个八叉树。这导致需要两套八叉树（`octree0` for k0, `octree1` for k1），远场总计 4 遍（J×k0, J×k1, M×k0, M×k1）。
+### 5.3 MLFMA backend 保留内容
+
+> 双波数设计仍然保留，但只服务于 backend，不再决定顶层接口。
+
+- PMCHW 每块都仍是 `k0 + k1` 的叠加，因此 MLFMA backend 内部继续保留：
+  - `octree0` for `k0`
+  - `octree1` for `k1`
+  - 四遍远场 `J×k0`, `J×k1`, `M×k0`, `M×k1`
+- `assemble_near_field_pmchw` 仍然有效，但其产物应由 shell 统一接入四块 block 语义，而不是直接把 backend 暴露成顶层 transmission 对象。
+- `aggS` 清零、leaf/translation 预算、near/far 划分等规则继续作为 backend 内部正确性合同存在。
+
+### 5.4 当前 Phase 的接口目标
 
 ```julia
-"""
-    PMCHWMLFMAOperator{FT,CT}
+abstract type AbstractPMCHWBackend end
 
-PMCHW 系统的 MLFMA 算子。矩阵大小 2N×2N，其中 x = [x_J; x_M]，y = [y_E; y_H]。
-
-字段说明：
-  pmchw          — PMCHW 算子（含 k0,η0,k1,η1 等物理参数）
-  basis          — RWGBasis（N 个 DOF，J 和 M 共享同一网格）
-  Z_near         — 2N×2N 稀疏矩阵，4 个块（EJ/EM/HJ/HM）
-  octree0        — N 点八叉树，波数 k0（外部介质）
-  octree1        — N 点八叉树，波数 k1（内部介质）
-  sorted_ids0, inv_sorted_ids0 — 长度 N，k0 八叉树排序映射
-  sorted_ids1, inv_sorted_ids1 — 长度 N，k1 八叉树排序映射
-  freq           — 工作频率（Hz）
-"""
-struct PMCHWMLFMAOperator{FT,CT} <: AbstractIntegralOperator
-    pmchw          :: PMCHW{FT,CT}
-    basis          :: RWGBasis
-    Z_near         :: SparseMatrixCSC{CT,Int}   # 2N×2N
-    octree0        :: OctreeInfo                # k0 tree
-    octree1        :: OctreeInfo                # k1 tree
-    sorted_ids0    :: Vector{Int}               # 长度 N
-    inv_sorted_ids0:: Vector{Int}
-    sorted_ids1    :: Vector{Int}               # 长度 N
-    inv_sorted_ids1:: Vector{Int}
-    freq           :: FT
+struct PMCHWBlockOperator{B<:AbstractPMCHWBackend}
+    pmchw
+    basis
+    backend::B
 end
 
-Base.size(op::PMCHWMLFMAOperator) = (2*num_basis(op.basis), 2*num_basis(op.basis))
-Base.eltype(::PMCHWMLFMAOperator{FT,CT}) where {FT,CT} = CT
+weak_form(op::PMCHWBlockOperator)
+strong_form(op::PMCHWBlockOperator)
 ```
 
-### 5.3 构造函数
-
-```julia
-function PMCHWMLFMAOperator(pmchw::PMCHW, basis::RWGBasis, leaf_size::Float64)
-    N = num_basis(basis)
-    centers = reduce(hcat, [bf.center for bf in basis.functions])  # 3×N
-
-    # ① 分别建立 k0 和 k1 各自的八叉树
-    #    两套树从相同 N 个 RWG 中心点建立，但 Lebedev 极点密度由各自 k 决定。
-    #    波长公式: λ = 2π / |k|（k 是角频率波数，单位 rad/m）
-    λ0 = 2π / real(pmchw.k0)   # 外部介质波长（k0 可能为复数，取实部）
-    λ1 = 2π / real(pmchw.k1)   # 内部介质波长
-
-    octree0, sorted_ids0 = build_octree(centers, leaf_size; λ = λ0)
-    octree1, sorted_ids1 = build_octree(centers, leaf_size; λ = λ1)
-
-    inv_sorted_ids0 = Vector{Int}(undef, N)
-    inv_sorted_ids1 = Vector{Int}(undef, N)
-    for i in 1:N
-        inv_sorted_ids0[sorted_ids0[i]] = i
-        inv_sorted_ids1[sorted_ids1[i]] = i
-    end
-
-    # ② 装配 2N×2N 近场稀疏矩阵（见 §5.7）
-    #    近场使用 octree0（排列）作为邻居查找基准（两个树几何相同，近邻对相同）
-    Z_near = assemble_near_field_pmchw(pmchw, basis, octree0, sorted_ids0, inv_sorted_ids0)
-
-    FT = typeof(real(pmchw.freq))
-    CT = Complex{FT}
-    return PMCHWMLFMAOperator{FT,CT}(
-        pmchw, basis, Z_near,
-        octree0, octree1,
-        sorted_ids0, inv_sorted_ids0,
-        sorted_ids1, inv_sorted_ids1,
-        pmchw.freq
-    )
-end
-```
-
-### 5.4 mul! — 两遍 × 两 k = 四遍远场
-
-```julia
-function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperator, x::AbstractVector)
-    fill!(y, zero(eltype(y)))
-    N  = num_basis(A.basis)
-    k0, η0 = A.pmchw.k0, A.pmchw.eta0
-    k1, η1 = A.pmchw.k1, A.pmchw.eta1
-
-    # ─── ① 近场（2N×2N，4 块的所有近邻交互） ────────────────────────
-    mul!(y, A.Z_near, x)
-
-    # ─── ② 远场 4 遍（2 source × 2 medium） ─────────────────────────
-    # 辅助函数：清空某棵八叉树的 aggS 缓存
+**当前约束**：
+- Dense backend 必须先在 shell 下跑通 B1/B2/Gate S。
+- 现有 `PMCHWMLFMAOperator(...)` 若保留，只能作为构造 `PMCHWBlockOperator(..., MLFMABackend(...))` 的兼容入口。
+- 禁止继续把新的 transmission 语义、strong-form 逻辑或 block algebra 直接塞回 `PMCHWMLFMAOperator.jl`。
     clear_agg!(oct) = (for lv in oct.levels; fill!(lv.aggS, zero(eltype(lv.aggS))); end)
 
     # ── 遍 1：J 源 × k0（聚合用 octree0） ──────────────────────────
@@ -635,24 +629,25 @@ end
 | **15.4** | TDD: `test_scfie_delta_gap.jl` | — | P0 🔴 |
 | **15.5** | 实现 `excitation_vector(SCFIE, DeltaGapSource, rwg, swg)` | 15.4 RED | P0 🔴 |
 | **15.6** | 基准脚本 `benchmark/accuracy/run_B1_B5_antenna.jl` | 15.3, 15.5 | P1 🟠 |
-| **15.7** | TDD: `test_pmchw_mlfma_operator.jl` | — | P1 🟠 |
-| **15.8** | 实现 `assemble_near_field_pmchw`（2N×2N，4 块：EJ/EM/HJ/HM） | 15.7 RED | P1 🟠 |
-| **15.9** | 实现 `aggregate_leaf_pmchw!`（单函数，x_range 参数区分 J/M） | 15.7 RED | P1 🟠 |
-| **15.10** | 实现 `disaggregate_leaf_pmchw_j!` 和 `_m!`（四块接收核函数） | 15.9 | P1 🟠 |
-| **15.11** | 组装 `PMCHWMLFMAOperator` struct（两棵 N 点八叉树 octree0/octree1）+ 构造函数 + `mul!`（4 遍远场） | 15.8, 15.10 | P1 🟠 |
+| **15.7** | TDD: `test_pmchw_operator_shell.jl`（四块 block/operator + weak/strong form） | — | P1 🟠 |
+| **15.8** | 实现 PMCHW block/operator shell + Dense backend | 15.7 RED | P1 🟠 |
+| **15.9** | 在 shell 下完成 Gate S: `dense weak/strong` 对照 | 15.8 | P1 🟠 |
+| **15.10** | TDD: `test_pmchw_mlfma_operator.jl`（backend 收编与 shell 绑定） | 15.8, 15.9 | P1 🟠 |
+| **15.11** | 收编现有 `PMCHWMLFMAOperator` 为 MLFMA backend（双八叉树 + 四遍远场保留为内部实现） | 15.10 | P1 🟠 |
 | **15.12** | 更新 `generate_report.jl` 加入 B1–B5 | 15.6 | P2 🟡 |
 | **15.13** | 检视迭代 × 2 轮 | 所有 | P2 🟡 |
+| **15.14** | TDD + 实现 `NMuller` dense baseline（alternative formulation） | 15.13 前可并行启动 | P1 🟠 |
+| **15.15** | 同一 dielectric sphere 上比较 PMCHW / N-Muller conditioning 与 GMRES 行为 | 15.14 | P1 🟠 |
 
-### 双八叉树 + 四遍远场设计亮点（与旧方案对比）
+### 新架构亮点（与旧方案对比）
 
-| 旧方案（已废弃） | 新方案（Gibson Algorithm 14） |
+| 旧方案（已废弃） | 新方案（Bempp 风格 shell + backend） |
 |----------------|------------------------------|
-| `MagneticRWGBasis` 标签类型（需新文件） | 无新类型，`PMCHWMLFMAOperator.jl` 自包含 |
-| 2N 点八叉树（J/M 坐标重复） | 两个 N 点八叉树（octree0/k0, octree1/k1）；J/M 共享几何 |
-| 混入同一 `aggS`，解聚时无法分离 | J×k0/J×k1/M×k0/M×k1 四遍独立 `aggS`；每遍前强制清零 |
-| `bfID ≤ N` 判断（排序后失效） | `kmode` Symbol 参数明确指定 k；`x_range` 明确指定 J/M 系数范围 |
-| 解聚靠 sorted bfID 判断行类型（脆弱） | sorted_ids 仅 N 长，原始 bfID 直接写 `y[bfID]` 和 `y[bfID+N]` |
-| 需扩展 Aggregation.jl / Disaggregation.jl | 不修改现有文件，PMCHWMLFMAOperator.jl 自包含 |
+| transmission 顶层由单体 `PMCHWMLFMAOperator` 承载 | 顶层固定为 `EJ/EM/HJ/HM` block/operator shell |
+| strong-form 无明确归属 | `strong_form` 固定在 shell 层 |
+| Dense/MLFMA 共享接口边界不清晰 | Dense 先行，MLFMA 作为 backend 收编 |
+| H-matrix 可能与当前主线混杂推进 | H-matrix 正式延后，待 shell 稳定后再引入 |
+| Gibson 双八叉树决定整个架构 | Gibson 双八叉树仅决定 MLFMA backend 内部实现 |
 
 ---
 
@@ -663,13 +658,13 @@ end
 | 新增激励 API 单元测试 | `test_pmchw_excitation.jl` 全通过（含 zero-feed 错误捕获） |
 | SCFIE delta-gap 测试 | `test_scfie_delta_gap.jl` 全通过 |
 | B1 PMCHW Direct | Re(Z_in) > 0，εᵣ→1 时 Z_in 趋近 EFIE 结果（相对误差 <10%） |
-| B2 PMCHW MLFMA | GMRES 收敛，Z_in_B2 与 Z_in_B1 误差 <5%（使用 PMCHWMLFMAOperator） |
+| B2 PMCHW MLFMA | GMRES 收敛，Z_in_B2 与 Z_in_B1 误差 <5%（通过 shell 调用 MLFMA backend） |
 | B3 VS-EFIE Direct | Z_in Re 误差 (vs EFIE-only) <10% |
 | B4 VS-CFIE Direct | Z_in 与 B3 差异 <5Ω |
 | B5 VS-CFIE MLFMA | Z_in 与 B4 差异 <5% |
 | MagneticRWGBasis 设计 | ~~已废弃~~ — 不需要该类型 |
-| `disaggregate_leaf_pmchw_j!/m!` | 4 个块的因子（EJ/EM/HJ/HM）与 Direct solve 的矩阵元素对齐（数量级 + 符号） |
-| `assemble_near_field_pmchw` | 2N×2N 近场矩阵；`Z_near[1:N,N+1:2N]` 与 `assemble_impedance_matrix(pmchw,basis)[1:N,N+1:2N]`（近邻部分）一致 |
+| PMCHW block/operator shell | 四块 `EJ/EM/HJ/HM` 语义、`weak_form`、`strong_form` 在 Dense backend 下全部可验证 |
+| MLFMA backend 收编 | backend 经 shell 调用后，保持现有 B2 / Gate C 验收能力 |
 | 检视迭代 | ≥ 2 轮连续 clean |
 
 ---
@@ -694,7 +689,8 @@ end
 - PROGRESS: [REFACTORING_PROGRESS.md](REFACTORING_PROGRESS.md) `Phase 15` 节
 - 基准脚本: `benchmark/accuracy/run_B1_B5_antenna.jl`
 - 测试文件: `test/test_pmchw_excitation.jl`, `test/test_scfie_delta_gap.jl`, `test/test_pmchw_mlfma_operator.jl`
-- 实现文件: `src/FastAlgorithms/MLFMA/PMCHWMLFMAOperator.jl`（自包含：struct/构造函数/mul!/聚合/解聚/近场装配）
+- 实现主线: PMCHW shell 层 + Dense backend + MLFMA backend 绑定
+- 兼容入口: `src/FastAlgorithms/MLFMA/PMCHWMLFMAOperator.jl`（backend/facade）
 
 ---
 

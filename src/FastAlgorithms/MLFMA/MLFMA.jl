@@ -31,6 +31,6 @@ export compute_translation_factors!, translate!
 export disaggregate_downward!, disaggregate_leaf!
 export MLFMAOperator, mul!, get_leaf_intervals
 export MLFMAOperatorMPI
-export PMCHWMLFMAOperator, assemble_near_field_pmchw
+export PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
 
 end

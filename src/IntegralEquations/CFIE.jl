@@ -88,7 +88,7 @@ function assemble_impedance_matrix(cfie::CFIE{FT,CT}, basis::RWGBasis{IT,FT}) wh
     end
 
     # ── 步骤 2：预计算远场 quadrature points（EFIE 与 MFIE 共享同一套 4 点 GQ）
-    # EFIE.gq_far 和 MFIE.gq_info 均为 GaussQuadratureInfo(:Triangle, 4, FT)，坐标相同。
+    # MFIE 的邻接三角形会在 interaction 内部切换到 7 点近邻积分，这里只缓存远场点。
     gq = efie.gq_far
     N_gq = length(gq.weight)
     quad_points = Vector{SVector{N_gq,SVector{3,FT}}}(undef, nt)

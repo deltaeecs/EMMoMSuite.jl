@@ -142,6 +142,8 @@ function radarCrossSection(
     permittivities::Vector{CT},
 ) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
 
+    Jtetras = geoElectricJCal(ICoeff, basis, permittivities)
+
     k0 = get_k0()
     eta0 = get_eta0()
 
@@ -164,8 +166,8 @@ function radarCrossSection(
     @threads for ii = 1:nobs
         r_info = r̂θsϕs_flat[ii]
 
-        # Calculate Radiation Integral
-        Nθϕ = radiation_integral_swg(r_info, basis, ICoeff, permittivities)
+        # Legacy parity: precompute one weighted current vector per tetrahedron.
+        Nθϕ = raditionalIntegralNθϕCal(r_info, basis, Jtetras)
 
         # Calculate RCS
         # Formula: (k0 * eta0)^2 / (4 * pi) * |N|^2

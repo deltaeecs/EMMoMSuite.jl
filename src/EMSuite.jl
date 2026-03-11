@@ -172,14 +172,26 @@ export RWGBasis,
     PWC,
     RBFBasis,
     RBF,
+    select_gap_feed_edges,
     get_triangle_info,
     get_tetrahedra_info,
     get_hexahedra_info
 
 # Re-export IntegralEquations symbols
 using .IntegralEquations
-export EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, assemble_impedance_matrix
+export EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, NMuller, assemble_impedance_matrix
 export assemble_K_offdiag, efie_from_keta, excitation_vector
+export AbstractPMCHWBackend,
+    DensePMCHWBackend,
+    MatrixFreePMCHWBackend,
+    PMCHWBlockOperator,
+    pmchw_blocks,
+    pmchw_surface_gram_matrix,
+    pmchw_block_pairing_matrix,
+    strong_form_rhs,
+    recover_trial_coefficients,
+    weak_form,
+    strong_form
 
 # Re-export Solvers symbols
 using .Solvers
@@ -190,7 +202,7 @@ export DiagonalPreconditioner,
 # Re-export FastAlgorithms symbols
 include("FastAlgorithms/FastAlgorithms.jl")
 using .FastAlgorithms
-export FastAlgorithms, MLFMA, MLFMAOperator, get_leaf_intervals, MLFMAOperatorMPI, PMCHWMLFMAOperator, assemble_near_field_pmchw
+export FastAlgorithms, MLFMA, MLFMAOperator, get_leaf_intervals, MLFMAOperatorMPI, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")
@@ -204,10 +216,14 @@ export MPIMatrix
 include("Accuracy/Accuracy.jl")
 using .Accuracy
 export read_feko_rcs, split_phi_cuts
-export mie_pec_rcs_dBsm, mie_dielectric_rcs_dBsm
+export mie_pec_rcs_dBsm, mie_pec_bistatic_rcs_dBsm
+export mie_dielectric_rcs_dBsm, mie_dielectric_bistatic_rcs_dBsm
 export dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic, dipole_halfwave_farfield_analytic
 export AccuracyResult, AntennaAccuracyResult
 export compute_rcs_accuracy, compute_antenna_accuracy, print_accuracy_report
+export AccuracyCurve, AccuracyCurveSummary, PerformanceBenchmarkResult
+export load_accuracy_curve, summarize_accuracy_curve
+export accuracy_curve_group, accuracy_curve_cut, load_performance_results
 
 # Re-export Driver
 include("Driver.jl")

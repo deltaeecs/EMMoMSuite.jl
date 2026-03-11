@@ -10,7 +10,7 @@ run_F5_F6_sphere.jl — Phase 14 精度基准：Sphere 散射 F5-F6
 基线: Feko (sphere_600MHzRCS.csv) + Mie 解析解
 
 运行方式:
-  julia --project=. benchmark/accuracy/run_F5_F6_sphere.jl [F5] [F6] [X1]
+    julia -t auto --project=. benchmark/accuracy/run_F5_F6_sphere.jl [F5] [F6] [X1]
   (不带参数时运行 F5)
 """
 
@@ -18,6 +18,7 @@ using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
 using EMSuite
 using LinearAlgebra, Printf, Statistics, Dates
+using Base.Threads
 
 struct LUPreconditioner; F; end
 LinearAlgebra.ldiv!(y, P::LUPreconditioner, x) = (y .= P.F \ x)
@@ -34,6 +35,16 @@ enabled = isempty(ARGS) ? ["F5"] : ARGS
 
 const θs_obs = collect(range(-π, π, length = 721))
 const ϕs_obs = [0.0, π/2]
+
+function report_runtime_configuration(case_label; require_threads = false)
+    julia_threads = nthreads()
+    blas_threads = BLAS.get_num_threads()
+    println("  Julia threads: $julia_threads")
+    println("  BLAS threads: $blas_threads")
+    if require_threads && julia_threads == 1
+        @warn "$case_label 当前以单线程运行，MLFMA 构建时间会明显偏高。建议使用: julia -t auto --project=. benchmark/accuracy/run_F5_F6_sphere.jl $case_label"
+    end
+end
 
 function load_feko_phi_cuts(feko_file)
     isfile(feko_file) || error("Feko 文件不存在: $feko_file")
@@ -74,10 +85,12 @@ feko_file = joinpath(FEKO_DIR, "sphere_600MHzRCS.csv")
 feko_cuts = load_feko_phi_cuts(feko_file)
 θ_deg_feko = feko_cuts[0.0].theta    # 721 点 θ 向量（度）
 
-# Mie 解析解（从网格提取球半径）
+# Mie 解析解（将全局观测角映射为相对入射方向的双站散射角）
 sphere_nas = joinpath(MESH_DIR, "sphere_600MHz.nas")
-mie_phi0  = mie_pec_rcs_dBsm(sphere_nas, freq, θs_obs)
-mie_phi90 = mie_phi0   # 球体各向同性，φ 切面相同
+mie_phi0 = mie_pec_bistatic_rcs_dBsm(
+    sphere_nas, freq, θs_obs, 0.0, source.theta, source.phi, source.polarization)
+mie_phi90 = mie_pec_bistatic_rcs_dBsm(
+    sphere_nas, freq, θs_obs, π / 2, source.theta, source.phi, source.polarization)
 
 all_results = AccuracyResult[]
 
@@ -124,24 +137,24 @@ if "F5" in enabled
     # vs Mie
     r1m = save_and_report_case("F5_CFIE_Sphere_Direct_phi0_vs_Mie",
         θ_rad_deg, rcs_phi0, mie_phi0, 2.0)
-    push!(all_results, r1f, r2f, r1m)
+    r2m = save_and_report_case("F5_CFIE_Sphere_Direct_phi90_vs_Mie",
+        θ_rad_deg, rcs_phi90, mie_phi90, 2.0)
+    push!(all_results, r1f, r2f, r1m, r2m)
 end
 
 # ─── F6: S-CFIE MLFMA vs Feko + Mie ─────────────────────────────────────────
 if "F6" in enabled
     println("\n[F6] S-CFIE MLFMA+GMRES vs Feko + Mie")
+    report_runtime_configuration("F6"; require_threads = true)
     cfie = CFIE(freq, 0.5)
     V = excitation_vector(cfie, source, basis)
 
     t1 = @elapsed mlfma_op = MLFMAOperator(cfie, basis, 0.35λ)
     @printf("  MLFMA构建: %.1fs\n", t1)
-    V_sorted = V[mlfma_op.sorted_ids]
     P = LUPreconditioner(lu(mlfma_op.Z_near))
     solver = GMRESSolver(restart = 50, maxiter = 200, tol = 1e-3, verbose = true)
-    t2 = @elapsed I_sorted = solve!(solver, mlfma_op, V_sorted; Pl = P)
+    t2 = @elapsed I_mlfma = solve!(solver, mlfma_op, V; Pl = P)
     @printf("  GMRES: %.1fs\n", t2)
-    I_mlfma = similar(I_sorted)
-    I_mlfma[mlfma_op.sorted_ids] = I_sorted
     mlfma_op = nothing; GC.gc()
 
     _, _, rcs_dB = radarCrossSection(θs_obs, ϕs_obs, I_mlfma, basis)
@@ -155,7 +168,9 @@ if "F6" in enabled
         θ_deg_feko, rcs_phi90, feko_cuts[90.0].rcs_dBsm, 3.0)
     r1m = save_and_report_case("F6_CFIE_Sphere_MLFMA_phi0_vs_Mie",
         θ_rad_deg, rcs_phi0, mie_phi0, 3.0)
-    push!(all_results, r1f, r2f, r1m)
+    r2m = save_and_report_case("F6_CFIE_Sphere_MLFMA_phi90_vs_Mie",
+        θ_rad_deg, rcs_phi90, mie_phi90, 3.0)
+    push!(all_results, r1f, r2f, r1m, r2m)
 end
 
 # ─── 汇总 ────────────────────────────────────────────────────────────────────

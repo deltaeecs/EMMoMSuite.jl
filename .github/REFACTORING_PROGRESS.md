@@ -79,6 +79,33 @@
   - theory 目录不再出现 Documenter 的 “Unexpected Julia interpolation in the Markdown” 告警
 - 当前结论：理论文档公式渲染问题已完成本轮收口；文档构建剩余提示仅是 Documenter 无法自动推断 `edit_link` 分支的环境告警，与公式渲染无关。
 
+## 2026-03-11 Update：公式渲染检视 Round 3
+
+- 用户侧新增约束已纳入方案：理论文档源码必须保留标准 Markdown 数学写法，不能为了迁就 Documenter 而把行内公式长期写成 ``...``。
+- 已将以下理论页源码恢复为标准 `$...$` / `$$...$$` 形式：
+  - `docs/src/theory/basis_functions.md`
+  - `docs/src/theory/electromagnetics.md`
+  - `docs/src/theory/excitations.md`
+  - `docs/src/theory/fast_algorithms.md`
+  - `docs/src/theory/integral_equations.md`
+  - `docs/src/theory/method_of_moments.md`
+  - `docs/src/theory/post_processing.md`
+  - `docs/src/theory/solvers.md`
+- 已在 `docs/make.jl` 中新增构建前转换层：
+  - 源 Markdown 继续使用 `$...$` / `$$...$$`
+  - `makedocs` 前自动复制到临时 source 目录并转换为 Documenter / Julia Markdown 兼容语法
+- 已同步修正文档站点本地浏览链路：
+  - `Documenter.HTML(prettyurls = false)`，生成 `*.html` 直达链接
+  - `Documenter.HTML(edit_link = "master")`，消除 `edit_link` 分支推断告警
+- 验证结果：
+  - `julia --project=docs docs/make.jl` 通过
+  - `docs/build/index.html` 中首页导航与正文链接已变为 `guide/installation.html`、`theory/overview.html` 等直达路径
+  - 本轮未再出现数学渲染告警或 `edit_link` 环境告警
+- 当前结论：文档系统现已同时满足三项要求：
+  - 源 Markdown 对常规阅读器保持标准数学写法
+  - Documenter 站点构建保持稳定
+  - 本地打开 `docs/build/index.html` 时可直接点击进入目标页面，无需二次点击目录
+
 ## 2026-03-11 Update：README 刷新
 
 - 已将 `README.md` 从“历史阶段总结页”调整为“当前可执行使用说明页”

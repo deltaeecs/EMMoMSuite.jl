@@ -26,8 +26,7 @@ function excitation_vector(op::EFIE, source::PlaneWave, basis::RWGBasis{IT,FT}) 
     N = num_basis(basis)
     V = zeros(Complex{FT}, N)
 
-    # Use 3-point quadrature for triangles
-    quad = GaussQuadratureInfo(:Triangle, 3, FT)
+    quad = GaussQuadratureInfo(:Triangle, 4, FT)
     num_q = length(quad.weight)
 
     mesh = basis.mesh
@@ -97,7 +96,7 @@ function excitation_vector(op::MFIE, source::PlaneWave, basis::RWGBasis{IT,FT}) 
     N = num_basis(basis)
     V = zeros(Complex{FT}, N)
 
-    quad = GaussQuadratureInfo(:Triangle, 3, FT)
+    quad = GaussQuadratureInfo(:Triangle, 4, FT)
     num_q = length(quad.weight)
 
     mesh = basis.mesh
@@ -215,7 +214,7 @@ function _pmchw_excitation_H(source::PlaneWave, basis::RWGBasis{IT,FT}, eta0::FT
     CT = Complex{FT}
     V  = zeros(CT, N)
 
-    quad   = GaussQuadratureInfo(:Triangle, 3, FT)
+    quad   = GaussQuadratureInfo(:Triangle, 4, FT)
     num_q  = length(quad.weight)
 
     mesh  = basis.mesh

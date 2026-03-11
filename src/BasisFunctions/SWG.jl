@@ -121,32 +121,26 @@ function SWGBasis(mesh::TetrahedraMesh{IT,FT}) where {IT,FT}
     all_faces = Vector{FaceInfo}(undef, nt * 4)
 
     idx = 1
-    for t = 1:nt
-        v1, v2, v3, v4 = tets[:, t]
+    for local_face = 1:4
+        for t = 1:nt
+            v1, v2, v3, v4 = tets[:, t]
+            face = if local_face == 1
+                sort(SVector(v2, v3, v4))
+            elseif local_face == 2
+                sort(SVector(v1, v4, v3))
+            elseif local_face == 3
+                sort(SVector(v1, v2, v4))
+            else
+                sort(SVector(v1, v3, v2))
+            end
 
-        # Face 1: v2, v3, v4
-        f1 = sort(SVector(v2, v3, v4))
-        all_faces[idx] = (f1[1], f1[2], f1[3], t, 1)
-        idx += 1
-
-        # Face 2: v1, v4, v3
-        f2 = sort(SVector(v1, v4, v3))
-        all_faces[idx] = (f2[1], f2[2], f2[3], t, 2)
-        idx += 1
-
-        # Face 3: v1, v2, v4
-        f3 = sort(SVector(v1, v2, v4))
-        all_faces[idx] = (f3[1], f3[2], f3[3], t, 3)
-        idx += 1
-
-        # Face 4: v1, v3, v2
-        f4 = sort(SVector(v1, v3, v2))
-        all_faces[idx] = (f4[1], f4[2], f4[3], t, 4)
-        idx += 1
+            all_faces[idx] = (face[1], face[2], face[3], t, local_face)
+            idx += 1
+        end
     end
 
     # Sort faces to find pairs
-    sort!(all_faces, by = x -> (x[1], x[2], x[3]))
+    sort!(all_faces, alg = MergeSort, by = x -> (x[1], x[2], x[3]))
 
     functions = Vector{SWG{IT,FT}}()
 
@@ -180,7 +174,7 @@ function SWGBasis(mesh::TetrahedraMesh{IT,FT}) where {IT,FT}
                 area,
                 SVector(f1[4], f2[4]),
                 SVector(f1[5], f2[5]),
-                SVector(1, -1), # Placeholder signs
+                SVector(1, -1),
                 SVector{3,FT}(center),
             )
             push!(functions, swg)

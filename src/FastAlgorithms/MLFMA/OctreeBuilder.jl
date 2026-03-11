@@ -46,7 +46,7 @@ Construct the hierarchical Octree structure for the Multilevel Fast Multipole Al
 - `OctreeInfo`: The constructed octree data structure containing all levels and precomputed data.
 - `leafsIDSorted`: Permutation vector sorting basis functions according to the octree structure (Morton order or similar).
 """
-function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0) where {FT<:Real}
+function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0, L_min::Int = 0, near_range::Int = 4) where {FT<:Real}
     println("Building Octree...")
 
     # 1. Set Big Cube
@@ -62,7 +62,7 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0) where 
 
     # 2. Create Leaf Level
     leafLevel, leafsIDSorted =
-        setLevelInfo!(nLevels, leafnodes, leafCubeEdgelUsed, bigCubeLowerCoor; λ = λ)
+        setLevelInfo!(nLevels, leafnodes, leafCubeEdgelUsed, bigCubeLowerCoor; λ = λ, L_min = L_min, near_range = near_range)
 
     # Initialize levels dictionary
     levels = Dict{Int,LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}}(nLevels => leafLevel)
@@ -75,7 +75,7 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0) where 
     for ilevel = (nLevels-1):-1:1
         ilevelCubeEdgel = leafCubeEdgelUsed * (2^(nLevels - ilevel))
         level, levelIDSorted =
-            setLevelInfo!(ilevel, levels[ilevel+1], ilevelCubeEdgel, bigCubeLowerCoor; λ = λ)
+            setLevelInfo!(ilevel, levels[ilevel+1], ilevelCubeEdgel, bigCubeLowerCoor; λ = λ, L_min = L_min, near_range = near_range)
         levels[ilevel] = level
         levelsCubeIDSorted[ilevel+1] = levelIDSorted
     end
@@ -102,7 +102,7 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0) where 
     compute_shift_factors!(nLevels, levels, k)
 
     # 10. Precompute Transfer Factors
-    compute_translation_factors!(nLevels, levels, k)
+    compute_translation_factors!(nLevels, levels, k; near_range = near_range)
 
     println("Octree built successfully.")
     return OctreeInfo(nLevels, leafCubeEdgel, bigCubeLowerCoor, levels), leafsIDSorted
@@ -131,6 +131,8 @@ function setLevelInfo!(
     cubeEdgel::FT,
     bigCubeLowerCoor::SVector{3,FT};
     λ = 1.0,
+    L_min::Int = 0,
+    near_range::Int = 4,
 ) where {FT<:Real}
     nleaves = size(leafnodes, 2)
     nodesInCubeID3D = zeros(Int, nleaves, 4)
@@ -160,7 +162,7 @@ function setLevelInfo!(
     cubesID3D = nodesInCubeID3D[kidsIntervals[1:(end-1)], 1:3]
 
     # Search neighbors
-    cubesNeighbors = searchNearCubes(cubesID3D, nLevels)
+    cubesNeighbors = searchNearCubes(cubesID3D, nLevels; near_range = near_range)
 
     cubesInfo = Vector{CubeInfo{Int,FT}}(undef, nCubes)
     for icube = 1:nCubes
@@ -177,7 +179,7 @@ function setLevelInfo!(
         )
     end
 
-    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ)
+    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
 
     level = LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}()
     level.ID = nLevels
@@ -197,6 +199,8 @@ function setLevelInfo!(
     cubeEdgel::FT,
     bigCubeLowerCoor::SVector{3,FT};
     λ = 1.0,
+    L_min::Int = 0,
+    near_range::Int = 4,
 ) where {FT<:Real}
     nkidCubes = length(kidLevel.cubes)
     kidCubesInCubeID3D = zeros(Int, nkidCubes, 4)
@@ -224,7 +228,7 @@ function setLevelInfo!(
 
     cubesID3D = kidCubesInCubeID3D[kidsIntervals[1:(end-1)], 1:3]
 
-    cubesNeighbors = searchNearCubes(cubesID3D, levelID)
+    cubesNeighbors = searchNearCubes(cubesID3D, levelID; near_range = near_range)
 
     cubesInfo = Vector{CubeInfo{Int,FT}}(undef, nCubes)
     for icube = 1:nCubes
@@ -241,7 +245,7 @@ function setLevelInfo!(
         )
     end
 
-    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ)
+    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
 
     level = LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}()
     level.ID = levelID
@@ -255,7 +259,7 @@ function setLevelInfo!(
     return level, kidCubesSorted
 end
 
-function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer) where {IT<:Integer}
+function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer; near_range::Int = 4) where {IT<:Integer}
     nCubes = size(cubesID3D, 1)
     maxCubes1D = 2^levelID
     cubesID1D = [
@@ -267,11 +271,11 @@ function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer) where {IT<:Int
 
     for iCube = 1:nCubes
         cubeID3D = cubesID3D[iCube, :]
-        neighborsOffsets = [(-4:4), (-4:4), (-4:4)]
+        neighborsOffsets = [(-near_range:near_range), (-near_range:near_range), (-near_range:near_range)]
 
         for ii = 1:3
-            min_offset = max(-4, 1 - cubeID3D[ii])
-            max_offset = min(4, maxCubes1D - cubeID3D[ii])
+            min_offset = max(-near_range, 1 - cubeID3D[ii])
+            max_offset = min(near_range, maxCubes1D - cubeID3D[ii])
             neighborsOffsets[ii] = min_offset:max_offset
         end
 

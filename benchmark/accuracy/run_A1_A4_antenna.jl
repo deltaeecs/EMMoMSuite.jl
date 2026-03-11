@@ -50,32 +50,24 @@ LinearAlgebra.ldiv!(P::LUPrecond, x) = (x .= P.F \ x)
 """
     build_dipole(L, freq; radius=0.005, n_circum=8, n_height=20)
 
-生成开口薄柱面网格 (无端盖) + RWGBasis, 中心 delta-gap 激励。
+生成开口薄柱面网格 (无端盖) + RWGBasis, 中心单馈口 delta-gap 激励。
 
 返回:
   (basis, source, feed_edges)
-  feed_edges — z≈0 处最近一圈边的 RWG 基函数索引
+    feed_edges — z≈0 处选中的单个 RWG 馈电边索引
 """
 function build_dipole(L::Float64, freq::Float64;
-                      radius::Float64=0.005,
-                      n_circum::Int=8,
-                      n_height::Int=20)
+                      radius::Float64=0.0006,
+                      n_circum::Int=12,
+                      n_height::Int=30)
     # 开口圆柱 (closed=false) 模拟偶极子 —— 高度 = L, 中心在 z=0
     mesh = generate_cylinder_mesh(radius, L, n_circum, n_height; closed=false)
     set_frequency!(freq)
     basis = RWGBasis(mesh)
-    N = num_basis(basis)
 
-    # 寻找中心 feed 边: 挑选 center[3] 最近 z=0 的一批边
-    # dz = L/n_height, 取 |z| < dz 的所有边
-    dz = L / n_height
-    feed_edges = Int[]
-    for n in 1:N
-        if abs(basis.functions[n].center[3]) < dz
-            push!(feed_edges, n)
-        end
-    end
-    isempty(feed_edges) && error("未找到 feed 边，请检查网格参数")
+    # Delta-gap for a cylindrical dipole is applied across the full center ring.
+    feed_edges = select_gap_feed_edges(basis; axis=3, center=0.0)
+    isempty(feed_edges) && error("未找到中心 gap 馈电边，请检查网格参数")
 
     # Delta-gap 激励: V_applied = 1 V
     source = DeltaGapSource(freq, feed_edges, 1.0 + 0.0im)

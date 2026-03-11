@@ -36,7 +36,7 @@ export tet_mesh_gmsh, tet_mesh
 export read_hex_mesh, validate_mesh
 export BoundMesh, bind_materials, validate_bindings, element_material
 
-export TriangleMesh, TetrahedraMesh, HexahedraMesh, TriangleInfo, TetrahedraInfo
+export TriangleMesh, TetrahedraMesh, HexahedraMesh, TriangleInfo, Tris4Tetra, TetrahedraInfo
 export HexahedraInfo, Quads4Hexa
 export CompositeMesh
 export HEXA_FACE_VERTEX_IDS, HEXA_OPP_FACE, HEXA_OPP_FACE_VERTEX_IDS

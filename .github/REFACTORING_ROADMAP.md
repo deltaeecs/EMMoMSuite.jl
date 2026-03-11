@@ -1,6 +1,6 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-03-11（全量文档检视修复完成，理论文档公式渲染与工程文档编码损坏已清理）
+> 最后更新: 2026-03-11（全量文档检视修复完成，理论文档源码数学写法与本地站点跳转链路已校正）
 
 ## 当前焦点
 
@@ -22,7 +22,9 @@
 ### 3. 文档与发布链维护
 
 - [x] README 已刷新为当前可执行的使用说明
-- [x] 理论文档公式定界符已统一修复为可渲染格式
+- [x] 理论文档源码已恢复为标准 Markdown 数学写法 `$...$` / `$$...$$`
+- [x] `docs/make.jl` 已增加构建前数学定界符转换层，兼容 Documenter / Julia Markdown
+- [x] 本地文档站点已切换为 `.html` 直达链接，避免 `file` 浏览下二次点击目录页
 - [x] `.github/REFACTORING_ROADMAP.md` / `.github/REFACTORING_PROGRESS.md` 已从损坏文本重建为可维护版本
 - [x] 将理论文档补充为“教材公式 + EMSuite 实现约定”的双层说明，统一记录 RWG 符号折叠、MLFMA 向量顺序与预条件残差口径
 - [ ] 后续若新增 Phase，计划文档需继续遵循 `copilot-instructions.md` 中的计划规范与检视要求
@@ -104,9 +106,11 @@
 - [x] 针对理论文档追加“公式内等号不得单独成行”的渲染约束检查
 - [x] 修正 `fast_algorithms.md` 中 upward / downward pass 三条公式的独立等号写法
 - [x] 修正 `method_of_moments.md` 中面-体耦合块矩阵公式的独立等号写法
-- [x] 将 `docs/src/theory/*.md` 中残余的 `$...$` / `$$...$$` 数学定界符统一迁移为 Documenter 兼容语法
-- [x] 完成 `docs/src/theory/` 全目录重建验证，确认理论文档不再触发 Documenter 数学渲染告警
-- [ ] 如需消除文档构建的剩余环境告警，后续单独处理 Documenter `edit_link` 的分支推断配置
+- [x] 明确“源码 Markdown 可读性优先”的修复原则：源文档保留 `$...$` / `$$...$$`，兼容逻辑下沉到 `docs/make.jl`
+- [x] 在 `docs/make.jl` 中加入构建前数学定界符转换层，使 Documenter 仍接收兼容语法而源码保持标准写法
+- [x] 将本地站点链接从目录式 pretty URL 调整为 `.html` 直达，修复首页左侧 tab 需要二次点击的问题
+- [x] 显式配置 Documenter `edit_link = "master"`，消除分支推断环境告警
+- [x] 完成 `docs/src/theory/` 全目录重建验证，确认理论文档源码与站点构建同时满足可读性与可渲染性
 
 ## 模块结构总览
 

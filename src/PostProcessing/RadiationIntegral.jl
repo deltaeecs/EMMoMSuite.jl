@@ -21,6 +21,67 @@ struct ∠Info{FT<:Real}
     sin::FT
     cos::FT
 end
+
+"""
+    raditionalIntegralNθϕCal(r̂θϕ, basis::SWGBasis, Jtetras)
+
+Calculate the radiation integral using one averaged equivalent current vector
+per tetrahedron. This matches the Legacy SWG far-field path.
+"""
+function raditionalIntegralNθϕCal(
+    r̂θϕ,
+    basis::SWGBasis{IT,FT},
+    Jtetras::AbstractMatrix{CT},
+) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
+
+    Nxyz = zero(MVector{3,CT})
+    Nθϕ = zero(MVector{2,CT})
+
+    r̂ = r̂θϕ.r̂
+    θhat = r̂θϕ.θhat
+    ϕhat = r̂θϕ.ϕhat
+
+    k0 = get_k0()
+    jk0 = im * k0
+
+    points, weights = Geometry.gaussQuadratureTet(4, FT)
+    n_points = length(weights)
+
+    mesh = basis.mesh
+    verts = vertices(mesh)
+    elems = elements(mesh)
+
+    for ti = 1:num_elements(mesh)
+        Jtetra = @view Jtetras[:, ti]
+
+        v_indices = elems[:, ti]
+        r1 = verts[:, v_indices[1]]
+        r2 = verts[:, v_indices[2]]
+        r3 = verts[:, v_indices[3]]
+        r4 = verts[:, v_indices[4]]
+        vol = abs(det(hcat(r2 - r1, r3 - r1, r4 - r1))) / 6.0
+
+        Jtexp = zero(MVector{3,CT})
+        for gi = 1:n_points
+            u = points[1, gi]
+            v = points[2, gi]
+            w = points[3, gi]
+            x = points[4, gi]
+            rgi = u * r1 + v * r2 + w * r3 + x * r4
+
+            phase = exp(jk0 * dot(r̂, rgi))
+            Jtexp .+= Jtetra .* (phase * weights[gi])
+        end
+
+        Jtexp .*= vol
+        Nxyz .+= Jtexp
+    end
+
+    Nθϕ[1] = dot(θhat, Nxyz)
+    Nθϕ[2] = dot(ϕhat, Nxyz)
+
+    return Nθϕ
+end
 ∠Info(val::FT) where {FT} = ∠Info(val, sin(val), cos(val))
 
 struct r̂θϕInfo{FT<:Real}

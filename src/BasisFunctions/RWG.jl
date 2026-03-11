@@ -164,7 +164,7 @@ function RWGBasis(mesh::TriangleMesh{IT,FT}) where {IT,FT}
     end
 
     # 2. Sort edges to find pairs
-    sort!(all_edges, by = x -> (x[1], x[2]))
+    sort!(all_edges, by = x -> (x[1], x[2]), alg = Base.Sort.MergeSort)
 
     # 3. Create RWG functions
     functions = Vector{RWG{IT,FT}}()

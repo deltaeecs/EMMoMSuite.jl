@@ -2,6 +2,12 @@ using MPI
 using EMSuite
 using LinearAlgebra
 using Printf
+using CSV
+using DataFrames
+
+const ROOT = normpath(joinpath(@__DIR__, ".."))
+const REPORT_DIR = joinpath(ROOT, "test_results", "reports")
+const PARALLEL_SAMPLE_CSV = joinpath(REPORT_DIR, "PARALLEL_MPI_SAMPLE.csv")
 
 # Benchmark: Parallel PEC Sphere Scattering
 # -----------------------------------------
@@ -57,9 +63,10 @@ function run_parallel_benchmark()
     
     MPI.Barrier(comm)
     t_end = MPI.Wtime()
+    assembly_time = t_end - t_start
     
     if rank == 0
-        println(@sprintf("Assembly Time: %.4f s", t_end - t_start))
+        println(@sprintf("Assembly Time: %.4f s", assembly_time))
         println("Matrix size: $(size(Z))")
     end
     
@@ -77,7 +84,18 @@ function run_parallel_benchmark()
     I = solve!(solver, Z, V)
     
     if rank == 0
-        println("Solved. Current magnitude: $(norm(I))")
+        current_norm = norm(I)
+        println("Solved. Current magnitude: $(current_norm)")
+        mkpath(REPORT_DIR)
+        CSV.write(PARALLEL_SAMPLE_CSV, DataFrame(
+            case_name = ["Parallel PEC Sphere"],
+            mpi_procs = [comm_size],
+            threads_per_rank = [Threads.nthreads()],
+            unknowns = [num_basis(basis)],
+            assembly_time_s = [assembly_time],
+            current_norm = [current_norm],
+        ))
+        println("Parallel sample CSV written: $(PARALLEL_SAMPLE_CSV)")
     end
     
     MPI.Finalize()

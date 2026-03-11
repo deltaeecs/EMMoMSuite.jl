@@ -141,14 +141,10 @@ if "F3" in enabled
     t1 = @elapsed mlfma_op = MLFMAOperator(efie, basis, 0.35λ)
     @printf("  MLFMA构建: %.1fs\n", t1)
 
-    V_sorted = V[mlfma_op.sorted_ids]
     P = LUPreconditioner(lu(mlfma_op.Z_near))
     solver = GMRESSolver(restart = 50, maxiter = 200, tol = 1e-3, verbose = true)
-    t2 = @elapsed I_sorted = solve!(solver, mlfma_op, V_sorted; Pl = P)
+    t2 = @elapsed I_mlfma = solve!(solver, mlfma_op, V; Pl = P)
     @printf("  GMRES: %.1fs\n", t2)
-
-    I_mlfma = similar(I_sorted)
-    I_mlfma[mlfma_op.sorted_ids] = I_sorted
     mlfma_op = nothing; GC.gc()
 
     _, _, rcs_dB = radarCrossSection(θs_obs, ϕs_obs, I_mlfma, basis)
@@ -168,14 +164,10 @@ if "F4" in enabled
     t1 = @elapsed mlfma_op = MLFMAOperator(cfie, basis, 0.35λ)
     @printf("  MLFMA构建: %.1fs\n", t1)
 
-    V_sorted = V[mlfma_op.sorted_ids]
     P = LUPreconditioner(lu(mlfma_op.Z_near))
     solver = GMRESSolver(restart = 50, maxiter = 200, tol = 1e-3, verbose = true)
-    t2 = @elapsed I_sorted = solve!(solver, mlfma_op, V_sorted; Pl = P)
+    t2 = @elapsed I_mlfma = solve!(solver, mlfma_op, V; Pl = P)
     @printf("  GMRES: %.1fs\n", t2)
-
-    I_mlfma = similar(I_sorted)
-    I_mlfma[mlfma_op.sorted_ids] = I_sorted
     mlfma_op = nothing; GC.gc()
 
     _, _, rcs_dB = radarCrossSection(θs_obs, ϕs_obs, I_mlfma, basis)

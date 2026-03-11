@@ -2,23 +2,26 @@ module Singularities
 
 using StaticArrays
 using LinearAlgebra
+using ..Geometry
 
 export singularF1,
     singularF21,
     singularF22,
     faceSingularityIg,
     faceSingularityIgIvecg,
+    volumeSingularityIgIvecg,
     compute_SSCg,
     greenfunc_star
 
-const SglrOrder = 20
+const SglrOrder = 15
 
 """
-    compute_SSCg(k::FT) where {FT}
+    compute_SSCg(k)
 
 Compute coefficients for Green's function expansion.
+Supports both real and complex wavenumbers.
 """
-function compute_SSCg(k::FT) where {FT}
+function compute_SSCg(k::FT) where {FT<:AbstractFloat}
     SSCg = zeros(Complex{FT}, SglrOrder)
     # exp(-jkr)/R = sum_{n=0} (-jk)^n / n! * R^{n-1}
     # SSCg[n+1] stores (-jk)^n / n!
@@ -33,10 +36,24 @@ function compute_SSCg(k::FT) where {FT}
     return SSCg
 end
 
+function compute_SSCg(k::CT) where {FT<:AbstractFloat,CT<:Complex{FT}}
+    SSCg = zeros(Complex{FT}, SglrOrder)
+
+    term = one(CT)
+    SSCg[1] = term
+
+    for n = 1:SglrOrder-1
+        term *= (-im * k) / n
+        SSCg[n+1] = term
+    end
+    return SSCg
+end
+
 """
-    greenfunc_star(R::FT, k::FT) where {FT<:AbstractFloat}
+    greenfunc_star(R::FT, k) where {FT<:AbstractFloat}
 
 Calculate the smooth part of Green's function (G - 1/R) using Taylor expansion.
+Supports both real and complex wavenumbers.
 """
 function greenfunc_star(R::FT, k::FT) where {FT<:AbstractFloat}
     # Taylor expansion of (exp(-jkr) - 1) / R
@@ -46,6 +63,20 @@ function greenfunc_star(R::FT, k::FT) where {FT<:AbstractFloat}
     # We use the same order as Legacy (15)
     SglrOrder = 15
 
+    minusJk = -im * k
+    g_star = Complex{FT}(minusJk)
+    temp0 = minusJk * R
+    temp1 = Complex{FT}(minusJk)
+
+    for i = 2:SglrOrder
+        temp1 *= temp0 / i
+        g_star += temp1
+    end
+
+    return g_star
+end
+
+function greenfunc_star(R::FT, k::CT) where {FT<:AbstractFloat,CT<:Complex{FT}}
     minusJk = -im * k
     g_star = Complex{FT}(minusJk)
     temp0 = minusJk * R
@@ -393,6 +424,115 @@ function faceSingularityIgIvecg(
     end
 
     return ISg, IvecSg
+end
+
+function volumeSingularityIgIvecg(
+    rgt::AbstractVector{FT},
+    tetra::TetrahedraInfo{IT,FT,CT},
+    SSCg::AbstractVector{Complex{FT}},
+) where {IT<:Integer,FT<:Real,CT<:Complex}
+    n_faces = length(tetra.faces)
+    is_r = zeros(FT, SglrOrder + 2)
+    il_r = zeros(FT, SglrOrder + 2)
+
+    ivg = zero(Complex{FT})
+    ivec_vg = zeros(Complex{FT}, 3)
+    r0 = zeros(FT, 3)
+    p02_vec = zeros(FT, 3)
+
+    for iface = 1:n_faces
+        face = tetra.faces[iface]
+        fill!(is_r, zero(FT))
+
+        dts = dot(view(tetra.facesn̂, :, iface), rgt - view(face.vertices, :, 1))
+        for ii = 1:3
+            r0[ii] = rgt[ii] - dts * tetra.facesn̂[ii, iface]
+        end
+
+        dts2 = dts^2
+        dts_abs = abs(dts)
+
+        for edge_idx = 1:3
+            fill!(il_r, zero(FT))
+
+            start_idx = (2, 3, 1)[edge_idx]
+            edge_node_minus = view(face.vertices, :, start_idx)
+            lj = face.edgel[edge_idx]
+
+            lj_minus = zero(FT)
+            for ii = 1:3
+                lj_minus += (edge_node_minus[ii] - r0[ii]) * face.edgev̂[ii, edge_idx]
+            end
+            lj_plus = lj_minus + lj
+
+            for ii = 1:3
+                p02_vec[ii] = edge_node_minus[ii] - lj_minus * face.edgev̂[ii, edge_idx] - r0[ii]
+            end
+            p02jl = dot(p02_vec, view(face.edgen̂, :, edge_idx))
+            r0_sq = p02jl^2 + dts2
+            r_plus = sqrt(lj_plus^2 + r0_sq)
+            r_minus = sqrt(lj_minus^2 + r0_sq)
+
+            fj = zero(FT)
+            betaj = zero(FT)
+            eps_l = FT(1e-3) * lj
+
+            if abs(p02jl) < eps_l
+                if dts_abs < eps_l
+                    continue
+                else
+                    fj = log((lj_plus + r_plus) / (lj_minus + r_minus))
+                end
+            else
+                fj = log((lj_plus + r_plus) / (lj_minus + r_minus))
+                if dts_abs < eps_l
+                    betaj = atan((p02jl * lj_plus) / r0_sq) - atan((p02jl * lj_minus) / r0_sq)
+                    is_r[2] += p02jl * fj
+                else
+                    betaj =
+                        atan((p02jl * lj_plus) / (r0_sq + dts_abs * r_plus)) -
+                        atan((p02jl * lj_minus) / (r0_sq + dts_abs * r_minus))
+                    is_r[2] += p02jl * fj - dts_abs * betaj
+                end
+            end
+
+            il_r[2] = fj
+            il_r[3] = lj
+            r_plus_n = one(FT)
+            r_minus_n = one(FT)
+            for n = 1:(SglrOrder - 2)
+                r_plus_n *= r_plus
+                r_minus_n *= r_minus
+                il_r[n + 3] = (lj_plus * r_plus_n - lj_minus * r_minus_n + n * r0_sq * il_r[n + 1]) / (n + 1)
+            end
+
+            for n = 1:(SglrOrder - 2)
+                is_r[n + 3] += p02jl * il_r[n + 3]
+            end
+        end
+
+        is_r[3] = tetra.facesArea[iface]
+        for n = 1:(SglrOrder - 2)
+            is_r[n + 3] += n * dts2 * is_r[n + 1]
+            is_r[n + 3] /= n + 2
+        end
+
+        isg = zero(Complex{FT})
+        for n = 0:(SglrOrder - 1)
+            isg -= (SSCg[n + 1] / (n + 2)) * is_r[n + 2]
+        end
+        ivg += dts * isg
+
+        ivec_vgi = zero(Complex{FT})
+        for n = 0:(SglrOrder - 3)
+            ivec_vgi -= (SSCg[n + 1] / (n + 1)) * is_r[n + 4]
+        end
+        for ii = 1:3
+            ivec_vg[ii] += tetra.facesn̂[ii, iface] * ivec_vgi
+        end
+    end
+
+    return ivg, SVector{3,Complex{FT}}(ivec_vg)
 end
 
 end

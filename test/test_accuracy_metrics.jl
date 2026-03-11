@@ -13,9 +13,15 @@ test_accuracy_metrics.jl — Phase 14 TDD: AccuracyMetrics 单元测试
 """
 
 using Test
+using EMSuite
 using EMSuite.Accuracy: AccuracyResult, AntennaAccuracyResult,
                         compute_rcs_accuracy, compute_antenna_accuracy,
-                        print_accuracy_report
+                        print_accuracy_report, extract_sphere_radius as extract_sphere_radius_public,
+                        mie_dielectric_bistatic_rcs_dBsm
+using EMSuite: calculate_mie_rcs_dielectric_sphere
+using EMSuite.Accuracy.ReferenceData: extract_sphere_radius,
+                                      mie_pec_bistatic_rcs_dBsm,
+                                      mie_pec_rcs_dBsm
 
 @testset "14.1 AccuracyMetrics" begin
 
@@ -153,6 +159,95 @@ using EMSuite.Accuracy: AccuracyResult, AntennaAccuracyResult,
         @test occursin("rcs_pass", report_str)
         @test occursin("rcs_fail", report_str)
         @test occursin("ant_pass", report_str)
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 14.1i  extract_sphere_radius — Nastran 球面网格半径提取
+    # ──────────────────────────────────────────────────────────────────────────
+    @testset "14.1i 球半径提取" begin
+        mesh_file = joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles", "sphere_600MHz.nas")
+        if isfile(mesh_file)
+            r = extract_sphere_radius(mesh_file)
+            @test 0.8 < r < 1.2
+            @test extract_sphere_radius_public(mesh_file) == r
+        else
+            @test_skip "外部基线网格不存在，跳过半径提取测试"
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 14.1j  bistatic Mie — 规范 +z/x 情形应退化为原始散射角定义
+    # ──────────────────────────────────────────────────────────────────────────
+    @testset "14.1j 双站 Mie 规范情形退化" begin
+        radius = 0.3
+        freq = 6.0e8
+        theta_obs = collect(range(0.0, π, length = 37))
+
+        ref_phi0 = mie_pec_rcs_dBsm(radius, freq, theta_obs)
+        bistatic_phi0 = mie_pec_bistatic_rcs_dBsm(
+            radius, freq, theta_obs, 0.0, 0.0, 0.0, [1.0, 0.0, 0.0])
+
+        @test bistatic_phi0 ≈ ref_phi0 atol = 1e-10 rtol = 1e-10
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 14.1k  bistatic Mie — 非 +z 入射时，全局 φ 切面参考不能强行视为相同
+    # ──────────────────────────────────────────────────────────────────────────
+    @testset "14.1k 双站 Mie 非规范入射区分全局切面" begin
+        radius = 0.3
+        freq = 6.0e8
+        theta_obs = collect(range(-π, π, length = 181))
+
+        mie_phi0 = mie_pec_bistatic_rcs_dBsm(
+            radius, freq, theta_obs, 0.0, π / 2, π, [0.0, 0.0, 1.0])
+        mie_phi90 = mie_pec_bistatic_rcs_dBsm(
+            radius, freq, theta_obs, π / 2, π / 2, π, [0.0, 0.0, 1.0])
+
+        @test maximum(abs.(mie_phi0 .- mie_phi90)) > 1e-3
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 14.1l  dielectric bistatic Mie — 规范 +z/x 情形退化到原始 E/H 切面
+    # ──────────────────────────────────────────────────────────────────────────
+    @testset "14.1l 介质球双站 Mie 规范情形退化" begin
+        radius = 0.3
+        freq = 6.0e8
+        eps_r = 4.0
+        mu_r = 1.0
+        theta_obs = collect(range(0.0, π, length = 37))
+
+        rcs_e, rcs_h, _ = calculate_mie_rcs_dielectric_sphere(radius, freq, theta_obs, eps_r, mu_r)
+        ref_phi0 = 10.0 .* log10.(max.(rcs_e, 1e-100))
+        ref_phi90 = 10.0 .* log10.(max.(rcs_h, 1e-100))
+
+        bistatic_phi0 = mie_dielectric_bistatic_rcs_dBsm(
+            radius, freq, eps_r, mu_r, theta_obs, 0.0, 0.0, 0.0, [1.0, 0.0, 0.0])
+        bistatic_phi90 = mie_dielectric_bistatic_rcs_dBsm(
+            radius, freq, eps_r, mu_r, theta_obs, π / 2, 0.0, 0.0, [1.0, 0.0, 0.0])
+
+        @test bistatic_phi0 ≈ ref_phi0 atol = 1e-10 rtol = 1e-10
+        @test bistatic_phi90 ≈ ref_phi90 atol = 1e-10 rtol = 1e-10
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 14.1m  lossy dielectric Mie — EMSuite 的 e^{-jωt} 负虚部损耗约定
+    #         应映射到 B&H 原始实现所需的共轭材料参数
+    # ──────────────────────────────────────────────────────────────────────────
+    @testset "14.1m 介质球 Mie 有损符号约定" begin
+        radius = 0.15
+        freq = 3.0e8
+        eps_r = 2.2 - 0.1im
+        mu_r = 1.0 + 0im
+        theta_obs = collect(range(0.0, π, length = 37))
+
+        rcs_e_public, rcs_h_public, rcs_u_public = calculate_mie_rcs_dielectric_sphere(
+            radius, freq, theta_obs, eps_r, mu_r)
+        rcs_e_bh, rcs_h_bh, rcs_u_bh = EMSuite.Utilities.MieSeries._calculate_mie_rcs_dielectric_sphere_bh(
+            radius, freq, theta_obs, conj(eps_r), conj(mu_r))
+
+        @test rcs_e_public ≈ rcs_e_bh atol = 1e-12 rtol = 1e-12
+        @test rcs_h_public ≈ rcs_h_bh atol = 1e-12 rtol = 1e-12
+        @test rcs_u_public ≈ rcs_u_bh atol = 1e-12 rtol = 1e-12
     end
 
 end  # @testset "14.1 AccuracyMetrics"

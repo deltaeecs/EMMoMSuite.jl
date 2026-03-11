@@ -131,6 +131,42 @@ function TriangleInfo{IT,FT}(triID::IT = zero(IT)) where {IT<:Integer,FT<:Abstra
 end
 
 """
+    Tris4Tetra{IT<:Integer,FT<:AbstractFloat}
+
+Face geometry attached to a tetrahedron.
+Carries the Legacy-style face metadata needed by SWG VEFIE face corrections.
+
+# Fields
+- `isbd`: Whether this face is on the dielectric boundary.
+- `δκ`: Contrast jump across this face.
+- `vertices`: Coordinates of the three face vertices.
+- `edgel`: Lengths of the three edges.
+- `edgev̂`: Unit vectors along the three directed edges.
+- `edgen̂`: Unit outward edge normals in the face plane.
+"""
+mutable struct Tris4Tetra{IT<:Integer,FT<:AbstractFloat}
+    isbd::Bool
+    δκ::Complex{FT}
+    verticesID::SVector{3,IT}
+    vertices::SMatrix{3,3,FT,9}
+    edgel::SVector{3,FT}
+    edgev̂::SMatrix{3,3,FT,9}
+    edgen̂::SMatrix{3,3,FT,9}
+end
+
+function Tris4Tetra{IT,FT}() where {IT<:Integer,FT<:AbstractFloat}
+    return Tris4Tetra{IT,FT}(
+        true,
+        zero(Complex{FT}),
+        zero(SVector{3,IT}),
+        zero(SMatrix{3,3,FT,9}),
+        zero(SVector{3,FT}),
+        zero(SMatrix{3,3,FT,9}),
+        zero(SMatrix{3,3,FT,9}),
+    )
+end
+
+"""
     TetrahedraInfo{IT<: Integer, FT<:AbstractFloat, CT<:Complex}
 
 Detailed geometric information for a single tetrahedron element.
@@ -155,6 +191,7 @@ struct TetrahedraInfo{IT<:Integer,FT<:AbstractFloat,CT<:Complex}
     center::SVector{3,FT}
     facesArea::SVector{4,FT}
     facesn̂::SMatrix{3,4,FT,12}
+    faces::Vector{Tris4Tetra{IT,FT}}
     inBfsID::SVector{4,IT}
     bfsSign::SVector{4,Int}
     κ::CT
@@ -172,11 +209,44 @@ function TetrahedraInfo{IT,FT,CT}(
         zero(SVector{3,FT}),
         zero(SVector{4,FT}),
         zero(SMatrix{3,4,FT,12}),
+        Tris4Tetra{IT,FT}[Tris4Tetra{IT,FT}() for _ = 1:4],
         zero(SVector{4,IT}),
         zero(SVector{4,Int}),
         zero(CT),
         zero(CT),
     )
+end
+
+"""
+    set_delta_kappa!(tetras_info::Vector{<:TetrahedraInfo})
+
+Set tetrahedral face contrast jumps using the SWG orientation sign stored in `bfsSign`.
+For a shared face in a uniform medium, the `+κ` and `-κ` contributions cancel.
+"""
+function set_delta_kappa!(tetras_info::Vector{<:TetrahedraInfo})
+    for tetra in tetras_info
+        for face in tetra.faces
+            face.δκ = zero(face.δκ)
+        end
+    end
+
+    face_delta = Dict{NTuple{3,Int},ComplexF64}()
+    for tetra in tetras_info
+        κ = tetra.κ
+        for face_idx = 1:4
+            face_key = Tuple(sort(Int.(collect(tetra.faces[face_idx].verticesID))))
+            face_delta[face_key] = get(face_delta, face_key, 0.0 + 0.0im) + (tetra.bfsSign[face_idx] > 0 ? κ : -κ)
+        end
+    end
+
+    for tetra in tetras_info
+        for face in tetra.faces
+            face_key = Tuple(sort(Int.(collect(face.verticesID))))
+            face.δκ = face_delta[face_key]
+        end
+    end
+
+    return tetras_info
 end
 
 """
