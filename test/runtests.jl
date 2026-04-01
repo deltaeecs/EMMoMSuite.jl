@@ -49,4 +49,7 @@ using Test
     
     # Phase 21.2: Integration tests (end-to-end solves)
     include("test_integral_equations_endtoend.jl")
+    
+    # Phase 21.3: Numerical validation (frequency sweeps)
+    include("test_integral_equations_frequency.jl")
 end

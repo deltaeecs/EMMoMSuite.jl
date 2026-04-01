@@ -34,6 +34,7 @@ using Test
         include("test_mfie_decomposition.jl")
         include("test_mfie_near_quadrature.jl")
         include("test_integral_equations_endtoend.jl")  # Phase 21.2
+        include("test_integral_equations_frequency.jl")  # Phase 21.3
     end
     
     @testset "Volume Methods" begin
