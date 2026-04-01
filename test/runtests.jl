@@ -46,4 +46,7 @@ using Test
     
     # Phase 21: Coverage gap tests for Round 6-12 fixes
     include("test_coverage_gaps.jl")
+    
+    # Phase 21.2: Integration tests (end-to-end solves)
+    include("test_integral_equations_endtoend.jl")
 end
