@@ -296,6 +296,24 @@
   - ROADMAP / PROGRESS 记录修正：Phase 17 发布流程功能的实际实现在 `benchmark/support/release_support.jl`，而非 `src/Accuracy/`。
 - **结论：发现并修复 1 个 Phase 17 遗留死文件问题，Round 5 不属于 clean round，继续 Round 6。**
 
+## 2026-04-01 Update：PMCHW multilevel 检视 Round 6 / Round 7 / Round 8
+
+### Round 6（clean，连续 1）
+
+- 检视范围：Phase 17 依赖收敛变更链（`EMSuite.jl` 导出清理、`LightweightSupport` 集成、`LoggingExtras`/`ProgressMeter` 移除、`Accuracy.jl` 的 `BenchmarkReportData` 移除）。
+- 所有变更逻辑一致，符合 Phase 17 依赖收敛意图。**未发现新问题。**
+
+### Round 7（clean，连续 2）
+
+- 检视范围：`PostProcessing.jl`（移除 ProgressMeter）、`runtests.jl`（新增 test_release_workflow）、`test_benchmark_report_data.jl`（切换到 release_support.jl 直接引入）、`dataset_generator.jl`（Roots → find_zero_bisection）。
+- 所有变更均为 Phase 17 依赖瘦身的符合预期结果。**未发现新问题。**
+
+### Round 8（clean，连续 3）——终止条件满足
+
+- 检视范围：`indices.jl` 中 `factor_values` 替换 `Primes.factor`、`MPIArrays.jl` 中 `knn_bruteforce` 替换 `NearestNeighbors.knn`、`pinv2interpW.jl` 中 `find_zero_bisection` 替换 `Roots.find_zero`。
+- 算法语义验证：`factor_values` 返回含重复的质因数列表，`slicedim2partition` 算法通过内循环复用机制确保与旧唯一质因数版本等价；`knn_bruteforce` 返回格式与 NearestNeighbors.knn 兼容；`find_zero_bisection` 以指数扩张方式确保覆盖所有实际截断阶范围。**未发现新问题。**
+- **连续 3 轮检视（Round 6 / 7 / 8）均无新问题，检视终止条件满足。**
+
 ## 当前未完成事项
 
 - [ ] MLFMA 多层 upward/downward pass 修正

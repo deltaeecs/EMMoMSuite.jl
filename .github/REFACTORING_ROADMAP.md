@@ -98,6 +98,10 @@
 - [x] 检视 Round 3：落地修复 `_receive_terms` 死代码（移除 `η` 参数与 `normal`/`v1`/`v2`/`v3`），并发现并修正 benchmark 脚本 3 处旧接口调用（旧签名传入 `eta` 会在运行时抛 `MethodError`）；Round 3 **不属于 clean round**
 - [x] 检视 Round 4（clean）：确认所有接口签名一致、相位符号正确、batch 入口结构合理————第 1 个连续 clean round
 - [x] 检视 Round 5：发现并删除 Phase 17 添加但从未接入的 `src/Accuracy/ReleaseWorkflow.jl`（功能已由 `benchmark/support/release_support.jl` 覆盖）；Round 5 **不属于 clean round**，继续 Round 6
+- [x] 检视 Round 6（clean）：Phase 17 依赖收敛变更链一致，连续 1
+- [x] 检视 Round 7（clean）：ProgressMeter/Roots/runtests 等变更一致，连续 2
+- [x] 检视 Round 8（clean）：`factor_values`/`knn_bruteforce`/`find_zero_bisection` 语义等价验证通过，连续 3
+- [x] **连续 3 轮检视无新问题，终止条件满足，PMCHW multilevel M-pass 检视迭代收口**
 - [ ] 补做 `docs/build/` 站点重建，消除源码文档与本地构建产物之间的状态滞后
 
 ### 2026-03-11 理论文档实现约定补记
