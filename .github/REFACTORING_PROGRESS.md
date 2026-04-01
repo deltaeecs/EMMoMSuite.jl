@@ -365,5 +365,18 @@
   - `SWG.jl`: 修正边界面注释误导（实际已包含边界面，非注释掉状态）
   - 文档化 SWG vs RWG 边界处理设计差异（SWG 包含边界面用于 VEFIE 通量连续性，RWG 排除边界边用于 PEC EFIE）
   - `EFIE.jl`: 移除 4 处已注释的 debug println 死代码
-- **Git 提交：** `refactor: standardize constants and logging across entire codebase` (commit 0da31d3)
-- **待办文档任务：** 需文档化 Parameters.jl 线程安全性限制、EFIE near-interaction 转置 workaround
+- **文档任务完成：**
+  - `Parameters.jl`: 添加 Thread Safety 警告章节，明确 GLOBAL_PARAMS 无锁全局状态、并发竞态风险、当前约束与未来改进方向
+  - `EFIE.jl`: 详细文档化 near-interaction 转置 workaround（Legacy Parity 设计约束、半解析积分非对称性、矩阵对称性保障机制）
+  - `RWG.jl`: 增强边界处理设计差异文档，明确排除边界边的物理原因（PEC EFIE 电流不可流出闭合表面）
+- **Git 提交：**
+  - 代码修复：`refactor: standardize constants and logging across entire codebase` (commit 0da31d3)
+  - 进度/路线图：`docs: update progress and roadmap for全工程检视 Round 4` (commit 9d7067b)
+  - 文档任务：`docs: document thread-safety limitations and design constraints` (commit 50c9ee2)
+- **Round 4 收口：** 所有发现问题已修复，所有待办任务已完成
+
+### Round 5（待启动）
+
+- 按照开发原则第7条，需连续三轮清洁检视（Round 3 首次 clean，当前连续 1 轮）
+- Round 5 将检视 Round 4 的修复是否引入新问题，并扩大检视覆盖面
+
