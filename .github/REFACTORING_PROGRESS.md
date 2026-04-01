@@ -450,8 +450,26 @@
 - **Git 提交**：`fix: add comprehensive numerical safety checks (Round 8 findings)` (commit 8e68d5d)
 - **Round 8 收口**：发现并修复关键问题，连续 clean 轮次清零（连续 0 轮）
 
-### Round 9（待启动）
+### Round 9（发现问题，不属于 clean round）
+
+- 检视范围：全面验证 Round 6-8 修复 + 数值阈值一致性检查
+- **Round 6-8 修复验证**：
+  - ✅ **全部 10 处修复都正确且完整**
+  - FastExp.jl、Singularities.jl、Translation.jl、WavePort.jl、SpecialPorts.jl、BasisUtilities.jl、CoordinateTransforms.jl、SCFIE.jl
+- **发现 1 个阻塞性问题**：
+  - 🔴 FastExp.jl `fast_exp_ikr` 使用 `unsafe_trunc + min` — 与 `fast_green_func` 的 `clamp(trunc(...))` 不对称
+  - 影响：潜在越界风险，代码维护性差
+- **发现 6 个非阻塞性改进机会**（延后到后续 phase）：
+  - 数值阈值不一致（`1e-10` vs `1e-12` vs `1e-15`）
+  - 硬编码 magic constants 分散（13+ 处）
+  - Singularities.jl 中 `epsilon_l` 系数缺少文档说明
+- **已修复阻塞性问题**：
+  - FastExp.jl:134 改为 `clamp(trunc(Int, idx_f), 1, n-1)` 与 `fast_green_func` 对齐
+- **Git 提交**：`fix: unify table lookup safety in FastExp (Round 9 finding)` (commit 74d8652)
+- **Round 9 收口**：发现并修复阻塞性问题，连续 clean 轮次清零（连续 0 轮）
+
+### Round 10（待启动）
 
 - 需连续 3 轮清洁检视才可收口
-- Round 9 将验证 Round 8 修复 + 检查是否还有遗漏的边界条件验证问题
+- Round 10 将验证 Round 9 修复 + 检查是否还有遗漏的边界情况
 
