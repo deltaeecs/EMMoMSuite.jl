@@ -145,13 +145,19 @@ function singularF22(a::FT, b::FT, c::FT, area2::FT) where {FT<:AbstractFloat}
     b2 = b^2
     c2 = c^2
     s = (a + b + c) / 2
+    # Numerical protection for log terms (same as singularF21)
+    eps_ft = eps(FT)
+    log_a = log(max(1 - a / s, eps_ft))
+    log_b = log(max(1 - b / s, eps_ft))
+    log_c = log(max(1 - c / s, eps_ft))
+    
     return (
         (-10 - (a2 - b2) / c2 - (a2 - c2) / b2) * a +
         (5 + (a2 - b2) / c2 - 6 * (b2 - c2) / a2) * b +
         (5 + (a2 - c2) / b2 - 6 * (c2 - b2) / a2) * c +
-        (2 * a2 - b2 - c2 + 4 * area2 / a2) * 12 / a * log(1 - a / s) +
-        (9 * a2 - 3 * b2 - c2 + 4 * area2 / b2) * 2 / b * log(1 - b / s) +
-        (9 * a2 - b2 - 3 * c2 + 4 * area2 / c2) * 2 / c * log(1 - c / s)
+        (2 * a2 - b2 - c2 + 4 * area2 / a2) * 12 / a * log_a +
+        (9 * a2 - 3 * b2 - c2 + 4 * area2 / b2) * 2 / b * log_b +
+        (9 * a2 - b2 - 3 * c2 + 4 * area2 / c2) * 2 / c * log_c
     ) / 60
 end
 

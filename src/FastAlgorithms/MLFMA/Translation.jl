@@ -82,6 +82,13 @@ function cal_alpha_trans_on_level!(
         # Relative vector * cube edge length
         RabVec = SVector{3,FT}(level.cubeEdgel .* all316FarNeighID[:, iFarNei])
         Rab = norm(RabVec)
+        
+        # Skip if two cubes have essentially the same center (should never happen in well-formed octree)
+        if Rab < eps(FT) * level.cubeEdgel
+            # Translation between identical centers is identity, αTrans remains zeros
+            continue
+        end
+        
         R̂ab = RabVec / Rab
 
         # Spherical Hankel H2 (0 to truncL)
