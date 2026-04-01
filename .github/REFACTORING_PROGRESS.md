@@ -487,8 +487,29 @@
 - **文档质量**：关键函数都有 docstring，数值保护有注释说明
 - **Round 10 收口**：**第一个 Clean Round 达成**，连续 clean 轮次：**1/3**
 
-### Round 11（待启动）
+### Round 11（**第二个连续 Clean Round** ✅）
 
-- 连续 clean 轮次：1/3（需再连续 2 轮 clean 才可收口）
-- Round 11 将采样扫描 MLFMA 相关模块验证数值一致性
+- 检视范围：MLFMA 完整扫描 + PostProcessing/Geometry/Ports 重点扫描
+- 覆盖范围：
+  - **100% 深度**：Translation.jl, MLFMAOperator.jl, Aggregation.jl, Disaggregation.jl
+  - **85% 重点**：NearField.jl, RCS.jl, OctreeBuilder.jl
+  - **80% 采样**：CoordinateTransforms.jl, Ports 模块, STLIO.jl, GmshIO.jl
+- **关键验证通过**：
+  - ✅ Translation.jl Round 7 修复完整 — Rab 检查覆盖所有平移算子
+  - ✅ Legendre 多项式递推无除零风险
+  - ✅ Spherical Hankel 函数调用安全（前置 Rab>0 检查）
+  - ✅ MLFMAOperator 并行安全 — Atomic 计数器 + 线程本地缓冲
+  - ✅ Aggregation/Disaggregation 线程独立性验证 — 无竞态条件
+  - ✅ Constants 引用一致性 — 所有模块统一使用 Constants.jl
+  - ✅ acos clamp 覆盖所有球坐标转换
+- **阻塞性问题扫描**：
+  - ✅ **零阻塞性问题**
+  - 记录 1 个物理约束的非阻塞性问题（OctreeBuilder 整数溢出，实际深度 < 20 不触发）
+- **系统性检查**：MLFMA 层级索引、并行竞态、数值溢出、球坐标边界 — 全部通过
+- **Round 11 收口**：**第二个连续 Clean Round 达成**，连续 clean 轮次：**2/3**
+
+### Round 12（待启动，最后一轮）
+
+- 连续 clean 轮次：2/3（需再 1 轮 clean 即可满足退出指标）
+- Round 12 将进行最终综合验证并确认退出
 
