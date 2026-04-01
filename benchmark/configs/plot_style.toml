@@ -1,0 +1,20 @@
+[cartesian]
+width = 1200
+height_per_panel = 320
+dpi = 150
+line_width_main = 2.2
+line_width_ref = 1.8
+legend_position = "topright"
+main_color = "steelblue"
+reference_color = "darkorange"
+grid = true
+
+[polar]
+width = 1200
+height_per_panel = 320
+dpi = 150
+line_width_main = 2.0
+line_width_ref = 1.6
+main_color = "steelblue"
+reference_color = "darkorange"
+radial_padding = 1.0

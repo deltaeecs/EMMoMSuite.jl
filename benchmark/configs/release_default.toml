@@ -1,0 +1,30 @@
+[workflow]
+name = "release-default"
+mode = "full"
+reuse_existing_accuracy = true
+reuse_existing_performance = false
+stable_alias_outputs = true
+
+[paths]
+plot_style = "benchmark/configs/plot_style.toml"
+thresholds = "benchmark/configs/thresholds.toml"
+known_exceptions = "benchmark/configs/known_exceptions.toml"
+
+[steps]
+run_accuracy = false
+run_performance = true
+run_report = true
+mirror_latest = true
+
+[scripts]
+performance = "benchmark/performance_baseline.jl"
+report = "benchmark/run_release_validation_report.jl"
+
+[accuracy]
+scripts = [
+    "benchmark/accuracy/run_F1_F4_jet.jl",
+    "benchmark/accuracy/run_F5_F6_sphere.jl",
+    "benchmark/accuracy/run_F7_F9_plate.jl",
+    "benchmark/accuracy/run_P1_P3_pmchw.jl",
+    "benchmark/accuracy/run_B1_B5_antenna.jl",
+]

@@ -1,0 +1,7 @@
+[[exceptions]]
+id = "legacy-f2-cfie-jet-direct"
+label_pattern = "F2_CFIE_Jet_Direct"
+scope = "release"
+disposition = "waived"
+tracking = "Phase 16 known legacy exception"
+rationale = "Jet CFIE 对 FEKO 的偏差已验证为 Legacy 继承问题，不属于本轮 EMSuite 新引入回归。"
