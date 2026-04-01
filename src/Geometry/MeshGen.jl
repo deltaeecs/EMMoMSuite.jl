@@ -172,8 +172,71 @@ end
 
 Generate a UV sphere mesh.
 radius: Sphere radius
-n_theta: Number of segments along theta (latitude).
-n_phi: Number of segments along phi (longitude).
+"""
+    generate_sphere_mesh(radius, n_theta, n_phi) -> TriMesh
+
+Generate a triangulated sphere mesh using latitude-longitude parameterization.
+
+# Arguments
+
+- `radius::Real`: Sphere radius [meters]
+- `n_theta::Int`: Number of latitude divisions (pole to pole)
+  - Minimum: 2 (yields 2n_phi triangles)
+  - Typical: 10-20 for smooth sphere
+- `n_phi::Int`: Number of longitude divisions (around equator)
+  - Minimum: 3 (yields tetrahedron-like mesh)
+  - Typical: 20-40 for smooth sphere
+
+# Returns
+
+- `TriMesh{Int, typeof(radius)}`: Triangle mesh with ~2 × n_theta × n_phi triangles
+
+# Mesh Structure
+
+The mesh is structured as:
+- **North pole**: Single vertex at (0, 0, radius)
+- **Latitude rings**: (n_theta - 1) rings of n_phi vertices each
+- **South pole**: Single vertex at (0, 0, -radius)
+
+Triangle count: 2 × n_phi × (n_theta - 1)
+- Top cap: n_phi triangles
+- Middle bands: 2 × n_phi × (n_theta - 2) triangles
+- Bottom cap: n_phi triangles
+
+# Examples
+
+```julia
+# Coarse sphere (80 triangles)
+mesh = generate_sphere_mesh(0.1, 5, 8)  # radius=10cm, 5×8 divisions
+
+# Smooth sphere (~800 triangles) for λ/10 meshing at 1 GHz
+λ = 0.3  # 300 mm at 1 GHz
+radius = λ / 2  # 150 mm
+edge_per_wavelength = 10
+n_divisions = ceil(Int, π * 2 * radius / (λ / edge_per_wavelength))
+mesh = generate_sphere_mesh(radius, n_divisions ÷ 2, n_divisions)
+
+# Check mesh quality
+@assert num_triangles(mesh) == 2 * 8 * 4  # 2 * n_phi * (n_theta - 1)
+```
+
+# Notes
+
+- Vertices are not uniformly distributed (denser near poles)
+- For electrical size ka < 1, use coarse meshing (n_theta=5, n_phi=8)
+- For ka > 5, use fine meshing (n_theta ≥ 20, n_phi ≥ 40)
+- Edge length varies: shortest at poles, longest at equator
+
+# See Also
+
+- [`TriMesh`](@ref): Returned mesh type
+- [`generate_box_tet_mesh`](@ref): Generate tetrahedral box mesh
+- [`read_nas_mesh`](@ref): Import mesh from file
+
+# References
+
+Rao-Wilton-Glisson (RWG) basis functions work best with uniform edge lengths.
+For high-accuracy sphere analysis, consider using Mie series instead of MoM.
 """
 function generate_sphere_mesh(radius::FT, n_theta::Int, n_phi::Int) where {FT<:Real}
     # Vertices

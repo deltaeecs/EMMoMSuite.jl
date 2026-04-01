@@ -31,9 +31,71 @@ function parse_nastran_float(s::AbstractString, ::Type{FT}) where {FT}
 end
 
 """
-    read_nas_mesh(pathname::String; FT=Float64, scale=1.0)
+    read_nas_mesh(pathname::String; FT=Float64, scale=1.0) -> TriTetraHexMesh
 
-Read a Nastran (.nas) mesh file.
+Read a Nastran (.nas) mesh file and construct a hybrid mesh.
+
+# Supported Nastran Cards
+
+- **GRID**: Node definition (x, y, z coordinates)
+- **CTRIA3**: 3-node triangular surface element
+- **CTETRA**: 4-node tetrahedral volume element
+- **CHEXA**: 8-node hexahedral volume element
+
+# Arguments
+
+- `pathname::String`: Path to .nas file (must have .nas extension)
+- `FT::Type=Float64`: Floating-point type for coordinates (Float32 or Float64)
+- `scale::Float64=1.0`: Coordinate scaling factor
+  - Use `scale=1e-3` to convert mm → m
+  - Use `scale=0.0254` to convert inches → m
+
+# Returns
+
+- `TriTetraHexMesh{Int, FT}`: Mixed-element mesh containing triangles, tetrahedra, and/or hexahedra
+
+# Format Details
+
+Nastran free-field format (comma or space delimited):
+```
+GRID,   1, 0, 0.0, 0.0, 0.0
+CTRIA3, 1, 1, 10, 20, 30
+CTETRA, 1, 1, 10, 20, 30, 40
+CHEXA,  1, 1, 10, 20, 30, 40, 50, 60, 70, 80
+```
+
+Comment lines start with `\$`, `//`, or `#` and are ignored.
+
+# Examples
+
+```julia
+# Read mesh in meters (SI units)
+mesh = read_nas_mesh("model.nas")
+
+# Read mesh in mm, convert to meters
+mesh = read_nas_mesh("model_mm.nas", scale=1e-3)
+
+# Use single precision
+mesh = read_nas_mesh("model.nas", FT=Float32)
+
+# Typical workflow
+using EMSuite.Geometry
+mesh = read_nas_mesh("antenna.nas", scale=1e-3)
+@assert num_triangles(mesh) > 0  # Check surface elements
+```
+
+# Error Handling
+
+Throws `ErrorException` if:
+- File does not have .nas extension
+- File cannot be opened
+- Nastran cards have invalid format
+
+# See Also
+
+- [`read_msh_mesh`](@ref): Read Gmsh .msh format
+- [`TriTetraHexMesh`](@ref): Hybrid mesh type
+- [`TriMesh`](@ref): Triangle-only mesh
 """
 function read_nas_mesh(pathname::String; FT = Float64, scale = 1.0)
     if !endswith(pathname, ".nas")
