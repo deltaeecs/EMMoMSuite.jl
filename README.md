@@ -1,478 +1,353 @@
 # EMSuite.jl
 
-**EMSuite.jl** 是一个基于 Julia 语言开发的综合性计算电磁学（Computational Electromagnetics, CEM）矩量法（Method of Moments, MoM）框架，从多个 Legacy 代码库（`MoM_Basics`、`MoM_Kernels`、`MoM_AllinOne` 等）重构而来，目标是构建工程级可交付的电磁仿真平台。
+EMSuite.jl 是一个面向工程验证与重构交付的 Julia 计算电磁学框架，核心聚焦矩量法求解链，包括表面积分、体积分、混合积分方程、MLFMA、MPI 并行、端口建模、后处理与发布验证流程。
 
-**版本**: `0.1.0` | **Julia**: `≥ 1.9` | **状态**: Phase 1–22 全部完成 ✅
+当前仓库状态已经不再是“单一求解器包”这么简单，而是分成两条清晰链路：
 
----
+- 主包运行时链：`src/` 下的几何、基函数、积分方程、求解器、后处理、I/O 与并行能力。
+- benchmark / release 链：`benchmark/` 下的精度基准、性能基线、统一报告、发布工作流与图表资产生成。
+
+## 当前状态
+
+| 项目 | 状态 |
+|------|------|
+| Julia 版本 | `1.10+` |
+| 主包入口 | `using EMSuite` |
+| 发布工作流 | `benchmark/run_release_workflow.jl` |
+| 统一报告入口 | `benchmark/run_release_validation_report.jl` |
+| 图表环境 | `benchmark/Project.toml` 隔离 `Plots` |
+| 最近验证 run | `test_results/runs/20260311_084333/` |
+| 当前发布结论 | 18/20 精度曲线阈值内，2 项已登记 known exception，无新增 blocker |
 
 ## 架构总览
 
+下面这张图按“运行时求解链 + 基础设施 + 发布验证链”重新组织，避免旧版 README 中箭头过密、主题混乱的问题。
+
 ```mermaid
-graph TD
-    subgraph 输入层
-        GEO["Geometry\n网格 & 几何\n(TriangleMesh / TetrahedraMesh\nHexahedraMesh / CompositeMesh\nCSG 布尔运算 / Gmsh 接口)"]
-        MAT["Materials\n材料模型\n(Isotropic / Anisotropic\nDebye / Drude / Lorentz)"]
-        IO_IN["IO (读取)\nNastran .nas\nGmsh .msh / STL"]
-    end
+%%{init: {'theme': 'base', 'themeVariables': { 'background': '#fbfbf7', 'primaryColor': '#e8f1df', 'primaryTextColor': '#243224', 'primaryBorderColor': '#6d8a63', 'lineColor': '#6c6c6c', 'secondaryColor': '#e7edf7', 'secondaryBorderColor': '#6e86a6', 'tertiaryColor': '#f6ead7', 'tertiaryBorderColor': '#b48a4d', 'fontFamily': 'Microsoft YaHei, Segoe UI, sans-serif'}}}%%
+flowchart LR
+    IO["输入与几何<br/>Nastran / STL / Gmsh<br/>TriangleMesh / TetrahedraMesh / HexahedraMesh"]
+    MAT["材料与边界<br/>Isotropic / Anisotropic<br/>Debye / Drude / Lorentz"]
+    BF["基函数与端口<br/>RWG / SWG / PWC / RBF<br/>LumpedPort / WavePort / CoaxPort"]
+    IE["积分方程层<br/>EFIE / MFIE / CFIE<br/>VEFIE / SCFIE / PMCHW / NMuller"]
+    FA["快速算法层<br/>MLFMA / Lebedev<br/>Near-field / Far-field split"]
+    SLV["求解层<br/>LU / GMRES / BiCGSTAB<br/>Diagonal / ILU / BlockJacobi"]
+    PP["后处理层<br/>RCS / NearField / FarField<br/>Antenna metrics / SAR"]
+    OUT["结果输出<br/>VTK / HDF5 / CSV / Touchstone<br/>Release report assets"]
+    PAR["并行能力<br/>Threads / MPI / MPIMatrix<br/>mpi_gmres / parallel assembly"]
+    CORE["基础设施<br/>Core abstractions / Utilities<br/>Driver / Simulation config"]
+    REL["验证与发布链<br/>benchmark/support/release_support.jl<br/>run_release_workflow.jl / report pipeline"]
 
-    subgraph 建模层
-        BF["BasisFunctions\n基函数\n(RWG / SWG\nPWC / RBF / PWCHex)"]
-        PORT["Ports\n端口体系\n(LumpedPort / WavePort\nCoaxPort / S参数)"]
-    end
-
-    subgraph 算子层
-        IE["IntegralEquations\n积分方程\n(EFIE / MFIE / CFIE\nVEFIE / SCFIE / PMCHW)"]
-        FA["FastAlgorithms\nMLFMA\n(Octree / Aggregation\nTranslation / Lebedev)"]
-    end
-
-    subgraph 求解层
-        SLV["Solvers\n求解器\n(LU / GMRES / BiCGSTAB\nDiagonal / ILU / BlockJacobi)"]
-        PAR["Parallel\n并行\n(MPI + Multi-threading\nmpi_gmres!)"]
-    end
-
-    subgraph 输出层
-        PP["PostProcessing\n后处理\n(RCS / NearField / FarField\n天线指标 / SAR / RCSResult)"]
-        IO_OUT["IO (写出)\nVTK .vtu / HDF5\nCSV / Touchstone .sNp"]
-        VIZ["Visualization\n可视化辅助"]
-    end
-
-    subgraph 基础设施
-        CORE["Core\n抽象接口\n(AbstractMesh / AbstractBasisFunction\nAbstractIntegralOperator)"]
-        UTIL["Utilities\n工具\n(物理常数 / Mie 级数\n日志 / SimulationParameters)"]
-        DRV["Driver\nrun_simulation()"]
-    end
-
-    IO_IN --> GEO
-    GEO --> BF
+    IO --> BF
     MAT --> BF
     MAT --> IE
     BF --> IE
-    BF --> PORT
-    IE --> SLV
     IE --> FA
+    IE --> SLV
     FA --> SLV
-    SLV --> PAR
     SLV --> PP
-    SLV --> IO_OUT
-    PORT --> SLV
-    PP --> VIZ
-    PP --> IO_OUT
-    CORE -.-> GEO & BF & IE & SLV
-    UTIL -.-> IE & PP
-    DRV --> GEO & IE & SLV & PP
+    PP --> OUT
+    SLV --> OUT
+    PAR --> SLV
+    CORE -.支持.-> IO
+    CORE -.支持.-> IE
+    CORE -.支持.-> SLV
+    CORE -.支持.-> PP
+    REL -.消费 accuracy / performance artifacts.-> OUT
+
+    classDef runtime fill:#e8f1df,stroke:#6d8a63,color:#243224,stroke-width:1.2px;
+    classDef infra fill:#e7edf7,stroke:#6e86a6,color:#24324a,stroke-width:1.2px;
+    classDef release fill:#f6ead7,stroke:#b48a4d,color:#4d3920,stroke-width:1.2px;
+
+    class IO,MAT,BF,IE,FA,SLV,PP,OUT,PAR runtime;
+    class CORE infra;
+    class REL release;
 ```
 
----
+## 核心能力
 
-## 主要特性
+### 积分方程
 
-### 🔷 积分方程 (Integral Equations)
+| 类别 | 主要算子 | 典型场景 |
+|------|----------|----------|
+| 表面散射 | `EFIE` `MFIE` `CFIE` | PEC 开闭体散射与辐射 |
+| 体积分 | `VEFIE` | 均匀介质体、电介质板、体网格模型 |
+| 混合表体 | `SCFIE` | 表面金属 + 介质体混合问题 |
+| 介质表面积分 | `PMCHW` `NMuller` | 均匀介质表面等效电流问题 |
 
-| 算子 | 适用场景 | 基函数 |
-|------|----------|--------|
-| EFIE | PEC 表面散射（开/闭体） | RWG |
-| MFIE | PEC 闭合体散射 | RWG |
-| CFIE | PEC 闭合体（解决内部谐振） | RWG |
-| VEFIE | 介质体散射（体积分） | SWG / PWC / RBF / PWCHex |
-| SCFIE | 均匀介质体（表面-体积混合） | RWG + SWG/PWC |
-| **PMCHW** | **均匀介质体表面积分方程** | **RWG** |
+### 基函数与几何
 
-### 🔷 基函数 (Basis Functions)
+- 表面基函数：`RWG`
+- 体基函数：`SWG` `PWC` `RBF` `PWCHex`
+- 网格类型：`TriangleMesh` `TetrahedraMesh` `HexahedraMesh` `CompositeMesh`
+- 网格输入：Nastran `.nas`、Gmsh `.msh`、STL
+- 几何操作：平移、缩放、旋转、合并、去重、朝向修复、CSG 布尔、Gmsh 建模接口
 
-- **RWG** — Rao-Wilton-Glisson，三角面基函数（表面问题）
-- **SWG** — Schaubert-Wilton-Glisson，四面体基函数（体积分）
-- **PWC** — Piecewise Constant，脉冲基函数（3 DOF/tet，高效体积分）
-- **RBF** — Rao-Billinghast-Farris，六面体旋转基函数
-- **PWCHex** — 六面体脉冲基函数
+### 求解与并行
 
-### 🔷 几何引擎 (Geometry)
+- 直接法：`LUSolver`
+- 迭代法：`GMRESSolver` `BiCGSTABSolver`
+- 预条件器：`DiagonalPreconditioner` `ILUPreconditioner` `BlockJacobiPreconditioner`
+- 快速算法：`MLFMA` `MLFMAOperatorMPI`
+- 并行能力：线程并行、MPI 组装、`mpi_gmres!`、`MPIMatrix`
 
-- **网格类型**: `TriangleMesh`、`TetrahedraMesh`、`HexahedraMesh`、`CompositeMesh`（混合表面+体积）
-- **网格 I/O**: Nastran `.nas`（CTRIA3/CTETRA/CHEXA）、Gmsh `.msh`、STL
-- **网格生成**: 球、盒体、圆柱、椭球、圆锥、圆环（参数化）
-- **Gmsh 接口**: `generate_gmsh_sphere`、`surface_mesh_gmsh`、`tet_mesh_gmsh`（需要 Gmsh.jl）
-- **CSG 布尔运算**: `box_solid`、`intersect_solids`、`union_solids`、`subtract_solid`
-- **材料绑定**: `BoundMesh`，支持按网格标签绑定材料
-- **网格操作**: 平移、缩放、旋转、合并、去重节点、修复朝向
+### 后处理与端口
 
-### 🔷 快速算法 (Fast Algorithms)
-
-- **MLFMA** — 多层快速多极子算法，支持 MPI 分布式版本（`MLFMAOperatorMPI`）
-- **Lebedev 积分** — 高精度球面数值积分
-
-### 🔷 求解器 (Solvers)
-
-| 求解器 | 类型 | 说明 |
-|--------|------|------|
-| `LUSolver` | 直接 | LAPACK LU 分解 |
-| `GMRESSolver` | 迭代 | 广义最小残差法 |
-| `BiCGSTABSolver` | 迭代 | 双共轭梯度稳定法 |
-| `DiagonalPreconditioner` | 预条件 | 对角预处理 |
-| `ILUPreconditioner` | 预条件 | 不完全 LU 分解 |
-| `BlockJacobiPreconditioner` | 预条件 | 按 MLFMA 盒子分块 LU（166× 构建提速） |
-
-### 🔷 并行计算 (Parallel)
-
-- **MPI** (`assemble_impedance_matrix_parallel`、`mpi_gmres!`、`MPIMatrix`)
-- **多线程** (`@threads` 行并行，Fss 边界并行，`BlockJacobiPreconditioner`)
-- V-EFIE MPI：Allreduce 方案，1→2 进程约 1.24× 加速
-
-### 🔷 端口体系 (Ports)
-
-| 端口类型 | 说明 |
-|----------|------|
-| `LumpedPort` | 集总端口（集总激励 + 阻抗装配） |
-| `WavePort` | 波端口（模式场展开） |
-| `CoaxPort` | 同轴端口 |
-| `DifferentialPairPort` | 差分对端口 |
-| S 参数 | `SParameterData`，Touchstone `.sNp` 读写 |
-| 混模转换 | `mixed_mode_transform_matrix`，SDD/SCC/SCD 矩阵 |
-
-### 🔷 材料模型 (Materials)
-
-- **静态**: `Isotropic`（各向同性），`Anisotropic`（张量）
-- **色散**: `DebyeModel`（弛豫）、`DrudeModel`（金属等离子体）、`LorentzModel`（谐振）
-- **材料库**: `MaterialLibrary`，支持保存/加载内置库
-
-### 🔷 后处理 (PostProcessing)
-
-- **散射**: `radarCrossSection`（单/双站 RCS，支持全基函数类型），`RCSResult`，`rcs_frequency_response`
-- **远场**: `farField`，`FarFieldPattern`，`gain`，`gain_db`，`hpbw`，`side_lobe_level`
-- **近场**: `calculate_near_field`，`NearFieldGrid`，`NearFieldLine`，`field_cut_plane`
-- **天线指标**: `antenna_directivity`，`input_impedance`，`beam_metrics`，`axial_ratio`，`xpd`
-- **功率**: `absorbed_power`，`sar`
-- **MLFMA 缓存**: `MLFMACache`，`solve_multi_rhs`（多右端项加速）
-
-### 🔷 I/O
-
-| 格式 | 函数 | 说明 |
-|------|------|------|
-| VTK `.vtu` | `save_vtk`、`save_vtk_multi` | ParaView 可视化 |
-| HDF5 | `save_results_hdf5`、`save_result` | 高性能二进制存储 |
-| CSV/TXT | `save_RCS_txt`、`save_RCS_csv` | 通用文本结果 |
-| Touchstone | `write_touchstone`、`read_touchstone` | RF 网络参数 |
-
----
-
-## 安装
-
-```julia
-# Julia REPL 包管理模式
-pkg> add EMSuite
-```
-
-或：
-
-```julia
-using Pkg
-Pkg.add("EMSuite")
-```
-
-> **依赖**: Julia ≥ 1.9，可选依赖 `Gmsh.jl`（几何网格生成）、`MPI.jl`（分布式并行）。
-
----
+- 散射与辐射：`radarCrossSection` `farField` `calculate_near_field`
+- 天线指标：`antenna_directivity` `input_impedance` `beam_metrics` `gain_db` `axial_ratio`
+- 端口体系：`LumpedPort` `WavePort` `CoaxPort` `DifferentialPairPort`
+- 数据输出：VTK、HDF5、CSV、Touchstone
 
 ## 快速开始
 
-### 示例 1：PEC 球散射（EFIE + RWG）
+README 中原来的安装和脚本说明已经过时。当前最稳妥的方式是把本仓库当作本地工程使用，并分别实例化主环境和 benchmark 环境。
+
+### 1. 主环境
+
+```julia
+using Pkg
+Pkg.activate(".")
+Pkg.instantiate()
+```
+
+### 2. benchmark / report 环境
+
+```julia
+using Pkg
+Pkg.activate("benchmark")
+Pkg.instantiate()
+```
+
+### 3. 主包装载检查
+
+```bash
+julia --project=. -e "using Pkg; Pkg.resolve(); using EMSuite"
+```
+
+### 4. 统一发布链 smoke run
+
+```bash
+julia --project=. benchmark/run_release_workflow.jl benchmark/configs/release_quick.toml
+```
+
+### 5. 单独生成统一报告
+
+```bash
+julia --project=. benchmark/run_release_validation_report.jl
+julia --project=benchmark benchmark/run_release_validation_report.jl
+```
+
+脚本会在必要时自动切换到 benchmark 环境，因此从根环境直接调用也可以；显式使用 `--project=benchmark` 仍然是最直接的方式。
+
+## 使用指引
+
+### 低层 API：直接组装与求解
+
+下面是当前仍有效的最小 PEC 球散射示例，接口与仓库内 benchmark / test 使用方式保持一致。
 
 ```julia
 using EMSuite
 using LinearAlgebra
 
-freq   = 300e6          # 频率 300 MHz
-radius = 0.5            # 球半径 0.5 m
+freq = 300e6
+set_frequency!(freq)
 
-# 1. 生成球面三角网格
-mesh  = generate_sphere_mesh(radius, 12, 24)   # 12 纬度 × 24 经度
+mesh = generate_sphere_mesh(0.5, 12, 24)
 basis = RWGBasis(mesh)
-println("未知量数 N = ", num_basis(basis))
+op = EFIE(freq)
+src = PlaneWave(freq, π / 2, π, [0.0, 0.0, 1.0])
 
-# 2. 定义算子 + 组装阻抗矩阵
-efie = EFIE(freq)
-Z    = assemble_impedance_matrix(efie, basis)
-
-# 3. 平面波激励（+x 入射，z 极化）
-src  = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
-V    = excitation_vector(efie, src, basis)
-
-# 4. 求解
+Z = assemble_impedance_matrix(op, basis)
+V = excitation_vector(op, src, basis)
 I = Z \ V
 
-# 5. E 面 RCS（与 Mie 级数对比）
-θ = collect(range(0.0, π, length=181))
-rcs_mom, _, _ = radarCrossSection(θ, [0.0], I, basis, efie.k0, efie.eta0)
-
-mie_rcs = calculate_mie_rcs_pec_sphere(radius, freq, θ)
-println("最大误差 (dB): ", maximum(abs.(10log10.(rcs_mom ./ mie_rcs))))
+theta = collect(range(-π, π, length = 721))
+phis = [0.0, π / 2]
+_, _, rcs = radarCrossSection(theta, phis, I, basis)
 ```
 
-### 示例 2：均匀介质球（PMCHW）
+### 发布链：精度 / 性能 / 报告一体化
 
-```julia
-using EMSuite
+如果你的目标不是单个算子求解，而是复现项目当前的回归验证链，建议优先走下面两个入口。
 
-freq = 300e6;  radius = 0.5;  eps_r = 4.0;  mu_r = 1.0
+```bash
+# 生成统一 run 工件、manifest、run_status、artifact_index
+julia --project=. benchmark/run_release_workflow.jl benchmark/configs/release_quick.toml
 
-mesh   = generate_sphere_mesh(radius, 12, 24)
-basis  = RWGBasis(mesh)
-pmchw  = PMCHW(freq, eps_r, mu_r)
-Z      = assemble_impedance_matrix(pmchw, basis)
-src    = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])
-V      = excitation_vector(pmchw, src, basis)
-I      = Z \ V
-
-θ = collect(range(0.0, π, length=181))
-mie_E, mie_H, _ = calculate_mie_rcs_dielectric_sphere(radius, freq, θ, eps_r, mu_r)
-rcs = radarCrossSection(θ, [0.0], I, basis, pmchw.k0, pmchw.eta0)
-println("E 面 RCS 最大误差: ", maximum(abs.(10log10.(rcs[1,:,1] ./ mie_E))), " dB")
+# 仅重建统一报告与图表资产
+julia --project=. benchmark/run_release_validation_report.jl
+julia --project=benchmark benchmark/run_release_validation_report.jl
 ```
 
-### 示例 3：Driver 一键仿真
+这些命令会更新或复用以下目录：
 
-```julia
-using EMSuite
-
-result = run_simulation(
-    "plate.nas";
-    freq=1e9, ie_type=:CFIE, cfie_alpha=0.5,
-    solver=:gmres, output_vtk=true
-)
-println("RCS (θ=0°): ", result.rcs_db[1], " dBsm")
-```
-
----
+- `test_results/runs/<run_id>/`
+- `test_results/reports/`
+- `test_results/accuracy/`
 
 ## 模块结构
 
-```
+### 主包运行时结构
+
+```text
 src/
-├── EMSuite.jl               # 主模块，统一导出
-├── Core/                    # 抽象接口（AbstractMesh / BasisFunction / Operator / Solver / Source）
-├── Utilities/               # 物理常数、SimulationParameters、Mie 级数、日志
-├── Geometry/                # 网格 I/O、生成器、CSG 布尔、Gmsh 接口、材料绑定
-├── Materials/               # 材料模型（静态 + 色散）、材料库
-├── BasisFunctions/          # RWG、SWG、PWC、RBF、PWCHex
-├── IntegralEquations/       # EFIE、MFIE、CFIE、VEFIE、SCFIE、PMCHW
-│   ├── Kernels.jl           # 自由空间格林函数核
-│   ├── Singularities.jl     # 奇异积分解析提取
-│   ├── Impedance.jl         # 通用矩阵元素计算
-│   └── Excitation.jl        # 激励向量 (PlaneWave / DeltaGap)
-├── Solvers/                 # LU、GMRES、BiCGSTAB、预条件器
-├── FastAlgorithms/          # MLFMA（Octree、聚合、转移、配置）
-├── Parallel/                # MPI 组装 + mpi_gmres!
-├── Ports/                   # 端口体系（Lumped/Wave/Coax + S参数）
-├── PostProcessing/          # RCS、近/远场、天线指标、功率
-├── IO/                      # VTK、HDF5、CSV、Touchstone
-├── Visualization/           # 可视化辅助
-└── Driver.jl                # run_simulation() 高层驱动
+├── EMSuite.jl
+├── Core/                 # 抽象接口、配置与基础类型
+├── Utilities/            # 常数、日志、轻量支持工具、Mie 参考
+├── Geometry/             # 网格 I/O、生成器、CSG、Gmsh 接口、标签传播
+├── Materials/            # 各向同性/各向异性/色散材料与材料库
+├── BasisFunctions/       # RWG / SWG / PWC / RBF / PWCHex
+├── IntegralEquations/    # EFIE / MFIE / CFIE / VEFIE / SCFIE / PMCHW / NMuller
+├── FastAlgorithms/       # MLFMA、Lebedev、PMCHW-MLFMA 相关组件
+├── Solvers/              # LU / GMRES / BiCGSTAB / 预条件器
+├── Parallel/             # MPI 组装、mpi_gmres、MPIArray 基础设施
+├── Ports/                # Lumped / Wave / Coax / DifferentialPair / S 参数
+├── PostProcessing/       # RCS、近远场、增益、SAR、多右端缓存
+├── IO/                   # VTK / HDF5 / CSV / Touchstone
+├── Accuracy/             # FEKO / Mie 对比与精度指标工具
+└── Driver.jl             # run_simulation 高层入口
 ```
 
----
+### benchmark / release 结构
 
-## 性能基准（4 线程，与 Legacy 对比）
+```text
+benchmark/
+├── configs/              # release profile、阈值、图表样式、known exceptions
+├── support/              # release_support.jl，报告链共用轻量支撑
+├── reporting/            # collector / plotting / writer 拆层
+├── accuracy/             # F / P / B 系列精度基准入口
+├── performance_baseline.jl
+├── run_release_workflow.jl
+└── run_release_validation_report.jl
+```
 
-| 场景 | Legacy | EMSuite | 加速比 |
-|------|--------|---------|--------|
-| Jet EFIE 直接填充 (N=26 424) | 20.70 s | **4.26 s** | **4.9×** |
-| Jet CFIE 直接填充 (N=26 424) | 168.29 s | **14.48 s** | **11.6×** |
-| V-EFIE SWG (N_tet=7 278) | 46.13 s | **41.30 s** | **1.12×** |
-| SCFIE 总装配 (N=15 860) | 66.68 s | **65.67 s** | **1.02×** |
+## 性能基准
 
-关键优化：SIMD `@fastmath` 内层循环 + 对称性利用（上三角/互易性） + `BlockJacobiPreconditioner`（构建速度 166× 提升）。
+下表来自当前稳定报告使用的 [test_results/reports/PERFORMANCE_BASELINE.csv](test_results/reports/PERFORMANCE_BASELINE.csv)。这些数字是当前验证机器上的基线，不应直接当作跨机器承诺值。
 
----
+| 用例 | 方程 | 求解策略 | N | Assembly / Setup (s) | Solve (s) | Total (s) |
+|------|------|----------|---|----------------------|-----------|-----------|
+| Plate EFIE Direct | EFIE | LU | 2640 | 0.85 | 0.73 | 3.14 |
+| Jet EFIE Direct | EFIE | LU | 14559 | 3.12 | 16.35 | 20.01 |
+| Jet CFIE Direct | CFIE | LU | 14559 | 10.28 | 15.89 | 26.71 |
+| Jet EFIE MLFMA | EFIE | MLFMA + GMRES | 14559 | 25.22 | 8.53 | 68.54 |
+| Sphere CFIE MLFMA | CFIE | MLFMA + GMRES | 26424 | 109.79 | 10.29 | 267.16 |
+| Plate VEFIE Direct | VEFIE | LU | 15828 | 105.68 | 20.71 | 127.73 |
+| PlateMetal SCFIE Direct | SCFIE | LU | 15860 | 105.43 | 20.29 | 126.01 |
+
+如果你只想重跑性能基线：
+
+```bash
+julia -t auto --project=. benchmark/performance_baseline.jl
+```
 
 ## 精度验证
 
-PMCHW 与 Mie 级数对比（`radius=0.5 m`，`300 MHz`，`ε_r=4`，`μ_r=1`）：
+当前统一报告的执行摘要来自 [test_results/reports/RELEASE_VALIDATION_REPORT.md](test_results/reports/RELEASE_VALIDATION_REPORT.md)。截至最近一次验证：
 
-| 网格 | N（未知量） | E 面均方误差 | E 面最大误差 |
-|------|------------|-------------|-------------|
-| 8×16 | 224 | ~0.8 dB | ~1.5 dB |
-| 12×24 | 528 | ~0.3 dB | ~0.6 dB |
-| 18×36 | 1 188 | ~0.1 dB | ~0.2 dB |
+- Accuracy curves within threshold: `18 / 20`
+- Known exceptions accepted: `2`
+- Accuracy blockers above threshold: `0`
+- 当前唯一登记的 release known exception：`F2_CFIE_Jet_Direct`
 
-随网格加密单调收敛，与 Mie 级数高度吻合。
+代表性精度结果如下：
 
----
+| 曲线 | 参考 | RMSE (dB) | MaxErr (dB) | 状态 |
+|------|------|-----------|-------------|------|
+| F1_SEFIE_Jet_Direct_phi0_vs_Feko | FEKO | 0.356 | 6.284 | PASS |
+| F5_CFIE_Sphere_Direct_phi0_vs_Mie | Mie | 0.051 | 0.320 | PASS |
+| F6_CFIE_Sphere_MLFMA_phi0_vs_Mie | Mie | 0.051 | 0.298 | PASS |
+| F7_VEFIE_Plate_Direct_phi0_vs_Feko | FEKO | 0.097 | 0.469 | PASS |
+| P1_PMCHW_Sphere_Direct_phi0_vs_Mie | Mie | 0.099 | 0.496 | PASS |
+| P3_PMCHW_LossySphere_Direct_phi0_vs_Mie | Mie | 0.009 | 0.028 | PASS |
+| X1_SEFIE_Sphere_Direct_phi0_vs_Mie | Mie | 0.011 | 0.087 | PASS |
+| F2_CFIE_Jet_Direct_phi0_vs_Feko | FEKO | 5.089 | 30.564 | KNOWN_EXCEPTION |
+
+known exception 的具体登记位置在 [benchmark/configs/known_exceptions.toml](benchmark/configs/known_exceptions.toml)。
 
 ## 结果可视化
 
-`scripts/` 目录提供三个可直接运行的可视化脚本，使用 `Plots.jl`（GR 后端，无 GUI 依赖）输出 PNG 图像至 `docs/images/`。
+旧 README 中引用的 `scripts/plot_*.jl` 已经不再是当前主路径，现行可视化结果由统一报告自动生成。
 
-### 脚本 1：RCS 双站对比 — `plot_rcs_sphere.jl`
+### 报告资产输出位置
 
-```bash
-julia --project scripts/plot_rcs_sphere.jl
-# 输出: docs/images/rcs_sphere_comparison.png
-```
+- 统一报告：`test_results/reports/RELEASE_VALIDATION_REPORT.md`
+- 精度曲线图：`test_results/reports/assets/accuracy/`
+- 极坐标图：`test_results/reports/assets/accuracy_polar/`
+- 性能图：`test_results/reports/assets/performance/`
+- run 级别归档：`test_results/runs/<run_id>/report/` 与 `.../plots/`
 
-生成 2×2 四图联：PEC/PMCHW 球体 E/H 面曲线（左列）与全球面误差热图（右列），覆盖 37×73 = 2701 个观察点。
+### 结果可视化类型
 
-![RCS 球体双站 RCS 对比](docs/images/rcs_sphere_comparison.png)
+- 笛卡尔远场对比图
+- 极坐标远场图
+- 性能总耗时图
+- 性能拆分图
+- `run_status.csv` 与 `artifact_index.csv` 配套结构化产物
 
-| 算法 | 全球面加权 RMS 误差 | 全球面最大误差 |
-|------|---------------------|----------------|
-| PEC EFIE  | **0.10 dB** | 0.27 dB |
-| PMCHW | **0.24 dB** | 1.03 dB |
+### 求解结果外部可视化
 
-关键代码片段：
+运行时求解链仍支持将场结果导出给第三方工具查看：
 
-```julia
-using EMSuite, Plots
+- `save_vtk` `save_vtk_multi`：ParaView / VTK 工作流
+- `save_results_hdf5` `save_result`：二进制归档
+- `save_RCS_csv` `save_RCS_txt`：文本结果共享
+- `write_touchstone`：端口网络参数交换
 
-# PEC 球 EFIE（使用 4-arg dispatch）
-mesh = generate_sphere_mesh(0.5, 16, 32);  basis = RWGBasis(mesh)
-efie = EFIE(300e6);  Z = assemble_impedance_matrix(efie, basis)
-I = Z \ excitation_vector(efie, PlaneWave(300e6, 0.0, 0.0, [1,0,0.0]), basis)  # +z inc., x-pol
-set_frequency!(300e6)
-rcs, _, _ = radarCrossSection(theta_v, [0.0], I, basis)   # 4-arg EFIE dispatch
-rcs_dB = 10 .* log10.(rcs[1,:,1])
+## 测试与回归
 
-# Mie 参考
-mie_db = 10 .* log10.(calculate_mie_rcs_pec_sphere(0.5, 300e6, theta_v))
-
-plot(theta_d, mie_db; label="Mie 解析", ls=:dash)
-plot!(theta_d, rcs_dB; label="EFIE (MoM)")
-
-# PMCHW 介质球（使用 6-arg dispatch，传入 k0, eta0）
-pmchw = PMCHW(300e6, 4.0, 1.0)
-Z2 = assemble_impedance_matrix(pmchw, basis)
-I2 = Z2 \ excitation_vector(pmchw, PlaneWave(300e6, 0, 0, [1,0,0.0]), basis)
-rcs2, _, _ = radarCrossSection(theta_v, [0.0], I2, basis, pmchw.k0, pmchw.eta0)
-```
-
----
-
-### 脚本 2：半波偶极子远场方向图 — `plot_dipole_pattern.jl`
+### 主测试集
 
 ```bash
-julia --project scripts/plot_dipole_pattern.jl
-# 输出: docs/images/dipole_pattern.png
+julia --project=. test/runtests.jl
 ```
 
-输出**极坐标方向图**（左）和**线形对比图**（右），MoM 数值结果对比半波偶极子解析方向图 $F(\theta)=[cos(\frac{\pi}{2}\cos\theta)/\sin\theta]^2$：
+主测试入口覆盖材料、几何、基函数、积分方程、求解器、MLFMA、MPI、端口、后处理、精度度量、发布工作流与 Legacy 对齐等核心模块。
 
-![半波偶极子远场方向图](docs/images/dipole_pattern.png)
-
-```
-Max directivity = 2.18 dBi   (theory 2.15 dBi, error < 0.03 dBi)
-Radiation eff.  = 100.00 %    (PEC, no ohmic loss)
-Z_in @ 300 MHz  = 86.6+j48.8 Ohm  (theory 73+j42.5 for ideal thin wire)
-```
-
-关键代码片段：
-
-```julia
-using EMSuite
-
-mesh   = generate_cylinder_mesh(0.001, 0.5, 8, 60)   # thin-wire dipole (radius,length,Nphi,Nz)
-basis  = RWGBasis(mesh)
-efie   = EFIE(300e6)
-Z      = assemble_impedance_matrix(efie, basis)
-
-# DeltaGap feed: ONE circumferential ring at z=0 (Nphi edges)
-seg_h  = 0.5 / 60
-feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.4*seg_h]
-src    = DeltaGapSource(300e6, feed, 1.0 + 0im)
-I      = Z \ excitation_vector(src, basis)
-
-# Pattern
-θs, ϕs = collect(range(1e-3, π-1e-3, 181)), collect(range(0, 2π, 73))
-I_feed = sum(I[n] * basis.functions[n].edge_length for n in feed)
-result = antenna_directivity(θs, ϕs, I, basis; P_input=0.5real(I_feed))
-D_dBi  = 10 .* log10.(result.D .+ 1e-30)
-
-# Analytical reference: F(θ) = [cos(π/2·cosθ)/sinθ]²
-F_theory = [abs(cos(π/2*cos(t))/sin(t))^2 for t in θs]
-```
-
----
-
-### 脚本 3：偶极子 S11 频率扫描 + Smith 圆图 — `plot_s11_dipole_sweep.jl`
+### 常用定向验证
 
 ```bash
-julia --project scripts/plot_s11_dipole_sweep.jl
-# 输出: docs/images/dipole_s11_sweep.png
+julia --project=. test/test_pmchw.jl
+julia --project=. test/test_release_workflow.jl
+julia --project=. test/test_benchmark_report_data.jl
 ```
 
-输出三图（200–500 MHz，31 频率点）：S11(dB) vs 频率、输入阻抗 R/X vs 频率、Smith 圆图：
+### 分批运行入口
 
-![偶极子 S11 频率扫描](docs/images/dipole_s11_sweep.png)
+- `test/runtests_batch1.jl` 到 `test/runtests_batch5.jl`
+- `test/runtests_light_cov.jl`
 
-| 指标 | 仿真结果 | 说明 |
-|------|----------|------|
-| 上升谐振频率 | **280 MHz** | 表面网格模型的自谐振频率 |
-| 半波频率 | 300 MHz | c₀/(2L)，此时 X=42.5 Ω（非自谐振） |
-| 谓振偏差 | ~20 MHz | 端效应+表面网格 vs 细线模型，属正常误差范围 |
-| Z_in @ 谓振 | 67.8−j15.9 Ω | 约为秘 → X≈0 |
-
-> **注**：偶极子自谗振频率不等于半波频率。L/a=500 时端效应使有效长增加≈4%，理论自谓振频率≈8 MHz≥288 MHz。仿真给出 280 MHz，剩余 8 MHz 偏差(≈2.8%)来自圆柱表面网格 vs 理想细线的模型差异，属正常数値误差范围。
-
-关键代码片段：
-
-```julia
-using EMSuite
-
-mesh   = generate_cylinder_mesh(0.001, 0.5, 8, 60)   # (radius, length, Nphi, Nz)
-basis  = RWGBasis(mesh)
-# Feed: ONE circumferential ring at z=0 only
-seg_h  = 0.5 / 60
-feed   = [n for n in 1:num_basis(basis) if abs(basis.functions[n].center[3]) < 0.4*seg_h]
-
-Z_in_sweep = ComplexF64[]
-for freq in LinRange(200e6, 500e6, 31)
-    set_frequency!(freq)
-    src = DeltaGapSource(freq, feed, 1.0+0im)
-    Z = assemble_impedance_matrix(EFIE(freq), basis)
-    I = Z \ excitation_vector(src, basis)
-    push!(Z_in_sweep, input_impedance(src, I, basis))
-end
-
-S11_dB = 20 .* log10.(abs.((Z_in_sweep .- 50) ./ (Z_in_sweep .+ 50)))
-Γ      = (Z_in_sweep .- 50) ./ (Z_in_sweep .+ 50)   # Smith 圆图坐标
-```
-
----
-
-## 测试
+## 常用命令速查
 
 ```bash
-# 在 EMSuite/ 目录下
-julia --project test/runtests.jl
+# 载入主包
+julia --project=. -e "using EMSuite"
+
+# 全量主测试
+julia --project=. test/runtests.jl
+
+# 性能基线
+julia -t auto --project=. benchmark/performance_baseline.jl
+
+# release quick profile
+julia --project=. benchmark/run_release_workflow.jl benchmark/configs/release_quick.toml
+
+# 统一报告
+julia --project=benchmark benchmark/run_release_validation_report.jl
+
+# 生成文档
+julia --project=docs docs/make.jl
 ```
 
-测试套件覆盖：几何、基函数、积分方程（所有算子）、求解器、预条件器、后处理、I/O、端口、PMCHW、MLFMA、MPI 并行、Legacy 数值对齐等，共 **449+ 测试用例**，全部 PASS。
+## 路线图与进度
 
----
+当前开发进度以仓库内文档为准：
 
-## 开发路线图
+- 路线图：[.github/REFACTORING_ROADMAP.md](.github/REFACTORING_ROADMAP.md)
+- 进度记录：[.github/REFACTORING_PROGRESS.md](.github/REFACTORING_PROGRESS.md)
+- Phase 17 计划：[.github/plans/phase_17_release_workflow_normalization_plan.md](.github/plans/phase_17_release_workflow_normalization_plan.md)
 
-| Phase | 主题 | 状态 |
-|-------|------|------|
-| 1–7 | 基础架构 → 算法实现 → Legacy 验证对齐 | ✅ |
-| 8 | 性能优化（EFIE/CFIE/VEFIE/SCFIE 全面提速） | ✅ |
-| 9 | 代码质量与发布准备（覆盖率、文档） | 🔵 进行中 |
-| 10 | 全方程精度验证 | ✅ |
-| 11–12 | PWC / HexRBF 体基函数 | ✅ |
-| 13–15 | MPI 并行架构 | ✅ |
-| 16 | 几何与网格基础（CSG、Gmsh 接口） | ✅ |
-| 17 | 后处理基础增强 | ✅ |
-| 18 | 几何布尔与三维面网格剖分 | ✅ |
-| 19 | 体网格剖分与材料管理 | ✅ |
-| 20 | 端口体系（HFSS 风格） | ✅ |
-| 21 | 丰富后处理与快速算法缓存 | ✅ |
-| **22** | **PMCHW 均匀介质体表面积分方程** | ✅ |
-
----
-
-## 文档
-
-更多详细信息、API 文档和高级用法，请参阅 [在线文档](https://deltaeecs.github.io/EMSuite.jl/dev)。
-
----
+README 只保留面向使用者的稳定信息，不再重复维护一份容易过时的 phase 列表。
 
 ## 许可证
 
