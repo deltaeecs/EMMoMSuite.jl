@@ -9,6 +9,22 @@ function expandslice(idxs, bandwidth, bounds)
     d:u
 end
 
+function factor_values(n::Int)
+    n < 1 && throw(ArgumentError("n must be positive"))
+    values = Int[]
+    remaining = n
+    divisor = 2
+    while divisor * divisor <= remaining
+        while remaining % divisor == 0
+            push!(values, divisor)
+            remaining = div(remaining, divisor)
+        end
+        divisor = divisor == 2 ? 3 : divisor + 2
+    end
+    remaining > 1 && push!(values, remaining)
+    return values
+end
+
 """
     slicedim2bounds(sz::Int, nc::Int)
 
@@ -41,7 +57,7 @@ end
 function slicedim2partition(dims, nc::Int)
     dims = [dims...]
     chunks = ones(Int, length(dims))
-    f = sort!(collect(keys(factor(nc))), rev = true)
+    f = sort!(factor_values(nc), rev = true)
     k = 1
     while nc > 1
         # repeatedly allocate largest factor to largest dim
