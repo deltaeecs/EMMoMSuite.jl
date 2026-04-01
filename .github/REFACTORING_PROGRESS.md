@@ -395,8 +395,24 @@
 - **Git 提交**：`fix: complete physical constants standardization (Round 5 findings)` (commit b3197cf)
 - **Round 5 收口**：发现并修复问题，连续 clean 轮次清零（连续 0 轮）
 
-### Round 6（待启动）
+### Round 6（发现问题，不属于 clean round）
 
-- 需连续 3 轮清洁检视才可收口全工程检视迭代
-- Round 6 将验证 Round 5 修复 + 扩大检视覆盖面（算法正确性、命名规范、错误处理等）
+- 检视范围：验证 Round 5 修复 + 全工程数值稳定性、参数验证、命名规范审查
+- 使用 explore agent 深度审查核心算法模块（IntegralEquations, MLFMA, BasisFunctions, Geometry, Solvers）
+- **Round 5 修复验证**：✅ 全部通过（MLFMAOperator、WavePort、VolumeAssembly 的 Constants 使用正确）
+- **发现 9 个新问题**：
+  - 🔴 Critical (1): FastExp.jl `unsafe_trunc` 索引溢出风险
+  - 🔴 High (1): Singularities.jl 退化三角形 log(0) 风险（5处）
+  - 🟡 Medium (7): 端口参数验证、预条件对角阈值、数值阈值硬编码、命名混乱等
+- **已修复关键问题**（3个）：
+  - FastExp: `unsafe_trunc` → `clamp(trunc(...), 1, n-1)`
+  - Singularities: `log(1-a/s)` → `log(max(1-a/s, eps(FT)))` 保护（singularF1/F21）
+  - WavePort: 添加 `@assert a>0, b>0, freq>0` 参数验证
+- **Git 提交**：`fix: numerical stability improvements (Round 6 findings)` (commit 6da9de1)
+- **Round 6 收口**：发现并修复关键问题，连续 clean 轮次清零（连续 0 轮）
+
+### Round 7（待启动）
+
+- 需连续 3 轮清洁检视才可收口
+- Round 7 将验证 Round 6 修复 + 检查剩余 6 个 Medium/Low 问题 + 扩大覆盖至并行性能和内存
 
