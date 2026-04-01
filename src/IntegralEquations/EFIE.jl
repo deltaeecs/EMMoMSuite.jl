@@ -1,6 +1,7 @@
 module EFIEModule
 
 using ..CoreModule
+using ..CoreModule: Constants
 using ..Geometry
 using ..BasisFunctions
 using ..Kernels
@@ -16,7 +17,12 @@ using .Singularities
 
 import ..CoreModule: assemble_impedance_matrix
 
-export EFIE, assemble_impedance_matrix, assemble_impedance_matrix!, efie_interaction, efie_interaction!, efie_from_keta
+export EFIE,
+    assemble_impedance_matrix,
+    assemble_impedance_matrix!,
+    efie_interaction,
+    efie_interaction!,
+    efie_from_keta
 
 """
     EFIE{FT, CT} <: AbstractIntegralOperator
@@ -46,7 +52,8 @@ where:
 - `C4divk2`: Precomputed constant \$4/k^2\$ (used in some formulations).
 - `factor`: Precomputed scaling factor \$j k \\eta / (16\\pi)\$ (varies by implementation).
 """
-struct EFIE{FT<:AbstractFloat,CT<:Complex,KT<:Number,ET<:Number,DT<:Number,N_FAR,N_NEAR} <: AbstractIntegralOperator
+struct EFIE{FT<:AbstractFloat,CT<:Complex,KT<:Number,ET<:Number,DT<:Number,N_FAR,N_NEAR} <:
+       AbstractIntegralOperator
     freq::FT
     k::KT
     eta::ET
@@ -58,11 +65,8 @@ struct EFIE{FT<:AbstractFloat,CT<:Complex,KT<:Number,ET<:Number,DT<:Number,N_FAR
 end
 
 function EFIE(freq::FT) where {FT}
-    c0 = 299792458.0
-    mu0 = 4π * 1e-7
-    eps0 = 1.0 / (c0^2 * mu0)
-    k = 2π * freq / c0
-    eta = sqrt(mu0 / eps0)
+    k = FT(2π * freq / Constants.c0)
+    eta = FT(Constants.eta0)
 
     gq_far = GaussQuadratureInfo(:Triangle, 4, FT)
     gq_near = GaussQuadratureInfo(:Triangle, 7, FT)
@@ -97,11 +101,20 @@ factor from the standard EFIE).
 """
 function efie_from_keta(k::KT, eta::ET, factor::CT) where {KT<:Number,ET<:Number,CT<:Complex}
     FT = promote_type(typeof(float(real(k))), typeof(float(real(eta))), typeof(float(real(factor))))
-    gq_far  = GaussQuadratureInfo(:Triangle, 4, FT)
+    gq_far = GaussQuadratureInfo(:Triangle, 4, FT)
     gq_near = GaussQuadratureInfo(:Triangle, 7, FT)
     C4divk2 = FT(4) / (k^2)
-    SSCg    = compute_SSCg(k)  # Singularities.compute_SSCg accessible here
-    return EFIE{FT,CT,KT,ET,typeof(C4divk2),4,7}(FT(0), k, eta, gq_far, gq_near, C4divk2, factor, SSCg)
+    SSCg = compute_SSCg(k)  # Singularities.compute_SSCg accessible here
+    return EFIE{FT,CT,KT,ET,typeof(C4divk2),4,7}(
+        FT(0),
+        k,
+        eta,
+        gq_far,
+        gq_near,
+        C4divk2,
+        factor,
+        SSCg,
+    )
 end
 function _assemble_impedance_matrix!(
     Z::AbstractMatrix{CT},
@@ -145,7 +158,10 @@ function assemble_impedance_matrix!(
     return _assemble_impedance_matrix!(Z, efie, basis; accumulate)
 end
 
-function assemble_impedance_matrix(efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR}, basis::RWGBasis{IT,FT}) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
+function assemble_impedance_matrix(
+    efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
+    basis::RWGBasis{IT,FT},
+) where {IT,FT,CT,KT,ET,DT,N_FAR,N_NEAR}
     Z = zeros(CT, num_basis(basis), num_basis(basis))
     return _assemble_impedance_matrix!(Z, efie, basis)
 end
@@ -205,12 +221,7 @@ function efie_interaction!(
         calc_interaction!(Z_local, efie, tri_test, tri_source, r_test, r_src)
     end
 
-    # Apply factor
     Z_local .*= efie.factor
-
-    if abs(Z_local[1, 1]) > 0
-        # println("EFIE Z_local: $(Z_local[1,1])")
-    end
 
     return nothing
 end
@@ -233,7 +244,6 @@ function calc_self_interaction!(
     # tri.edgel is [l1, l2, l3].
     sF1 = singularF1(tri.edgel[1], tri.edgel[2], tri.edgel[3])
     F1 = C4divk2 * sF1
-    # println("DEBUG: sF1=", sF1, " C4divk2=", C4divk2, " F1=", F1)
 
     # Loop over quadrature points for Smooth part
     for j = 1:length(w_pts)

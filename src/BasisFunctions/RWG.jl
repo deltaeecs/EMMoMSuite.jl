@@ -96,8 +96,11 @@ function CoreModule.support(basis::RWGBasis, i::Int)
 end
 
 function CoreModule.evaluate(basis::RWGBasis, i::Int, r::AbstractVector)
-    # TODO: Implement RWG evaluation
-    return SVector(0.0, 0.0, 0.0)
+    error(
+        "RWGBasis.evaluate() is not implemented. " *
+        "Use evaluate_rwg(basis.functions[i], supp_idx, r, vertices, area) for direct evaluation, " *
+        "or access precomputed quadrature points via TriangleInfoConstructor.",
+    )
 end
 
 """
@@ -231,8 +234,11 @@ function RWGBasis(mesh::TriangleMesh{IT,FT}) where {IT,FT}
                 SVector(1, 0),
                 SVector{3,FT}(center),
             )
-            # push!(functions, rwg) # Uncomment to include boundary edges
-            # If we don't push, we don't update map (it remains 0)
+            # Boundary edge: skip for PEC EFIE.
+            # Unlike SWGBasis (which includes boundary faces for VEFIE flux continuity),
+            # RWGBasis excludes boundary edges because there is no current flowing out
+            # of a closed PEC surface along a boundary edge.
+            # push!(functions, rwg) -- boundary RWG not used; basis_map stays 0
 
             i += 1
         end

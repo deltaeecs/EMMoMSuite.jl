@@ -1,6 +1,7 @@
 module MFIEModule
 
 using ..CoreModule
+using ..CoreModule: Constants
 using ..Geometry
 using ..BasisFunctions
 using ..EFIEModule
@@ -54,11 +55,8 @@ struct MFIE{FT<:AbstractFloat,CT<:Complex} <: AbstractIntegralOperator
 end
 
 function MFIE(freq::FT) where {FT}
-    c0 = 299792458.0
-    mu0 = 4π * 1e-7
-    eps0 = 1.0 / (c0^2 * mu0)
-    k = 2π * freq / c0
-    eta = sqrt(mu0 / eps0)
+    k = FT(2π * freq / Constants.c0)
+    eta = FT(Constants.eta0)
 
     # Legacy uses GQPNTri=4 for regular MFIE K-operator evaluations.
     # Adjacent panels are more sensitive, so we mirror EFIE's 7-point near rule.
@@ -204,8 +202,16 @@ function needs_near_quadrature(t1::TriangleInfo{IT,FT}, t2::TriangleInfo{IT,FT})
     end
 
     center_dist = norm(t1.center - t2.center)
-    r1 = max(norm(t1.vertices[:, 1] - t1.center), norm(t1.vertices[:, 2] - t1.center), norm(t1.vertices[:, 3] - t1.center))
-    r2 = max(norm(t2.vertices[:, 1] - t2.center), norm(t2.vertices[:, 2] - t2.center), norm(t2.vertices[:, 3] - t2.center))
+    r1 = max(
+        norm(t1.vertices[:, 1] - t1.center),
+        norm(t1.vertices[:, 2] - t1.center),
+        norm(t1.vertices[:, 3] - t1.center),
+    )
+    r2 = max(
+        norm(t2.vertices[:, 1] - t2.center),
+        norm(t2.vertices[:, 2] - t2.center),
+        norm(t2.vertices[:, 3] - t2.center),
+    )
     near_radius = r1 + r2
     center_dist <= FT(MFIE_NEAR_SCALE) * near_radius && return true
 
@@ -219,21 +225,31 @@ function _triangle_triangle_distance(t1::TriangleInfo{IT,FT}, t2::TriangleInfo{I
 
     min_dist_sq = typemax(FT)
     @inbounds for p in verts1
-        min_dist_sq = min(min_dist_sq, _point_triangle_distance_sq(p, verts2[1], verts2[2], verts2[3]))
+        min_dist_sq =
+            min(min_dist_sq, _point_triangle_distance_sq(p, verts2[1], verts2[2], verts2[3]))
     end
     @inbounds for p in verts2
-        min_dist_sq = min(min_dist_sq, _point_triangle_distance_sq(p, verts1[1], verts1[2], verts1[3]))
+        min_dist_sq =
+            min(min_dist_sq, _point_triangle_distance_sq(p, verts1[1], verts1[2], verts1[3]))
     end
 
     edges = ((1, 2), (2, 3), (3, 1))
     @inbounds for (i1, i2) in edges, (j1, j2) in edges
-        min_dist_sq = min(min_dist_sq, _segment_segment_distance_sq(verts1[i1], verts1[i2], verts2[j1], verts2[j2]))
+        min_dist_sq = min(
+            min_dist_sq,
+            _segment_segment_distance_sq(verts1[i1], verts1[i2], verts2[j1], verts2[j2]),
+        )
     end
 
     return sqrt(max(min_dist_sq, zero(FT)))
 end
 
-function _point_triangle_distance_sq(p::SVector{3,FT}, a::SVector{3,FT}, b::SVector{3,FT}, c::SVector{3,FT}) where {FT}
+function _point_triangle_distance_sq(
+    p::SVector{3,FT},
+    a::SVector{3,FT},
+    b::SVector{3,FT},
+    c::SVector{3,FT},
+) where {FT}
     ab = b - a
     ac = c - a
     ap = p - a
@@ -286,7 +302,12 @@ function _point_triangle_distance_sq(p::SVector{3,FT}, a::SVector{3,FT}, b::SVec
     return signed_dist * signed_dist / dot(n, n)
 end
 
-function _segment_segment_distance_sq(p1::SVector{3,FT}, q1::SVector{3,FT}, p2::SVector{3,FT}, q2::SVector{3,FT}) where {FT}
+function _segment_segment_distance_sq(
+    p1::SVector{3,FT},
+    q1::SVector{3,FT},
+    p2::SVector{3,FT},
+    q2::SVector{3,FT},
+) where {FT}
     u = q1 - p1
     v = q2 - p2
     w = p1 - p2
@@ -477,19 +498,20 @@ function assemble_K_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
     mfie_k = MFIE{FT,CT}(zero(FT), k, one(FT), gq_far, gq_near)
 
     # Precompute quadrature points (same as the standard MFIE assembly)
-    mesh     = basis.mesh
-    nt       = num_elements(mesh)
+    mesh = basis.mesh
+    nt = num_elements(mesh)
     N_points = length(gq_far.weight)
 
     quad_points = Vector{SVector{N_points,SVector{3,FT}}}(undef, nt)
-    Threads.@threads for t in 1:nt
+    Threads.@threads for t = 1:nt
         v_idx = mesh.triangles[:, t]
         v1 = SVector{3,FT}(mesh.node[:, v_idx[1]])
         v2 = SVector{3,FT}(mesh.node[:, v_idx[2]])
         v3 = SVector{3,FT}(mesh.node[:, v_idx[3]])
         quad_points[t] = SVector{N_points,SVector{3,FT}}(
-            v1 * gq_far.coordinate[1, i] + v2 * gq_far.coordinate[2, i] + v3 * gq_far.coordinate[3, i]
-            for i in 1:N_points
+            v1 * gq_far.coordinate[1, i] +
+            v2 * gq_far.coordinate[2, i] +
+            v3 * gq_far.coordinate[3, i] for i = 1:N_points
         )
     end
 
@@ -499,7 +521,7 @@ function assemble_K_offdiag(basis::RWGBasis{IT,FT}, k::FT) where {IT,FT}
             return nothing          # no self-term in PMCHWT K-block
         end
         r_test = qpts[t_test.triID]
-        r_src  = qpts[t_src.triID]
+        r_src = qpts[t_src.triID]
         calc_k_term_fast!(Z_local, op, t_test, t_src, r_test, r_src, op.gq_far.weight)
         return nothing
     end

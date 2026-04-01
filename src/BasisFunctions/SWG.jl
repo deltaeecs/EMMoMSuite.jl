@@ -70,9 +70,17 @@ Collection of SWG basis functions defined on a tetrahedral mesh.
 
 This structure manages the mapping between mesh faces and basis functions.
 
+# Boundary Face Design
+
+Unlike `RWGBasis` (which **excludes** boundary edges for PEC EFIE), `SWGBasis`
+**includes** boundary faces. This is intentional: for Volume Integral Equations
+(VEFIE/SCFIE), boundary faces carry the flux that connects the volume to its
+surrounding medium.  Marking them `is_boundary = true` allows the assembly to
+handle them with appropriate one-sided integration.
+
 # Fields
 - `mesh`: The underlying tetrahedral mesh.
-- `functions`: Vector of `SWG` basis function objects.
+- `functions`: Vector of `SWG` basis function objects (includes boundary faces).
 """
 struct SWGBasis{IT,FT} <: AbstractBasisFunction
     mesh::TetrahedraMesh{IT,FT}
@@ -86,8 +94,10 @@ function CoreModule.support(basis::SWGBasis, i::Int)
 end
 
 function CoreModule.evaluate(basis::SWGBasis, i::Int, r::AbstractVector)
-    # TODO: Implement SWG evaluation
-    return SVector(0.0, 0.0, 0.0)
+    error(
+        "SWGBasis.evaluate() is not implemented. " *
+        "Use evaluate_swg(basis.functions[i], supp_idx, r, verts, vol) for direct evaluation.",
+    )
 end
 
 """
@@ -200,7 +210,10 @@ function SWGBasis(mesh::TetrahedraMesh{IT,FT}) where {IT,FT}
                 SVector(1, 0),
                 SVector{3,FT}(center),
             )
-            push!(functions, swg) # Uncomment to include boundary faces
+            push!(functions, swg)  # Boundary faces ARE included (needed for VEFIE flux continuity)
+            # Note: unlike RWG (which excludes boundary edges for PEC EFIE),
+            # SWG includes boundary faces so that volume flux can be correctly
+            # accounted for at material interfaces and outer boundaries.
 
             i += 1
         end

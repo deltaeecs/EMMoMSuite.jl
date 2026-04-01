@@ -3,6 +3,7 @@ module Disaggregation
 using LinearAlgebra
 using StaticArrays
 using ....CoreModule
+using ....CoreModule: Constants
 using ....Geometry
 using ....BasisFunctions
 using ....IntegralEquations
@@ -21,8 +22,7 @@ function get_k(op::AbstractIntegralOperator)
     elseif hasfield(typeof(op), :efie)
         return op.efie.k
     elseif hasfield(typeof(op), :freq)
-        c0 = 299792458.0
-        return 2π * op.freq / c0
+        return 2π * op.freq / Constants.c0
     else
         error("Operator $(typeof(op)) does not have field k or efie or freq")
     end
