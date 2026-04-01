@@ -218,7 +218,8 @@ using .Accuracy
 export read_feko_rcs, split_phi_cuts
 export mie_pec_rcs_dBsm, mie_pec_bistatic_rcs_dBsm
 export mie_dielectric_rcs_dBsm, mie_dielectric_bistatic_rcs_dBsm
-export dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic, dipole_halfwave_farfield_analytic
+export dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic, dipole_halfwave_farfield_analytic,
+       extract_sphere_radius
 export AccuracyResult, AntennaAccuracyResult
 export compute_rcs_accuracy, compute_antenna_accuracy, print_accuracy_report
 
