@@ -429,8 +429,29 @@
 - **Git 提交**：`fix: complete numerical stability fixes (Round 7 findings)` (commit 6d5584d)
 - **Round 7 收口**：发现并修复关键问题，连续 clean 轮次清零（连续 0 轮）
 
-### Round 8（待启动）
+### Round 8（发现问题，不属于 clean round）
+
+- 检视范围：验证 Round 7 修复 + 全面数值保护扫描（log/sqrt/acos/除零）
+- 扫描范围：158 个 Julia 文件，重点检查所有潜在数值风险
+- **Round 7 修复验证**：
+  - ✅ Singularities.jl singularF22 — 3 处 log 保护正确且完整
+  - ✅ Translation.jl Rab 检查 — eps*edge_length 阈值合理
+- **发现 5 个新问题**（4 阻塞 + 1 延后）：
+  - 🔴 SpecialPorts.jl CoaxPort — `log(outer/inner)` 无参数验证
+  - 🔴 BasisUtilities.jl — 退化三角形/边无保护（面积=0，边长=0）
+  - 🔴 CoordinateTransforms.jl — `acos(r̂[3])` 参数未 clamp 到 [-1,1]
+  - 🔴 SCFIE.jl — 奇点跳过逻辑不清晰（R<1e-10 后立即用 R）
+  - 🟡 多处类型不稳定容器 (`Any[]`) — 延后到 Phase 20
+- **已全部修复阻塞性问题**：
+  - SpecialPorts: 添加 @assert (inner>0, outer>inner, eps_r>0)
+  - BasisUtilities: 添加 area>eps(FT) + 3 个边长检查
+  - CoordinateTransforms: acos(clamp(...)) 保护
+  - SCFIE: 显式 if-continue 块 + 注释说明
+- **Git 提交**：`fix: add comprehensive numerical safety checks (Round 8 findings)` (commit 8e68d5d)
+- **Round 8 收口**：发现并修复关键问题，连续 clean 轮次清零（连续 0 轮）
+
+### Round 9（待启动）
 
 - 需连续 3 轮清洁检视才可收口
-- Round 8 将验证 Round 7 修复 + 全面检查是否还有遗漏的数值保护问题
+- Round 9 将验证 Round 8 修复 + 检查是否还有遗漏的边界条件验证问题
 
