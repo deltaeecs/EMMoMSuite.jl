@@ -13,16 +13,11 @@ module Absorption
 using LinearAlgebra
 
 using ...BasisFunctions
-using ...CoreModule: num_elements
+using ...CoreModule: num_elements, Constants
 using ...Utilities.Parameters
 using ..CurrentOnGeos: geoVolumeCurrentCal
 
 export absorbed_power, sar
-
-# Physical constants (kept local to avoid module-level globals)
-const _c0_abs  = 299_792_458.0
-const _mu0_abs = 4π * 1e-7
-const _eps0_abs = 1.0 / (_c0_abs^2 * _mu0_abs)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # absorbed_power
@@ -68,7 +63,7 @@ zero.
 - `P_density  :: Vector{Float64}` — per-element absorbed power density [W/m³]
 """
 function absorbed_power(
-    basis::Union{SWGBasis{IT,FT}, PWCBasis{IT,FT}},
+    basis::Union{SWGBasis{IT,FT},PWCBasis{IT,FT}},
     I_coeffs::Vector{Complex{FT}},
     permittivities::Vector{Complex{FT}},
 ) where {IT,FT}
@@ -103,7 +98,7 @@ where `ρ[t]` is the mass density [kg/m³] of element `t`.
 - `SAR_per_element  :: Vector{Float64}` — per-element SAR [W/kg]
 """
 function sar(
-    basis::Union{SWGBasis{IT,FT}, PWCBasis{IT,FT}},
+    basis::Union{SWGBasis{IT,FT},PWCBasis{IT,FT}},
     I_coeffs::Vector{Complex{FT}},
     permittivities::Vector{Complex{FT}},
     mass_densities::Vector{FT},
@@ -113,13 +108,13 @@ function sar(
     nt = length(P_density)
 
     SAR_per_element = Vector{FT}(undef, nt)
-    for t in 1:nt
+    for t = 1:nt
         ρ = mass_densities[t]
         SAR_per_element[t] = ρ > 0 ? P_density[t] / ρ : zero(FT)
     end
 
     total_mass = dot(mass_densities, V)
-    SAR_total  = total_mass > 0 ? P_total / total_mass : zero(FT)
+    SAR_total = total_mass > 0 ? P_total / total_mass : zero(FT)
 
     return (; SAR_total, SAR_per_element)
 end
@@ -131,21 +126,21 @@ end
 # Shared implementation — returns (P_total, P_density, V) so both absorbed_power
 # and sar can reuse V without a second call to _element_volumes.
 function _absorbed_power_impl(
-    basis::Union{SWGBasis{IT,FT}, PWCBasis{IT,FT}},
+    basis::Union{SWGBasis{IT,FT},PWCBasis{IT,FT}},
     I_coeffs::Vector{Complex{FT}},
     permittivities::Vector{Complex{FT}},
 ) where {IT,FT}
     omega = get_omega()
-    nt    = num_elements(basis.mesh)
+    nt = num_elements(basis.mesh)
 
     J_pol = geoVolumeCurrentCal(I_coeffs, basis, permittivities)
-    V     = _element_volumes(basis)
+    V = _element_volumes(basis)
 
     P_density = Vector{FT}(undef, nt)
 
-    for t in 1:nt
-        eps_r        = permittivities[t]
-        abs2_eps_m1  = abs2(eps_r - one(Complex{FT}))
+    for t = 1:nt
+        eps_r = permittivities[t]
+        abs2_eps_m1 = abs2(eps_r - one(Complex{FT}))
 
         if abs2_eps_m1 < 1e-30
             P_density[t] = zero(FT)
@@ -153,9 +148,9 @@ function _absorbed_power_impl(
         end
 
         eps_pp = FT(-imag(eps_r))           # ε_r'' = -Im(ε_r) ≥ 0 for lossy
-        J2     = sum(abs2, J_pol[t])        # |J_pol|² = Σ|J_i|²
+        J2 = sum(abs2, J_pol[t])        # |J_pol|² = Σ|J_i|²
 
-        P_density[t] = eps_pp * J2 / (2 * FT(omega) * FT(_eps0_abs) * abs2_eps_m1)
+        P_density[t] = eps_pp * J2 / (2 * FT(omega) * FT(Constants.eps0) * abs2_eps_m1)
     end
 
     P_total = dot(P_density, V)
@@ -170,16 +165,16 @@ For PWCBasis the stored `volume` field is used directly.
 For SWGBasis the volume is computed from node coordinates.
 """
 function _element_volumes(basis::PWCBasis{IT,FT}) where {IT,FT}
-    return FT[basis.functions[t].volume for t in 1:length(basis.functions)]
+    return FT[basis.functions[t].volume for t = 1:length(basis.functions)]
 end
 
 function _element_volumes(basis::SWGBasis{IT,FT}) where {IT,FT}
-    mesh   = basis.mesh
-    nodes  = mesh.node
+    mesh = basis.mesh
+    nodes = mesh.node
     tetras = mesh.tetras
-    nt     = num_elements(mesh)
-    V      = Vector{FT}(undef, nt)
-    for t in 1:nt
+    nt = num_elements(mesh)
+    V = Vector{FT}(undef, nt)
+    for t = 1:nt
         v1 = nodes[:, tetras[1, t]]
         v2 = nodes[:, tetras[2, t]]
         v3 = nodes[:, tetras[3, t]]

@@ -3,8 +3,10 @@ module MLFMAOperatorModule
 using LinearAlgebra
 using StaticArrays
 using SparseArrays
+using Logging
 using MPI
 using ....CoreModule
+using ....CoreModule: Constants
 using ....Geometry
 using ....BasisFunctions
 using ....IntegralEquations
@@ -85,7 +87,7 @@ function MLFMAOperator(
     basis_offsets = cumsum([num_basis(b) for b in bases])
 
     # 2. Compute Near Field Matrix
-    println("Assembling Near Field Matrix...")
+    @info "Assembling Near Field Matrix..."
     # Cast bases to Vector{AbstractBasisFunction}
     abstract_bases = Vector{AbstractBasisFunction}(bases)
     Z_near = assemble_near_field(
@@ -799,7 +801,7 @@ function MLFMAOperatorMPI(
     bf_centers_list = [reduce(hcat, [bf.center for bf in b.functions]) for b in bases]
     bf_centers      = reduce(hcat, bf_centers_list)
 
-    lambda = 299792458.0 / operator.freq
+    lambda = Constants.c0 / operator.freq
     octree, sorted_ids = build_octree(bf_centers, leafCubeEdgel; λ = lambda)
 
     N = size(bf_centers, 2)

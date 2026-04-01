@@ -10,6 +10,7 @@
 #   - 收敛后 Allreduce-gather 全量 x，与当前 mpi_gmres! API 完全兼容
 
 using LinearAlgebra, MPI
+using Logging
 
 # ── 行分区工具 ──────────────────────────────────────────────────────────────────
 
@@ -185,8 +186,7 @@ function distributed_gmres!(
     n_local    = length(local_rows)
 
     if rank == 0 && verbose
-        println("[DistGMRES] N=$N, restart=$restart, maxiter=$maxiter, reltol=$reltol, P=$nproc, n_local=$n_local")
-        flush(stdout)
+        @info "[DistGMRES] N=$N, restart=$restart, maxiter=$maxiter, reltol=$reltol, P=$nproc, n_local=$n_local"
     end
 
     # ── 预分配缓冲区 ──────────────────────────────────────────────────────────
@@ -228,8 +228,7 @@ function distributed_gmres!(
 
     push!(residuals, r_norm)
     if rank == 0 && verbose
-        println("[DistGMRES]  iter    0  resnorm = $(r_norm)  tol = $(tol)")
-        flush(stdout)
+        @info "[DistGMRES]  iter    0  resnorm = $(r_norm)  tol = $(tol)"
     end
 
     # 初始已收敛
@@ -302,8 +301,7 @@ function distributed_gmres!(
 
             push!(residuals, r_norm)
             if rank == 0 && verbose
-                println("[DistGMRES]  iter $(" "^(5 - ndigits(iter_total)))$(iter_total)  resnorm = $(r_norm)")
-                flush(stdout)
+                @info "[DistGMRES]  iter $(" "^(5 - ndigits(iter_total)))$(iter_total)  resnorm = $(r_norm)"
             end
 
             r_norm ≤ tol && (converged = true)
@@ -328,8 +326,7 @@ function distributed_gmres!(
             r_norm  = sqrt(_dist_norm2(r_local, comm))
             push!(residuals, r_norm)
             if rank == 0 && verbose
-                println("[DistGMRES] restart  resnorm = $(r_norm)")
-                flush(stdout)
+                @info "[DistGMRES] restart  resnorm = $(r_norm)"
             end
             r_norm ≤ tol && (converged = true)
         end
@@ -339,8 +336,7 @@ function distributed_gmres!(
     history = (isconverged = converged, mvps = iter_total,
                resnorm = r_norm, residuals = residuals)
     if rank == 0 && verbose
-        println("[DistGMRES] done: converged=$(converged), iters=$(iter_total), final_resnorm=$(r_norm)")
-        flush(stdout)
+        @info "[DistGMRES] done: converged=$(converged), iters=$(iter_total), final_resnorm=$(r_norm)"
     end
     return log ? (x, history) : x
 end

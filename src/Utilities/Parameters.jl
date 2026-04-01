@@ -2,6 +2,9 @@ module Parameters
 
 export SimulationParameters, set_frequency!, get_k0, get_eta0, get_omega
 
+# Import authoritative physical constants from CoreModule
+import ..CoreModule: Constants
+
 """
     SimulationParameters
 
@@ -20,7 +23,7 @@ mutable struct SimulationParameters
     eta0::Float64
 
     function SimulationParameters()
-        new(0.0, 0.0, 0.0, 376.73031346177)
+        new(0.0, 0.0, 0.0, Constants.eta0)
     end
 end
 
@@ -29,9 +32,8 @@ const GLOBAL_PARAMS = SimulationParameters()
 function set_frequency!(freq::Float64)
     GLOBAL_PARAMS.frequency = freq
     GLOBAL_PARAMS.omega = 2 * pi * freq
-    c0 = 299792458.0
-    GLOBAL_PARAMS.k0 = GLOBAL_PARAMS.omega / c0
-    GLOBAL_PARAMS.eta0 = 376.73031346177
+    GLOBAL_PARAMS.k0 = GLOBAL_PARAMS.omega / Constants.c0
+    GLOBAL_PARAMS.eta0 = Constants.eta0
 end
 
 get_k0() = GLOBAL_PARAMS.k0

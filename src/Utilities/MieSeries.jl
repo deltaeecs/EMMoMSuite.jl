@@ -5,6 +5,7 @@ module MieSeries
 
 using SpecialFunctions
 using LinearAlgebra
+using ..CoreModule: Constants
 
 export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere,
        calculate_mie_rcs_pec_sphere_fullpol
@@ -18,8 +19,7 @@ _emsuite_to_bh_materials(eps_r, mu_r) = conj(Complex(eps_r)), conj(Complex(mu_r)
 入射波: +z 方向传播, x 极化。观测角 0=前向, π=后向.
 """
 function calculate_mie_rcs_pec_sphere(radius, freq, theta_range)
-    c0 = 299792458.0
-    k  = 2π * freq / c0
+    k  = 2π * freq / Constants.c0
     x  = k * radius
     n_max = ceil(Int, x + 4 * x^(1/3) + 2)
 
@@ -70,8 +70,7 @@ PEC sphere Mie RCS: both S₂-based (theta component, E-plane) and S₁-based
 Convention: +z propagation, x-polarized incident wave.
 """
 function calculate_mie_rcs_pec_sphere_fullpol(radius, freq, theta_range)
-    c0 = 299792458.0
-    k  = 2π * freq / c0
+    k  = 2π * freq / Constants.c0
     x  = k * radius
     n_max = ceil(Int, x + 4 * x^(1/3) + 2)
 
@@ -113,8 +112,7 @@ end
 function _calculate_mie_rcs_dielectric_sphere_bh(
     radius, freq, theta_range, eps_r, mu_r = 1.0,
 )
-    c0 = 299792458.0
-    k0 = 2π * freq / c0
+    k0 = 2π * freq / Constants.c0
     x  = k0 * radius
     m  = sqrt(Complex(eps_r * mu_r))   # 相对折射率
     mx = m * x                          # 内部尺寸参数

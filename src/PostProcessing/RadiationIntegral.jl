@@ -5,7 +5,7 @@ using LinearAlgebra
 using ...Geometry
 using ...Utilities.Parameters
 using ...BasisFunctions
-using ...CoreModule: num_elements, vertices, elements
+using ...CoreModule: num_elements, vertices, elements, Constants
 
 export r̂θϕInfo,
     raditionalIntegralNθϕCal,
@@ -265,7 +265,7 @@ function radiation_integral_swg(
 
     k0 = get_k0()
     jk0 = im * k0
-    omega = k0 * 299792458.0 # Approx c0
+    omega = k0 * Constants.c0
 
     # Quadrature for Tetrahedron (4 points or 5 points)
     # Use 4 points for efficiency

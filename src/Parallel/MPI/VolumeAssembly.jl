@@ -32,6 +32,7 @@ using ..IntegralEquations.CFIEModule: CFIE
 using SparseArrays
 using LinearAlgebra
 using StaticArrays: SVector
+using Logging
 
 # =============================================================================
 # Common MPI column-partition setup helpers
@@ -69,11 +70,11 @@ function _mpi_surf_vol_setup(CT::Type, n_surf::Int, n_vol::Int; comm = MPI.COMM_
     local_vol_cols  = vol_lo  <= vol_hi  ? (vol_lo:vol_hi)   : (1:0)
 
     if !isempty(label)
-        rank == 0 && println(
+        rank == 0 && @info(
             "$label (n_surf=$n_surf, n_vol=$n_vol, n_total=$n_total, procs=$n_procs, threads=$(Threads.nthreads()))",
         )
         MPI.Barrier(comm)
-        println("  Rank $rank: surf_cols=$(length(local_surf_cols)), vol_cols=$(length(local_vol_cols))")
+        @info "  Rank $rank: surf_cols=$(length(local_surf_cols)), vol_cols=$(length(local_vol_cols))"
         MPI.Barrier(comm)
         flush(stdout)
     end
@@ -110,11 +111,11 @@ function assemble_impedance_matrix_parallel(
     Z = mpiarray(CT, N, N; comm = comm)
     local_cols = Z.indices[2]
 
-    rank == 0 && println(
+    rank == 0 && @info(
         "VEFIE-SWG MPI Assembly (column partition): N=$N, procs=$n_procs, threads=$(Threads.nthreads())",
     )
     MPI.Barrier(comm)
-    println("  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))")
+    @info "  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))"
     MPI.Barrier(comm)
     flush(stdout)
 
@@ -473,11 +474,11 @@ function assemble_impedance_matrix_parallel(
     Z = mpiarray(CT, N, N; comm = comm)
     local_cols = Z.indices[2]
 
-    rank == 0 && println(
+    rank == 0 && @info(
         "VEFIE-PWC MPI Assembly (column partition): N=$N, procs=$n_procs, threads=$(Threads.nthreads())",
     )
     MPI.Barrier(comm)
-    println("  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))")
+    @info "  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))"
     MPI.Barrier(comm)
     flush(stdout)
 
@@ -656,11 +657,11 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
     Z = mpiarray(CT, N, N; comm = comm)
     local_cols = Z.indices[2]
 
-    rank == 0 && println(
+    rank == 0 && @info(
         "VEFIE-PWC-Hex MPI Assembly (column partition): N=$N, procs=$n_procs, threads=$(Threads.nthreads())",
     )
     MPI.Barrier(comm)
-    println("  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))")
+    @info "  Rank $rank owns columns $(first(local_cols)):$(last(local_cols))"
     MPI.Barrier(comm)
     flush(stdout)
 

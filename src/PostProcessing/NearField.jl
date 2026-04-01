@@ -3,6 +3,7 @@ module NearField
 using StaticArrays
 using LinearAlgebra
 using ...CoreModule
+using ...CoreModule: Constants
 using ...Geometry
 using ...BasisFunctions
 using ...IntegralEquations.Kernels
@@ -31,14 +32,11 @@ function calculate_near_field(
     E_field = zeros(SVector{3,Complex{FT}}, num_points)
 
     omega = get_omega()
-    c0 = 299792458.0
-    mu0 = 4π * 1e-7
-    eps0 = 1.0 / (c0^2 * mu0)
-    k = omega / c0
+    k = omega / Constants.c0
 
     # Precompute constants
-    const_A = -im * omega * mu0
-    const_Phi = 1.0 / (im * omega * eps0)
+    const_A = -im * omega * Constants.mu0
+    const_Phi = 1.0 / (im * omega * Constants.eps0)
 
     # Quadrature for triangles
     gq = GaussQuadratureInfo(:Triangle, 3, FT)
@@ -139,29 +137,26 @@ function calculate_near_field(
     E_field = zeros(SVector{3,Complex{FT}}, num_points)
 
     omega = get_omega()
-    c0    = 299792458.0
-    mu0   = 4π * 1e-7
-    eps0  = 1.0 / (c0^2 * mu0)
-    k     = omega / c0
+    k = omega / Constants.c0
 
-    const_A   = -im * omega * mu0         # coefficient of vector potential term
-    const_Phi =  1.0 / (im * omega * eps0) # coefficient of scalar potential term
+    const_A = -im * omega * Constants.mu0         # coefficient of vector potential term
+    const_Phi = 1.0 / (im * omega * Constants.eps0) # coefficient of scalar potential term
 
     # Tetrahedral Gauss quadrature (4 points)
     gq_pts, gq_wts = Geometry.gaussQuadratureTet(4, FT)
-    nqp   = length(gq_wts)
+    nqp = length(gq_wts)
 
-    mesh   = basis.mesh
-    nodes  = mesh.node
+    mesh = basis.mesh
+    nodes = mesh.node
     tetras = mesh.tetras
 
-    for n in 1:length(basis.functions)
+    for n = 1:length(basis.functions)
         In = I_coeffs[n]
         abs(In) < 1e-12 && continue
 
         bf = basis.functions[n]
 
-        for k_supp in 1:2
+        for k_supp = 1:2
             t_idx = bf.support[k_supp]
             t_idx == 0 && continue
 
@@ -170,21 +165,21 @@ function calculate_near_field(
             factor = kappa * In
 
             # Tet vertices
-            vi  = tetras[:, t_idx]
-            r1  = nodes[:, vi[1]]
-            r2  = nodes[:, vi[2]]
-            r3  = nodes[:, vi[3]]
-            r4  = nodes[:, vi[4]]
+            vi = tetras[:, t_idx]
+            r1 = nodes[:, vi[1]]
+            r2 = nodes[:, vi[2]]
+            r3 = nodes[:, vi[3]]
+            r4 = nodes[:, vi[4]]
 
             # Tet volume
-            vol = abs(det(hcat(r2-r1, r3-r1, r4-r1))) / 6.0
+            vol = abs(det(hcat(r2 - r1, r3 - r1, r4 - r1))) / 6.0
 
             # Free vertex (vertex opposite the shared face)
-            lf      = bf.local_face_idx[k_supp]
-            v_free  = nodes[:, vi[lf]]
+            lf = bf.local_face_idx[k_supp]
+            v_free = nodes[:, vi[lf]]
 
             # Constant amplitude factor for f_n = ±(A/(3V)) * (r - v_free)
-            sign_k  = k_supp == 1 ? 1.0 : -1.0   # + or − tet
+            sign_k = k_supp == 1 ? 1.0 : -1.0   # + or − tet
             const_bf = bf.area / (3.0 * vol)       # A/(3V)
             # Plus tet: f_n = const_bf*(r-v_free), Minus tet: f_n = -const_bf*(r-v_free)
             # → sign_k already handled by basis definition,
@@ -194,22 +189,22 @@ function calculate_near_field(
             div_fn = sign_k * bf.area / vol   # A/V with sign
 
             # Quadrature
-            for gi in 1:nqp
-                u, v, w, x = gq_pts[1,gi], gq_pts[2,gi], gq_pts[3,gi], gq_pts[4,gi]
-                rgi = u*r1 + v*r2 + w*r3 + x*r4
+            for gi = 1:nqp
+                u, v, w, x = gq_pts[1, gi], gq_pts[2, gi], gq_pts[3, gi], gq_pts[4, gi]
+                rgi = u * r1 + v * r2 + w * r3 + x * r4
 
                 # f_n value at rgi (linear vector field)
-                ρ    = rgi .- v_free
+                ρ = rgi .- v_free
                 f_val = sign_k * const_bf .* ρ
 
                 wvol = gq_wts[gi] * vol
 
-                for i in 1:num_points
-                    obs    = points[i]
-                    G      = green_function_free_space(obs, SVector{3,FT}(rgi), k)
+                for i = 1:num_points
+                    obs = points[i]
+                    G = green_function_free_space(obs, SVector{3,FT}(rgi), k)
                     grad_G = grad_green_function_free_space(obs, SVector{3,FT}(rgi), k)
 
-                    term_A   = const_A   * SVector{3,Complex{FT}}(f_val)  * G
+                    term_A = const_A * SVector{3,Complex{FT}}(f_val) * G
                     term_Phi = const_Phi * div_fn * grad_G
 
                     E_field[i] += factor * wvol * (term_A + term_Phi)
@@ -240,24 +235,22 @@ function calculate_near_field(
     num_points = length(points)
     E_field = zeros(SVector{3,Complex{FT}}, num_points)
 
-    omega   = get_omega()
-    c0      = 299792458.0
-    mu0     = 4π * 1e-7
-    k       = omega / c0
-    const_A = -im * omega * mu0
+    omega = get_omega()
+    k = omega / Constants.c0
+    const_A = -im * omega * Constants.mu0
 
     gq_pts, gq_wts = Geometry.gaussQuadratureTet(4, FT)
-    nqp    = length(gq_wts)
+    nqp = length(gq_wts)
 
-    mesh   = basis.mesh
-    nodes  = mesh.node
+    mesh = basis.mesh
+    nodes = mesh.node
     tetras = mesh.tetras
 
-    for t in 1:length(basis.functions)
-        pwc   = basis.functions[t]
+    for t = 1:length(basis.functions)
+        pwc = basis.functions[t]
         eps_r = permittivities[t]
         kappa = (eps_r - 1.0) / eps_r
-        vol   = pwc.volume
+        vol = pwc.volume
 
         # Current vector for this tet
         Jt = SVector{3,Complex{FT}}(
@@ -267,17 +260,19 @@ function calculate_near_field(
         )
 
         vi = tetras[:, t]
-        r1 = nodes[:, vi[1]]; r2 = nodes[:, vi[2]]
-        r3 = nodes[:, vi[3]]; r4 = nodes[:, vi[4]]
+        r1 = nodes[:, vi[1]]
+        r2 = nodes[:, vi[2]]
+        r3 = nodes[:, vi[3]]
+        r4 = nodes[:, vi[4]]
 
-        for gi in 1:nqp
-            u, v, w, x = gq_pts[1,gi], gq_pts[2,gi], gq_pts[3,gi], gq_pts[4,gi]
-            rgi = u*r1 + v*r2 + w*r3 + x*r4
+        for gi = 1:nqp
+            u, v, w, x = gq_pts[1, gi], gq_pts[2, gi], gq_pts[3, gi], gq_pts[4, gi]
+            rgi = u * r1 + v * r2 + w * r3 + x * r4
             wvol = gq_wts[gi] * vol
 
-            for i in 1:num_points
+            for i = 1:num_points
                 obs = points[i]
-                G   = green_function_free_space(obs, SVector{3,FT}(rgi), k)
+                G = green_function_free_space(obs, SVector{3,FT}(rgi), k)
 
                 E_field[i] += kappa * wvol * const_A * Jt * G
             end

@@ -30,6 +30,7 @@ module PMCHWMLFMAOperatorModule
 using LinearAlgebra
 using StaticArrays
 using SparseArrays
+using Logging
 using ....CoreModule
 using ....Geometry
 using ....BasisFunctions
@@ -531,7 +532,7 @@ function assemble_near_field_pmchw(
     N = num_basis(basis)
     CT = Complex{typeof(pmchw.k0)}
 
-    println("  [PMCHWMLFMAOperator] 装配完整 2N×2N PMCHW 矩阵（N=$N）...")
+    @info "  [PMCHWMLFMAOperator] 装配完整 2N×2N PMCHW 矩阵（N=$N）..."
     Z_full = pmchw_assemble_full(pmchw, basis)
 
     leaf_level = octree.levels[octree.nLevels]
@@ -572,7 +573,7 @@ function assemble_near_field_pmchw(
     end
 
     Z_near = sparse(IIs, JJs, VVs, 2N, 2N)
-    println("  [PMCHWMLFMAOperator] 近场矩阵：nnz=$(nnz(Z_near)) / $(2N)×$(2N)")
+    @info "  [PMCHWMLFMAOperator] 近场矩阵：nnz=$(nnz(Z_near)) / $(2N)×$(2N)"
     return Z_near
 end
 

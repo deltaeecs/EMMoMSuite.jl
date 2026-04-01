@@ -1,6 +1,7 @@
 module SCFIEModule
 
 using ..CoreModule
+using ..CoreModule: Constants
 using ..Geometry
 using ..BasisFunctions
 using ..Kernels
@@ -13,8 +14,8 @@ using Base.Threads
 
 import ..CoreModule: assemble_impedance_matrix
 
-export SCFIE, assemble_impedance_matrix, assemble_fss_boundary_correction_sparse,
-       scfie_sv_only_interaction
+export SCFIE,
+    assemble_impedance_matrix, assemble_fss_boundary_correction_sparse, scfie_sv_only_interaction
 
 """
     SCFIE{FT, CT, N_GQ_S, N_GQ_V} <: AbstractIntegralOperator
@@ -42,11 +43,8 @@ struct SCFIE{FT<:AbstractFloat,CT<:Complex,N_GQ_S,N_GQ_V} <: AbstractIntegralOpe
 end
 
 function SCFIE(freq::FT, permittivities::Vector{Complex{FT}}; alpha::FT = 0.5) where {FT}
-    c0 = 299792458.0
-    mu0 = 4π * 1e-7
-    eps0 = 1.0 / (c0^2 * mu0)
-    k = 2π * freq / c0
-    eta = sqrt(mu0 / eps0)
+    k = 2π * freq / Constants.c0
+    eta = Constants.eta0
 
     # Quadrature rules
     gq_surf = GaussQuadratureInfo(:Triangle, 7, FT) # 7-point for surface
@@ -200,10 +198,9 @@ function assemble_fss_boundary_correction!(
 
     k = scfie.k
     omega = 2π * scfie.freq
-    mu0 = 4π * 1e-7
 
     # Coefficient: jωμ₀/(4π) × 1/k²
-    coeff = im * omega * mu0 / (4π * k^2)
+    coeff = im * omega * Constants.mu0 / (4π * k^2)
 
     n_surf = num_basis(surf_basis)
     N_total = size(Z, 1)
@@ -228,7 +225,7 @@ function assemble_fss_boundary_correction!(
     n_boundary = length(boundary_indices)
 
     if n_boundary == 0
-        println("Fss Boundary Correction: 0 boundary SWG functions (skipped).")
+        @info "Fss Boundary Correction: 0 boundary SWG functions (skipped)."
         return
     end
 
@@ -321,7 +318,7 @@ function assemble_fss_boundary_correction!(
         end
     end
 
-    println("Fss Boundary Correction: $n_boundary boundary SWG functions processed (parallel).")
+    @info "Fss Boundary Correction: $n_boundary boundary SWG functions processed (parallel)."
 end
 
 """
@@ -345,12 +342,10 @@ function scfie_sv_only_interaction(
 
     k = scfie.k
     omega = 2π * scfie.freq
-    mu0 = 4π * 1e-7
-    eps0 = 8.854187817e-12
 
     κ_vol = tet.κ
-    c1_sv = im * omega * mu0 * κ_vol
-    c2_sv = κ_vol / (im * omega * eps0)
+    c1_sv = im * omega * Constants.mu0 * κ_vol
+    c2_sv = κ_vol / (im * omega * Constants.eps0)
     vol_factor = tri.area * tet.volume
 
     gq_s = scfie.gq_surf
@@ -403,8 +398,6 @@ function scfie_coupling_interaction(
 
     k = scfie.k
     omega = 2π * scfie.freq
-    mu0 = 4π * 1e-7
-    eps0 = 8.854187817e-12
 
     # Material properties of volume source
     κ_vol = tet.κ
@@ -512,10 +505,9 @@ function assemble_fss_boundary_correction_sparse(
 
     k = scfie.k
     omega = 2π * scfie.freq
-    mu0 = 4π * 1e-7
     FT = eltype(scfie.freq)
 
-    coeff = im * omega * mu0 / (4π * k^2)
+    coeff = im * omega * Constants.mu0 / (4π * k^2)
 
     n_surf = num_basis(surf_basis)
     n_total = n_surf + num_basis(vol_basis)
@@ -687,10 +679,7 @@ function assemble_coupling_blocks_pwc!(
     k² = k^2
     jk = im * k
     omega = 2π * scfie.freq
-    mu0 = 4π * 1e-7
-    eps0 = 8.854187817e-12
-    eta0 = sqrt(mu0 / eps0)
-    Jη₀divK = im * eta0 / k  # = j/(ωε₀)
+    Jη₀divK = im * Constants.eta0 / k  # = j/(ωε₀)
     div4π = 1.0 / (4π)
 
     # Quadrature
@@ -702,7 +691,7 @@ function assemble_coupling_blocks_pwc!(
     # Thread safety locks
     row_locks = [SpinLock() for _ = 1:n_total]
 
-    println("SCFIE-PWC Coupling Assembly: $ntri triangles x $ntet tetrahedra.")
+    @info "SCFIE-PWC Coupling Assembly: $ntri triangles x $ntet tetrahedra."
 
     Threads.@threads for it = 1:ntri
         tri = tris[it]
@@ -826,7 +815,7 @@ function assemble_coupling_blocks_pwc!(
         end
     end
 
-    println("SCFIE-PWC Coupling Assembly Completed.")
+    @info "SCFIE-PWC Coupling Assembly Completed."
 end
 
 # ============================================================================
@@ -916,7 +905,7 @@ function assemble_coupling_blocks_pwc_hex!(
     # Thread safety locks
     row_locks = [SpinLock() for _ = 1:n_total]
 
-    println("SCFIE-PWCHex Coupling Assembly: $ntri triangles x $nhex hexahedra.")
+    @info "SCFIE-PWCHex Coupling Assembly: $ntri triangles x $nhex hexahedra."
 
     Threads.@threads for it = 1:ntri
         tri = tris[it]
@@ -1032,7 +1021,7 @@ function assemble_coupling_blocks_pwc_hex!(
         end
     end
 
-    println("SCFIE-PWCHex Coupling Assembly Completed.")
+    @info "SCFIE-PWCHex Coupling Assembly Completed."
 end
 
 # ============================================================================
@@ -1145,7 +1134,7 @@ function assemble_coupling_blocks_rbf!(
     # Thread safety locks
     row_locks = [SpinLock() for _ = 1:n_total]
 
-    println("SCFIE-RBF Coupling Assembly: $ntri triangles x $nhex hexahedra.")
+    @info "SCFIE-RBF Coupling Assembly: $ntri triangles x $nhex hexahedra."
 
     Threads.@threads for it = 1:ntri
         tri = tris[it]
@@ -1282,7 +1271,7 @@ function assemble_coupling_blocks_rbf!(
         end
     end
 
-    println("SCFIE-RBF Coupling Assembly Completed.")
+    @info "SCFIE-RBF Coupling Assembly Completed."
 end
 
 

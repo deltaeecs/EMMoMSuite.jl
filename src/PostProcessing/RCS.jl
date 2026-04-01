@@ -17,7 +17,7 @@ using ..RadiationIntegral:
     radiation_integral_pwc_hex,
     radiation_integral_rbf,
     ∠Info
-using ...CoreModule: num_elements
+using ...CoreModule: num_elements, Constants
 
 export radarCrossSection
 
@@ -354,22 +354,23 @@ function radarCrossSection(
 ) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
 
     n_surf = num_basis(basis_surf)
-    n_vol  = num_basis(basis_vol)
+    n_vol = num_basis(basis_vol)
     @assert length(ICoeff) == n_surf + n_vol string(
-        "SCFIE RCS: ICoeff length $(length(ICoeff)) ≠ n_surf($n_surf) + n_vol($n_vol)")
+        "SCFIE RCS: ICoeff length $(length(ICoeff)) ≠ n_surf($n_surf) + n_vol($n_vol)",
+    )
 
     I_surf = ICoeff[1:n_surf]
-    I_vol  = ICoeff[n_surf+1:end]
+    I_vol = ICoeff[n_surf+1:end]
 
-    k0    = get_k0()
-    eta0  = get_eta0()
+    k0 = get_k0()
+    eta0 = get_eta0()
     Nθ_obs = length(θs_obs)
     Nϕ_obs = length(ϕs_obs)
-    nobs   = Nθ_obs * Nϕ_obs
+    nobs = Nθ_obs * Nϕ_obs
 
     θsobsInfo = [∠Info(θ) for θ in θs_obs]
     ϕsobsInfo = [∠Info(ϕ) for ϕ in ϕs_obs]
-    r̂θsϕs    = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
+    r̂θsϕs = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
     r̂θsϕs_flat = vec(r̂θsϕs)
 
     RCS_flat = zeros(FT, 2, nobs)
@@ -388,7 +389,7 @@ function radarCrossSection(
         r_info = r̂θsϕs_flat[ii]
 
         Nθϕ_surf = radiation_integral_rwg(r_info, basis_surf, I_surf)
-        Nθϕ_vol  = _rad_vol(r_info)
+        Nθϕ_vol = _rad_vol(r_info)
 
         # Coherent superposition of surface and volume contributions
         Nθ = Nθϕ_surf[1] + Nθϕ_vol[1]
@@ -401,7 +402,7 @@ function radarCrossSection(
 
     RCSθsϕs = reshape(RCS_flat, 2, Nθ_obs, Nϕ_obs)
     RCS_total = RCSθsϕs[1, :, :] + RCSθsϕs[2, :, :]
-    RCS_dB    = 10 .* log10.(RCS_total)
+    RCS_dB = 10 .* log10.(RCS_total)
 
     return RCSθsϕs, RCS_total, RCS_dB
 end
@@ -444,8 +445,7 @@ function radarCrossSection(
     @assert length(ICoeff) == 2N "PMCHWT: ICoeff 长度应为 2N=$(2N)，实际为 $(length(ICoeff))"
 
     # radiation_integral_rwg 内部通过全局 get_k0() 读取波数，必须在调用前同步
-    c0 = FT(299792458.0)
-    freq_from_k0 = Float64(k0 * c0 / (2 * FT(π)))
+    freq_from_k0 = Float64(k0 * Constants.c0 / (2 * FT(π)))
     set_frequency!(freq_from_k0)
 
     I_J = ICoeff[1:N]
@@ -453,12 +453,12 @@ function radarCrossSection(
 
     Nθ_obs = length(θs_obs)
     Nϕ_obs = length(ϕs_obs)
-    nobs   = Nθ_obs * Nϕ_obs
+    nobs = Nθ_obs * Nϕ_obs
 
     θsobsInfo = [∠Info(θ) for θ in θs_obs]
     ϕsobsInfo = [∠Info(ϕ) for ϕ in ϕs_obs]
 
-    r̂θsϕs      = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
+    r̂θsϕs = [r̂θϕInfo(θ, ϕ) for θ in θsobsInfo, ϕ in ϕsobsInfo]
     r̂θsϕs_flat = vec(r̂θsϕs)
 
     RCS_flat = zeros(FT, 2, nobs)
@@ -473,7 +473,7 @@ function radarCrossSection(
 
         # 合并：E_θ = η₀ Nθ + Lϕ,  E_ϕ = η₀ Nϕ - Lθ
         E_theta = eta0 * Nθϕ[1] + Lθϕ[2]
-        E_phi   = eta0 * Nθϕ[2] - Lθϕ[1]
+        E_phi = eta0 * Nθϕ[2] - Lθϕ[1]
 
         factor = k0^2 / (4 * FT(π))
         RCS_flat[1, ii] = factor * abs2(E_theta)
@@ -482,7 +482,7 @@ function radarCrossSection(
 
     RCSθsϕs = reshape(RCS_flat, 2, Nθ_obs, Nϕ_obs)
     RCS_total = RCSθsϕs[1, :, :] + RCSθsϕs[2, :, :]
-    RCS_dB    = 10 .* log10.(RCS_total)
+    RCS_dB = 10 .* log10.(RCS_total)
 
     return RCSθsϕs, RCS_total, RCS_dB
 end
