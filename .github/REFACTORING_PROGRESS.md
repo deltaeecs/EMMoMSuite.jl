@@ -540,6 +540,62 @@
 
 ---
 
+## Phase 21: 完整的单元测试和集成测试套件（进行中）
+
+### 目标
+- 提升代码覆盖率到 ≥85%
+- 建立全面的数值验证测试
+- 确保 Legacy 对齐性
+- 防止 Phase 19 修复回归
+
+### 21.1 单元测试补充（进行中）
+
+#### Round 1: 覆盖缺口补充（完成 ✅）
+
+**创建时间**: 2026-04-01
+
+**覆盖分析发现**：
+- 总修复项：9 项（Round 6-12）
+- 已覆盖：2 项（22%）
+- 部分覆盖：5 项（56%）
+- 完全缺失：2 项（22%）
+
+**优先级分布**：
+- P0（关键数值稳定）：5 项，其中 2 项完全缺失
+- P1（参数验证）：2 项，均需 @test_throws
+- P2（退化几何）：2 项，已部分覆盖
+
+**创建 `test/test_coverage_gaps.jl`**：
+- ✅ **Singularities F1/F21/F22** — 退化三角形测试
+  - 近退化（s≈1.999），等边（s=1），极度退化（s=1+1e-10）
+  - 验证 log(max(..., eps)) 保护无 NaN/Inf
+- ✅ **FastExp 边界条件** — R≈R_max 和 R>R_max
+  - 测试 0.9999×R_max, R_max, 1.0001×R_max
+  - 验证 clamp(trunc(...)) 索引安全
+  - 确认精度<0.1%
+- ✅ **CoordinateTransforms acos clamp** — r̂[3] 边界
+  - 测试 -1-ε, -1, -1+ε, 0, 1-ε, 1, 1+ε
+  - 验证 clamp(..., -1, 1) 无 NaN
+- ✅ **WavePort 参数验证** — @test_throws
+  - a≤0, b≤0, freq≤0 拒绝测试
+- ✅ **CoaxPort 参数验证** — @test_throws
+  - inner≤0, outer≤inner, eps_r≤0 拒绝测试
+- ✅ **BasisUtilities 退化几何** — 共线/重复顶点
+  - 验证 area>eps 和边长检查
+- ✅ **FastExp R=0** — 确认 Round 6 修复
+
+**统计**：
+- 新增测试集：9 个
+- 新增断言：50+ 个
+- Git 提交：`test: add Phase 21 coverage gap tests for Round 6-12 fixes` (commit ef4059d)
+
+#### 下一步（待启动）：
+- [ ] 补充 EFIE/MFIE/SCFIE/VEFIE 集成测试（与 Legacy 对比）
+- [ ] 补充 MLFMA 多层验证测试
+- [ ] 建立数值精度基准库
+
+---
+
 ## 检视迭代总结
 
 ### 完成状态
