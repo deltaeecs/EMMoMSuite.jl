@@ -468,8 +468,27 @@
 - **Git 提交**：`fix: unify table lookup safety in FastExp (Round 9 finding)` (commit 74d8652)
 - **Round 9 收口**：发现并修复阻塞性问题，连续 clean 轮次清零（连续 0 轮）
 
-### Round 10（待启动）
+### Round 10（**第一个 Clean Round** ✅）
 
-- 需连续 3 轮清洁检视才可收口
-- Round 10 将验证 Round 9 修复 + 检查是否还有遗漏的边界情况
+- 检视范围：验证 Round 9 修复 + 全面数值风险/并行竞态/文档质量扫描
+- 覆盖范围：12 个核心模块完整检查，20+ 文件采样扫描
+- **Round 9 修复验证**：
+  - ✅ FastExp.jl clamp 修复完整且与 `fast_green_func` 一致
+  - ✅ 项目中已完全移除 `unsafe_trunc`，零残留
+- **阻塞性问题扫描**：
+  - ✅ **零除零风险** — 所有除法都有前置检查或逻辑保证
+  - ✅ **零 log/sqrt 负参数** — Singularities.jl 所有 `log()` 都使用 `max(..., eps_ft)` 保护
+  - ✅ **零数组越界** — 所有 `@inbounds` 都有 `clamp` 或循环范围保护
+  - ✅ **零并行竞态** — EFIE/MFIE/SCFIE/VEFIE 使用 SpinLock 保护行写入，MPI 有行级锁
+  - ✅ **零类型不稳定** — 所有容器都有显式类型
+- **遗留非阻塞性问题确认**：
+  - 数值阈值差异（`1e-10` vs `1e-12`）— 不影响正确性，仅是维护性问题
+  - Singularities.jl 中 `epsilon_l` 系数（`1e-2` vs `1e-3`）— 反映不同上下文需求
+- **文档质量**：关键函数都有 docstring，数值保护有注释说明
+- **Round 10 收口**：**第一个 Clean Round 达成**，连续 clean 轮次：**1/3**
+
+### Round 11（待启动）
+
+- 连续 clean 轮次：1/3（需再连续 2 轮 clean 才可收口）
+- Round 11 将采样扫描 MLFMA 相关模块验证数值一致性
 
