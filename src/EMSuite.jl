@@ -221,9 +221,6 @@ export mie_dielectric_rcs_dBsm, mie_dielectric_bistatic_rcs_dBsm
 export dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic, dipole_halfwave_farfield_analytic
 export AccuracyResult, AntennaAccuracyResult
 export compute_rcs_accuracy, compute_antenna_accuracy, print_accuracy_report
-export AccuracyCurve, AccuracyCurveSummary, PerformanceBenchmarkResult
-export load_accuracy_curve, summarize_accuracy_curve
-export accuracy_curve_group, accuracy_curve_cut, load_performance_results
 
 # Re-export Driver
 include("Driver.jl")
