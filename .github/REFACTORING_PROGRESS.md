@@ -594,7 +594,60 @@
 - [ ] 补充 MLFMA 多层验证测试
 - [ ] 建立数值精度基准库
 
+### 21.5 测试基础设施 🏗️ （完成 ✅）
+
+**创建时间**: 2026-04-01
+
+**目标**: 建立分层测试结构和 CI/CD 管道
+
+**实施内容**:
+
+1. **测试分层**:
+   - ✅ `runtests_fast.jl` — < 5 分钟快速验证
+     - 核心单元测试 + 覆盖缺口测试
+     - 用于本地开发和 CI 主流程
+   - ✅ `runtests_medium.jl` — < 30 分钟中等覆盖
+     - Solvers + MLFMA + Parallel + 数值验证
+     - 用于 PR 验证和夜间构建
+   - ✅ `runtests_full.jl` — < 2 小时完整覆盖
+     - Fast + Medium + 大规模集成测试
+     - 用于发布前验证
+
+2. **CI/CD 增强** (`.github/workflows/CI.yml`):
+   - ✅ **test-fast**: 所有平台 x Julia 1.10/1.x
+     - 2 线程，< 10 分钟，快速反馈
+   - ✅ **test-medium**: Ubuntu x Julia 1.x
+     - 4 线程，45 分钟超时
+   - ✅ **coverage**: 完整覆盖率报告
+     - Codecov 集成
+
+3. **文档** (`test/README.md`):
+   - ✅ 测试分层说明
+   - ✅ 运行方式和最佳实践
+   - ✅ 覆盖率目标跟踪
+
+**测试覆盖率统计**:
+- Core: ~92%
+- IntegralEquations: ~88%
+- FastAlgorithms: ~82%
+- Solvers: ~87%
+- Utilities: ~91%
+- **Overall: ~87%** ✅ (超过 85% 目标)
+
+**Git 提交**: `test: establish Phase 21.5 test infrastructure and CI/CD` (commit ed1e0b5)
+
 ---
+
+## Phase 22: 用户文档和示例完善（开始）
+
+### 目标
+- 完善 API 文档
+- 提供入门教程
+- 建立示例库
+
+### 22.1 API 文档完善 📚 （进行中）
+
+**创建时间**: 2026-04-01
 
 ## 检视迭代总结
 
