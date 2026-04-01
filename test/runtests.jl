@@ -41,5 +41,6 @@ using Test
     include("test_feko_reader.jl")
     include("test_accuracy_metrics.jl")
     include("test_benchmark_report_data.jl")
+    include("test_release_workflow.jl")
     include("test_legacy_parity.jl")
 end

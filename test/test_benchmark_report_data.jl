@@ -1,5 +1,7 @@
 using Test
-using EMSuite
+
+include(joinpath(@__DIR__, "..", "benchmark", "support", "release_support.jl"))
+using .ReleaseSupport
 
 @testset "Phase 16 BenchmarkReportData" begin
     mktempdir() do tmpdir
