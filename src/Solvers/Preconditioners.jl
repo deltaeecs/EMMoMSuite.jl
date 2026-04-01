@@ -11,6 +11,32 @@ export AbstractPreconditioner,
     SPAIPreconditioner,
     BlockJacobiPreconditioner
 
+"""
+    AbstractPreconditioner
+
+Abstract base type for preconditioners in iterative solvers.
+
+Preconditioners accelerate iterative solution of linear systems ``\\mathbf{Ax} = \\mathbf{b}``
+by approximating ``\\mathbf{A}^{-1}`` with a cheaper-to-apply operator ``\\mathbf{M}^{-1}``.
+
+The preconditioned system is:
+```math
+\\mathbf{M}^{-1}\\mathbf{Ax} = \\mathbf{M}^{-1}\\mathbf{b}
+```
+
+# Interface Requirements
+
+Preconditioners must implement:
+- `ldiv!(y, P, x)`: Compute `y = P \\ x` (in-place)
+- `ldiv!(P, x)`: Compute `x = P \\ x` (in-place)
+- `\\(P, x)`: Compute `P \\ x` (allocating)
+
+# See Also
+
+- [`DiagonalPreconditioner`](@ref): Jacobi preconditioner
+- [`ILUPreconditioner`](@ref): Incomplete LU factorization
+- [`BlockJacobiPreconditioner`](@ref): Block-diagonal approximation
+"""
 abstract type AbstractPreconditioner end
 
 # --- Identity Preconditioner ---
@@ -20,6 +46,50 @@ LinearAlgebra.ldiv!(P::IdentityPreconditioner, x) = x
 Base.:\(P::IdentityPreconditioner, x) = x
 
 # --- Diagonal (Jacobi) Preconditioner ---
+"""
+    DiagonalPreconditioner{T} <: AbstractPreconditioner
+
+Diagonal (Jacobi) preconditioner: ``M = \\text{diag}(A)``.
+
+The simplest preconditioner, using only the diagonal of the matrix:
+```math
+\\mathbf{M}^{-1} = \\text{diag}(A_{11}^{-1}, A_{22}^{-1}, \\ldots, A_{nn}^{-1})
+```
+
+# Construction
+
+    DiagonalPreconditioner(A::AbstractMatrix)
+
+# Characteristics
+
+- **Memory**: O(N) — stores only diagonal
+- **Setup time**: O(N) — extract diagonal
+- **Application time**: O(N) — element-wise division
+- **Effectiveness**: Poor for ill-conditioned systems, good for diagonally dominant
+
+# Example
+
+```julia
+# GMRES with diagonal preconditioning
+Z = assemble_impedance_matrix(efie)
+P = DiagonalPreconditioner(Z)
+V = compute_excitation_vector(efie, plane_wave)
+
+I = gmres(Z, V, Pl=P, abstol=1e-6)
+```
+
+# When to Use
+
+- ✅ Quick setup, low memory
+- ✅ Diagonally dominant systems
+- ❌ Poor for EFIE/MFIE (off-diagonal dominant)
+- ❌ Better options available (ILU, Block-Jacobi)
+
+# See Also
+
+- [`ILUPreconditioner`](@ref): Better for sparse systems
+- [`BlockJacobiPreconditioner`](@ref): Better for MoM matrices
+"""
 struct DiagonalPreconditioner{T} <: AbstractPreconditioner
     diag_inv::Vector{T}
 end
@@ -57,6 +127,62 @@ end
 Base.:\(P::DiagonalPreconditioner, x) = P.diag_inv .* x
 
 # --- ILU Preconditioner ---
+"""
+    ILUPreconditioner{T, F} <: AbstractPreconditioner
+
+Incomplete LU factorization preconditioner.
+
+Approximates ``\\mathbf{A} \\approx \\mathbf{L}\\mathbf{U}`` with sparse lower/upper 
+triangular factors, using drop tolerance to control fill-in.
+
+# Construction
+
+    ILUPreconditioner(A::SparseMatrixCSC; τ=0.01)
+
+# Arguments
+
+- `A::SparseMatrixCSC`: Sparse matrix to precondition
+- `τ::Float64=0.01`: Drop tolerance (smaller → more accurate, more fill)
+  - τ = 0: No dropping (exact LU if no pivoting)
+  - τ = 0.01: Typical (1% threshold)
+  - τ = 0.1: Aggressive dropping (less accurate, faster)
+
+# Characteristics
+
+- **Memory**: O(N × fill_factor) — depends on τ
+- **Setup time**: O(N² × fill_factor) — factorization
+- **Application time**: O(N × fill_factor) — triangular solves
+- **Effectiveness**: Excellent for sparse systems
+
+# Example
+
+```julia
+# GMRES with ILU(0.01) preconditioning
+Z = assemble_impedance_matrix(efie)
+P = ILUPreconditioner(Z, τ=0.01)
+V = compute_excitation_vector(efie, plane_wave)
+
+I = gmres(Z, V, Pl=P, abstol=1e-6, restart=50)
+```
+
+# When to Use
+
+- ✅ Sparse matrices (EFIE/MFIE direct assembly)
+- ✅ Medium-sized problems (N < 50k)
+- ❌ Dense matrices (use Block-Jacobi)
+- ❌ Very large problems (setup cost high)
+
+# Notes
+
+- Uses IncompleteLU.jl package
+- Drop tolerance trades accuracy for speed/memory
+- For MLFMA operators, use Block-Jacobi instead
+
+# See Also
+
+- [`DiagonalPreconditioner`](@ref): Simpler, faster, less effective
+- [`BlockJacobiPreconditioner`](@ref): For MLFMA operators
+"""
 struct ILUPreconditioner{T,F} <: AbstractPreconditioner
     ilu_factor::F
 end
