@@ -4,13 +4,11 @@ using LinearAlgebra
 using Statistics
 using SparseArrays
 using HDF5
-using ProgressMeter
-using NearestNeighbors
-using Roots
 using ...MLFMA.Interpolation: truncation_kernel
 using ..LebedevSortedPoints: get_t_nodes
 using ..dataset_generator: generate_dataset_on_pkpt
-using ....Utilities: load_sparse_matrix, save_sparse_matrix
+using ....Utilities: Progress, next!, find_zero_bisection, knn_bruteforce,
+    load_sparse_matrix, save_sparse_matrix
 
 export runpinvCal, interpWeightsInitial
 
@@ -26,9 +24,7 @@ function interpWeightsInitial(tNodes::Matrix{T}, pNodes::Matrix{T}; nInterp::Int
     ptNodes = size(pNodes, 2)
 
     # 最近 nInterp 个结点计算
-    kdtree = KDTree(tNodes)
-    # 最近的 nInterp 个点的id, 笛卡尔距离
-    idxs, dists = knn(kdtree, pNodes, nInterp, true)
+    idxs, dists = knn_bruteforce(tNodes, pNodes, nInterp)
     # 
     idxs = hcat(idxs...)
     dists = hcat(dists...)
@@ -183,7 +179,7 @@ end
 function runpinvCal(pk::T, pt::T; nInterp = pk < 20 ? 9 : 8, FT = Float64) where {T<:Integer}
 
     @info "Calculating interp weights $pk → $pt …"
-    rel_l = find_zero(x -> truncation_kernel(x) - (pk + 1) / 2, 0)
+    rel_l = find_zero_bisection(x -> truncation_kernel(x) - (pk + 1) / 2, 0)
     # 生成数据集
     tArray, pArray = generate_dataset_on_pkpt(pk, pt, rel_l; FT = FT)
 

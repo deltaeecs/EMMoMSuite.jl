@@ -1,10 +1,9 @@
 module dataset_generator
 
 using LinearAlgebra
-using ProgressMeter
-using Roots
 using ...MLFMA.Interpolation: truncation_kernel
 using ..LebedevSortedPoints: get_t_nodes, nodes2Poles, p2nDict
+using ....Utilities: Progress, next!, find_zero_bisection
 
 export generate_dataset_on_pkpt
 
@@ -123,7 +122,7 @@ TBW
 function generate_dataset_on_pkpt(
     pk::T,
     pt::T,
-    rel_l = find_zero(x -> truncation_kernel(x) - (pk + 1) ÷ 2, 0);
+    rel_l = find_zero_bisection(x -> truncation_kernel(x) - (pk + 1) ÷ 2, 0);
     k = 2π,
     λ = 1.0,
     FT = Float64,

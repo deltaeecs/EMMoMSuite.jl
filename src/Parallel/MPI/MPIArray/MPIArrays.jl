@@ -1,7 +1,6 @@
 module MPIArrays
 
 using MPI
-using Primes
 using OffsetArrays, SparseArrays
 using LinearAlgebra
 

@@ -3,7 +3,6 @@ module PostProcessing
 using LinearAlgebra
 using StaticArrays
 using Statistics
-using ProgressMeter
 using ..CoreModule
 using ..Geometry
 using ..BasisFunctions
