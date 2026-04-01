@@ -26,17 +26,79 @@ export get_tetrahedra_info,
     _pwc_dyad_kernel!
 
 """
-    VEFIE{FT, CT, N_GQ} <: AbstractIntegralOperator
+    VEFIE{FT, CT, N_GQ, N_GQ_FAR} <: AbstractIntegralOperator
 
-Volume Electric Field Integral Equation (VEFIE) operator.
+Volume Electric Field Integral Equation (VEFIE) operator for dielectric scattering.
 
-Solves for the electric flux density \$\\mathbf{D}\$ in a dielectric volume.
+Solves for the equivalent electric flux density ``\\mathbf{D}`` (or polarization current ``\\mathbf{J}_p``)
+in a penetrable dielectric volume using the volume integral equation formulation.
+
+# Mathematical Formulation
+
+The VEFIE relates the equivalent volume current to the scattered field:
+
+```math
+\\mathbf{E}_{scat}(\\mathbf{r}) = -j\\omega\\mu_0 \\int_V \\mathbf{J}_p(\\mathbf{r}') G(\\mathbf{r}, \\mathbf{r}') dV' 
+- \\frac{1}{j\\omega\\varepsilon_0} \\nabla \\int_V \\nabla' \\cdot \\mathbf{J}_p(\\mathbf{r}') G(\\mathbf{r}, \\mathbf{r}') dV'
+```
+
+where the polarization current is:
+```math
+\\mathbf{J}_p = j\\omega(\\varepsilon_r - 1)\\varepsilon_0 \\mathbf{E}_{total}
+```
 
 # Fields
-- `freq`: Operating frequency.
-- `k`: Wavenumber (background).
-- `eta`: Intrinsic impedance (background).
-- `gq_info`: Gauss quadrature info for tetrahedron.
+
+- `freq::FT`: Operating frequency [Hz]
+- `k::FT`: Wavenumber in background (free space) ``k_0 = 2\\pi f / c_0`` [rad/m]
+- `eta::FT`: Intrinsic impedance of background (η₀ ≈ 376.73 Ω)
+- `gq_info::GaussQuadratureInfoStruct{FT,N_GQ,4}`: Tetrahedron quadrature (5-point default for near)
+- `gq_far::GaussQuadratureInfoStruct{FT,N_GQ_FAR,4}`: Tetrahedron quadrature for far interactions (5-point)
+- `permittivities::Vector{CT}`: Complex relative permittivity ``\\varepsilon_r`` for each tetrahedron
+  - Real part: ``\\varepsilon_r'`` (dielectric constant)
+  - Imaginary part: ``-\\varepsilon_r''`` (loss tangent contribution, negative!)
+- `exp_table::FastExpTable{FT}`: Lookup table for fast ``e^{jkr}`` evaluation
+
+# Constructor
+
+    VEFIE(freq, permittivities)
+
+# Examples
+
+```julia
+# Dielectric cube (εᵣ = 4.0, lossless)
+freq = 1e9
+ε_r = [4.0 + 0.0im for _ in 1:num_tetrahedra(mesh)]
+vefie = VEFIE(freq, ε_r)
+
+# Lossy dielectric (εᵣ = 2.2 - j0.002, e.g., FR4)
+tan_delta = 0.001
+ε_r_real = 2.2
+ε_r = [complex(ε_r_real, -ε_r_real * tan_delta) for _ in 1:num_tetrahedra(mesh)]
+vefie = VEFIE(freq, ε_r)
+
+# Assemble impedance matrix
+Z = assemble_impedance_matrix(vefie, swg_basis)
+```
+
+# Implementation Details
+
+- **Singular kernel handling**: Uses analytical singular extraction (F1, F21, F22)
+- **Regular kernel**: Fast exponential lookup table (80 KB, 10000 entries)
+- **Thread-safety**: Matrix assembly uses stripe-based locking (256 stripes)
+- **Near-field threshold**: 0.15λ₀/√|εᵣ| (adaptive per tetrahedron)
+
+# See Also
+
+- [`SCFIE`](@ref): Surface-volume combined field equation
+- [`SWGBasis`](@ref): Schaubert-Wilton-Glisson volume basis
+- [`assemble_impedance_matrix`](@ref): Matrix assembly
+
+# References
+
+Volumetric MoM for dielectric scattering:
+- Schaubert, Wilton, Glisson, "A tetrahedral modeling method for EM scattering 
+  by arbitrarily shaped inhomogeneous dielectric bodies", IEEE TAP, 1984.
 """
 struct VEFIE{FT<:AbstractFloat,CT<:Complex,N_GQ,N_GQ_FAR} <: AbstractIntegralOperator
     freq::FT

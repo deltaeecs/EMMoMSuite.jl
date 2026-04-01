@@ -12,16 +12,90 @@ using ...Utilities.Parameters
 export calculate_near_field
 
 """
-    calculate_near_field(points, basis, I_coeffs)
+    calculate_near_field(points, basis, I_coeffs) -> Vector{SVector{3, Complex}}
 
-Calculate the Electric Field at observation points.
-E(r) = -j*omega*mu * A(r) - grad(Phi(r))
-     = -j*omega*mu * sum(I_n * int(f_n * G)) + 1/(j*omega*eps) * sum(I_n * int(div(f_n) * grad(G)))
+Calculate electric field at observation points from surface currents.
 
-Arguments:
-- `points`: Vector of observation points (SVector{3, FT}).
-- `basis`: RWG basis.
-- `I_coeffs`: Current coefficients.
+# Mathematical Background
+
+The electric field is computed via vector and scalar potentials:
+
+```math
+\\mathbf{E}(\\mathbf{r}) = -j\\omega\\mu_0 \\mathbf{A}(\\mathbf{r}) - \\nabla\\Phi(\\mathbf{r})
+```
+
+where:
+```math
+\\mathbf{A}(\\mathbf{r}) = \\sum_n I_n \\int_{S_n} \\mathbf{f}_n(\\mathbf{r}') G(\\mathbf{r}, \\mathbf{r}') dS'
+```
+```math
+\\Phi(\\mathbf{r}) = \\frac{1}{j\\omega\\varepsilon_0} \\sum_n I_n \\int_{S_n} \\nabla' \\cdot \\mathbf{f}_n G(\\mathbf{r}, \\mathbf{r}') dS'
+```
+
+# Arguments
+
+- `points::Vector{SVector{3, FT}}`: Observation point coordinates [x, y, z] in meters
+- `basis::RWGBasis`: RWG basis functions on surface mesh
+- `I_coeffs::Vector{Complex{FT}}`: Current coefficients (from MoM solve)
+
+# Returns
+
+- `Vector{SVector{3, Complex{FT}}}`: Electric field [Ex, Ey, Ez] at each point [V/m]
+
+# Examples
+
+```julia
+# After solving EFIE
+Z = assemble_impedance_matrix(efie)
+V = compute_excitation_vector(efie, plane_wave)
+I = Z \\ V
+
+# Define observation grid (10×10 grid at z=1m above antenna)
+x_obs = range(-0.5, 0.5, length=10)
+y_obs = range(-0.5, 0.5, length=10)
+z_obs = 1.0
+
+points = [SVector(x, y, z_obs) for x in x_obs, y in y_obs] |> vec
+
+# Compute near field
+E_near = calculate_near_field(points, basis, I)
+
+# Extract magnitude
+E_mag = [norm(E) for E in E_near]
+E_dB = 20 .* log10.(E_mag ./ maximum(E_mag))
+
+# Visualize (requires plotting package)
+using Plots
+heatmap(x_obs, y_obs, reshape(E_dB, 10, 10), 
+        xlabel="x [m]", ylabel="y [m]", 
+        title="Near Field (dB)")
+```
+
+# Performance Notes
+
+- Uses 3-point Gauss quadrature per triangle
+- Complexity: O(N_points × N_basis × 2 triangles/basis)
+- No acceleration (direct integration)
+- For large meshes (>1000 unknowns) or many points (>10000), 
+  consider MLFMA-accelerated near-field
+
+# Validity Conditions
+
+- **Near-field**: Valid at any distance (r > 0)
+- **Observation points inside mesh**: Gives interior field (if penetrable)
+- **Observation points on surface**: Singular behavior (use field averaging)
+
+# See Also
+
+- [`farField`](@ref): Far-field radiation pattern
+- [`RWGBasis`](@ref): Surface basis functions
+- [`assemble_impedance_matrix`](@ref): MoM solver
+
+# Notes
+
+- Returned field includes both incident and scattered components if I_coeffs from total-field solve
+- For scattered-field only, use I_coeffs from scattered-field formulation
+- Quadrature accuracy: 3-point rule sufficient for smooth integrands
 """
 function calculate_near_field(
     points::Vector{SVector{3,FT}},
