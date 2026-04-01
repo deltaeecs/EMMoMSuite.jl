@@ -113,6 +113,10 @@ end
 """
 function coax_impedance(p::CoaxPort)
     η₀ = 376.730313461  # 真空波阻抗（Ω），与 Constants.eta0 一致
+    # Validate coaxial geometry: 0 < inner < outer
+    @assert p.inner_radius > 0 "CoaxPort: inner_radius must be > 0"
+    @assert p.outer_radius > p.inner_radius "CoaxPort: outer_radius must be > inner_radius"
+    @assert p.fill_eps_r > 0 "CoaxPort: fill_eps_r must be > 0"
     return (η₀ / (2π)) * log(p.outer_radius / p.inner_radius) / sqrt(p.fill_eps_r)
 end
 

@@ -47,8 +47,14 @@ Construct the hierarchical Octree structure for the Multilevel Fast Multipole Al
 - `OctreeInfo`: The constructed octree data structure containing all levels and precomputed data.
 - `leafsIDSorted`: Permutation vector sorting basis functions according to the octree structure (Morton order or similar).
 """
-function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0, L_min::Int = 0, near_range::Int = 4) where {FT<:Real}
-    println("Building Octree...")
+function build_octree(
+    leafnodes::Matrix{FT},
+    leafCubeEdgel::FT;
+    λ = 1.0,
+    L_min::Int = 0,
+    near_range::Int = 4,
+) where {FT<:Real}
+    @info "Building Octree..."
 
     # 1. Set Big Cube
     nLevels, bigCubeLowerCoor, leafCubeEdgelUsed = setBigCube(leafnodes, leafCubeEdgel)
@@ -62,8 +68,15 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0, L_min:
     end
 
     # 2. Create Leaf Level
-    leafLevel, leafsIDSorted =
-        setLevelInfo!(nLevels, leafnodes, leafCubeEdgelUsed, bigCubeLowerCoor; λ = λ, L_min = L_min, near_range = near_range)
+    leafLevel, leafsIDSorted = setLevelInfo!(
+        nLevels,
+        leafnodes,
+        leafCubeEdgelUsed,
+        bigCubeLowerCoor;
+        λ = λ,
+        L_min = L_min,
+        near_range = near_range,
+    )
 
     # Initialize levels dictionary
     levels = Dict{Int,LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}}(nLevels => leafLevel)
@@ -75,8 +88,15 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0, L_min:
     # 3. Create Non-Leaf Levels
     for ilevel = (nLevels-1):-1:1
         ilevelCubeEdgel = leafCubeEdgelUsed * (2^(nLevels - ilevel))
-        level, levelIDSorted =
-            setLevelInfo!(ilevel, levels[ilevel+1], ilevelCubeEdgel, bigCubeLowerCoor; λ = λ, L_min = L_min, near_range = near_range)
+        level, levelIDSorted = setLevelInfo!(
+            ilevel,
+            levels[ilevel+1],
+            ilevelCubeEdgel,
+            bigCubeLowerCoor;
+            λ = λ,
+            L_min = L_min,
+            near_range = near_range,
+        )
         levels[ilevel] = level
         levelsCubeIDSorted[ilevel+1] = levelIDSorted
     end
@@ -105,7 +125,7 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0, L_min:
     # 10. Precompute Transfer Factors
     compute_translation_factors!(nLevels, levels, k; near_range = near_range)
 
-    println("Octree built successfully.")
+    @info "Octree built successfully."
     return OctreeInfo(nLevels, leafCubeEdgel, bigCubeLowerCoor, levels), leafsIDSorted
 end
 
@@ -260,7 +280,11 @@ function setLevelInfo!(
     return level, kidCubesSorted
 end
 
-function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer; near_range::Int = 4) where {IT<:Integer}
+function searchNearCubes(
+    cubesID3D::Matrix{IT},
+    levelID::Integer;
+    near_range::Int = 4,
+) where {IT<:Integer}
     nCubes = size(cubesID3D, 1)
     maxCubes1D = 2^levelID
     cubesID1D = [
@@ -272,7 +296,8 @@ function searchNearCubes(cubesID3D::Matrix{IT}, levelID::Integer; near_range::In
 
     for iCube = 1:nCubes
         cubeID3D = cubesID3D[iCube, :]
-        neighborsOffsets = [(-near_range:near_range), (-near_range:near_range), (-near_range:near_range)]
+        neighborsOffsets =
+            [(-near_range:near_range), (-near_range:near_range), (-near_range:near_range)]
 
         for ii = 1:3
             min_offset = max(-near_range, 1 - cubeID3D[ii])

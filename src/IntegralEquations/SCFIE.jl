@@ -364,7 +364,10 @@ function scfie_sv_only_interaction(
             r_i = r_q_s[:, i]
 
             R = norm(r_i - r_j)
-            R < 1e-10 && continue
+            # Skip near-singular terms (should be handled by semi-analytical integration)
+            if R < 1e-10
+                continue
+            end
             G = exp(-im * k * R) / (4π * R)
             factor = w_i * w_j * vol_factor * G
 

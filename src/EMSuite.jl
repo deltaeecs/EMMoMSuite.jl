@@ -79,8 +79,8 @@ export SimulationResult
 using .Utilities
 export init_logging,
     @showprogress, SimulationParameters, set_frequency!, get_k0, get_eta0, get_omega
-export calculate_mie_rcs_pec_sphere, calculate_mie_rcs_dielectric_sphere,
-       calculate_mie_rcs_pec_sphere_fullpol
+export calculate_mie_rcs_pec_sphere,
+    calculate_mie_rcs_dielectric_sphere, calculate_mie_rcs_pec_sphere_fullpol
 
 # Re-export Geometry symbols
 using .Geometry
@@ -102,20 +102,48 @@ export TriangleMesh,
     generate_box_volume_mesh,
     generate_box_tet_mesh,
     extract_surface,
-    translate_mesh, scale_mesh, rotate_mesh, transform_mesh, merge_meshes,
-    MeshQualityReport, mesh_quality,
-    remove_duplicate_nodes, fix_element_orientation, detect_degenerates,
-    read_stl_mesh, write_stl_mesh,
-    tet_volume, area,
-    BRepFace, BRepSolid, CSGNode,
-    box_solid, solid_volume, solid_surface_area, check_manifold, convert_to_triangle_mesh,
-    intersect_solids, union_solids, subtract_solid, csg_volume,
-    generate_gmsh_sphere, generate_gmsh_box, generate_gmsh_from_file,
-    surface_mesh_gmsh, surface_mesh,
-    mesh_face_labels, label_mesh_tags, propagate_labels,
-    tet_mesh_gmsh, tet_mesh,
-    read_hex_mesh, validate_mesh,
-    BoundMesh, bind_materials, validate_bindings, element_material
+    translate_mesh,
+    scale_mesh,
+    rotate_mesh,
+    transform_mesh,
+    merge_meshes,
+    MeshQualityReport,
+    mesh_quality,
+    remove_duplicate_nodes,
+    fix_element_orientation,
+    detect_degenerates,
+    read_stl_mesh,
+    write_stl_mesh,
+    tet_volume,
+    area,
+    BRepFace,
+    BRepSolid,
+    CSGNode,
+    box_solid,
+    solid_volume,
+    solid_surface_area,
+    check_manifold,
+    convert_to_triangle_mesh,
+    intersect_solids,
+    union_solids,
+    subtract_solid,
+    csg_volume,
+    generate_gmsh_sphere,
+    generate_gmsh_box,
+    generate_gmsh_from_file,
+    surface_mesh_gmsh,
+    surface_mesh,
+    mesh_face_labels,
+    label_mesh_tags,
+    propagate_labels,
+    tet_mesh_gmsh,
+    tet_mesh,
+    read_hex_mesh,
+    validate_mesh,
+    BoundMesh,
+    bind_materials,
+    validate_bindings,
+    element_material
 
 # Re-export Materials symbols
 using .MaterialsModule
@@ -202,7 +230,14 @@ export DiagonalPreconditioner,
 # Re-export FastAlgorithms symbols
 include("FastAlgorithms/FastAlgorithms.jl")
 using .FastAlgorithms
-export FastAlgorithms, MLFMA, MLFMAOperator, get_leaf_intervals, MLFMAOperatorMPI, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
+export FastAlgorithms,
+    MLFMA,
+    MLFMAOperator,
+    get_leaf_intervals,
+    MLFMAOperatorMPI,
+    PMCHWMLFMAErrorBudget,
+    PMCHWMLFMAOperator,
+    assemble_near_field_pmchw
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")
@@ -218,8 +253,8 @@ using .Accuracy
 export read_feko_rcs, split_phi_cuts
 export mie_pec_rcs_dBsm, mie_pec_bistatic_rcs_dBsm
 export mie_dielectric_rcs_dBsm, mie_dielectric_bistatic_rcs_dBsm
-export dipole_halfwave_Zin_analytic, dipole_resonant_Zin_analytic, dipole_halfwave_farfield_analytic,
-       extract_sphere_radius
+export dipole_halfwave_Zin_analytic,
+    dipole_resonant_Zin_analytic, dipole_halfwave_farfield_analytic, extract_sphere_radius
 export AccuracyResult, AntennaAccuracyResult
 export compute_rcs_accuracy, compute_antenna_accuracy, print_accuracy_report
 
