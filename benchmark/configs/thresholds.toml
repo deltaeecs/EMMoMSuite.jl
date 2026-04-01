@@ -1,0 +1,7 @@
+[accuracy]
+direct_rmse_db = 2.5
+mlfma_rmse_db = 3.0
+
+[antenna]
+real_rel_percent = 5.0
+imag_abs_ohm = 20.0

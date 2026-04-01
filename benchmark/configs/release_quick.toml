@@ -1,0 +1,24 @@
+[workflow]
+name = "release-quick"
+mode = "smoke"
+reuse_existing_accuracy = true
+reuse_existing_performance = true
+stable_alias_outputs = true
+
+[paths]
+plot_style = "benchmark/configs/plot_style.toml"
+thresholds = "benchmark/configs/thresholds.toml"
+known_exceptions = "benchmark/configs/known_exceptions.toml"
+
+[steps]
+run_accuracy = false
+run_performance = false
+run_report = true
+mirror_latest = true
+
+[scripts]
+performance = "benchmark/performance_baseline.jl"
+report = "benchmark/run_release_validation_report.jl"
+
+[accuracy]
+scripts = []
