@@ -33,6 +33,7 @@ using Test
     @testset "Integral Equations - Advanced" begin
         include("test_mfie_decomposition.jl")
         include("test_mfie_near_quadrature.jl")
+        include("test_integral_equations_endtoend.jl")  # Phase 21.2
     end
     
     @testset "Volume Methods" begin
