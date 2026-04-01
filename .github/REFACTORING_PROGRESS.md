@@ -411,8 +411,26 @@
 - **Git 提交**：`fix: numerical stability improvements (Round 6 findings)` (commit 6da9de1)
 - **Round 6 收口**：发现并修复关键问题，连续 clean 轮次清零（连续 0 轮）
 
-### Round 7（待启动）
+### Round 7（发现问题，不属于 clean round）
+
+- 检视范围：验证 Round 6 修复 + 评估剩余 Medium/Low 问题 + 轻量级新问题扫描
+- 使用 explore agent 深度验证 Round 6 的 3 个修复点
+- **Round 6 修复验证**：
+  - ✅ FastExp.jl clamp 边界正确且完整
+  - ⚠️ Singularities.jl F1/F21 正确但**遗漏 F22**（本轮修复）
+  - ✅ WavePort.jl @assert 设计合理
+- **发现 2 个遗漏的关键问题**：
+  - 🔴 Singularities.jl `singularF22()` 未保护 — 3 处 log 项缺少 `max(..., eps)` 保护
+  - 🔴 Translation.jl Rab=0 除零风险 — `R̂ab = RabVec / Rab` 未检查分母为零
+- **已全部修复**：
+  - Singularities: 添加 `log(max(1-a/s, eps_ft))` 保护（与 F1/F21 对齐）
+  - Translation: 添加 `if Rab < eps*edge then skip` 检查，避免 NaN 传播到 MLFMA
+- **剩余问题评估**：6 个 Medium/Low 问题中，2 个高优先级已修复，其余 4 个不影响正确性（可延后到 Phase 20）
+- **Git 提交**：`fix: complete numerical stability fixes (Round 7 findings)` (commit 6d5584d)
+- **Round 7 收口**：发现并修复关键问题，连续 clean 轮次清零（连续 0 轮）
+
+### Round 8（待启动）
 
 - 需连续 3 轮清洁检视才可收口
-- Round 7 将验证 Round 6 修复 + 检查剩余 6 个 Medium/Low 问题 + 扩大覆盖至并行性能和内存
+- Round 8 将验证 Round 7 修复 + 全面检查是否还有遗漏的数值保护问题
 
