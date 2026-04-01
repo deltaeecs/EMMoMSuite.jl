@@ -11,7 +11,6 @@ module Accuracy
 include("FekoReader.jl")
 include("ReferenceData.jl")
 include("AccuracyMetrics.jl")
-include("BenchmarkReportData.jl")
 
 using .FekoReader: read_feko_rcs, split_phi_cuts
 using .ReferenceData: mie_pec_rcs_dBsm, mie_pec_bistatic_rcs_dBsm,
@@ -30,9 +29,5 @@ export mie_pec_rcs_dBsm, mie_pec_bistatic_rcs_dBsm,
 export AccuracyResult, AntennaAccuracyResult,
        compute_rcs_accuracy, compute_antenna_accuracy,
        print_accuracy_report
-export AccuracyCurve, AccuracyCurveSummary, PerformanceBenchmarkResult,
-       load_accuracy_curve, summarize_accuracy_curve,
-       accuracy_curve_group, accuracy_curve_cut,
-       load_performance_results
 
 end # module Accuracy
