@@ -375,8 +375,28 @@
   - 文档任务：`docs: document thread-safety limitations and design constraints` (commit 50c9ee2)
 - **Round 4 收口：** 所有发现问题已修复，所有待办任务已完成
 
-### Round 5（待启动）
+### Round 5（发现问题，不属于 clean round）
 
-- 按照开发原则第7条，需连续三轮清洁检视（Round 3 首次 clean，当前连续 1 轮）
-- Round 5 将检视 Round 4 的修复是否引入新问题，并扩大检视覆盖面
+- 检视范围：验证 Round 4 修复质量 + 全工程硬编码常数/日志残留检查
+- 使用 explore agent 系统性扫描 src/ 下所有 .jl 文件
+- **发现 4 处遗漏的硬编码常数**（Round 4 未覆盖）：
+  1. `MLFMAOperator.jl:76` — `lambda = 299792458.0 / freq` (HIGH)
+  2. `WavePort.jl:152-153` — `c0 = 299792458.0`, `η₀ = 376.730313461` (HIGH)
+  3. `VolumeAssembly.jl:494-495, 677-678` — `mu0/eps0` 硬编码 (MEDIUM)
+- **已全部修复**：
+  - MLFMAOperator.jl: 使用 `Constants.c0`（注：MLFMAOperatorMPI 在 Round 4 已正确）
+  - WavePort.jl: 移除硬编码，使用 `Constants.c0/eta0`；Ports.jl 添加 Constants 导入
+  - VolumeAssembly.jl: 使用 `Constants.mu0/eps0`，添加 Constants 导入
+- **验证结果**：
+  - ✅ 日志系统：100% 完成（所有 println → @info 已在 Round 4 完成）
+  - ✅ 导入语句：所有使用 Constants 的文件已正确导入
+  - ✅ 循环依赖：无问题
+  - ✅ 文档格式：无问题
+- **Git 提交**：`fix: complete physical constants standardization (Round 5 findings)` (commit b3197cf)
+- **Round 5 收口**：发现并修复问题，连续 clean 轮次清零（连续 0 轮）
+
+### Round 6（待启动）
+
+- 需连续 3 轮清洁检视才可收口全工程检视迭代
+- Round 6 将验证 Round 5 修复 + 扩大检视覆盖面（算法正确性、命名规范、错误处理等）
 
