@@ -1,6 +1,6 @@
 # EMSuite 重构进度
 
-> 最后更新: 2026-03-11
+> 最后更新: 2026-04-01
 
 ## 当前总览
 
@@ -347,3 +347,23 @@
 - `receive_terms_with_rule` 签名在 benchmark 脚本中确认无旧 `eta` 参数，与生产代码一致
 - SWG/RWG `evaluate` 占位实现评估：未被任何生产路径调用，现阶段不阻塞；留作 P3 后续实现
 - **未发现新问题，Round 3 为 clean**（全工程检视第 1 个 clean round）
+
+### Round 4（发现问题，不属于 clean round）
+
+- 检视范围：全工程系统性代码质量审查，覆盖 src/ 下所有模块
+- 修复分三类：**物理常数标准化**、**日志系统标准化**、**接口与代码质量**
+- **常数标准化（15+ 文件，40+ 处）：**
+  - 移除所有硬编码的 `c0 = 299792458.0`、`mu0 = ...`、`eps0 = ...` 定义
+  - 统一使用 `Constants.c0/mu0/eps0/eta0`（定义于 `src/Core/Constants.jl`）
+  - 修复精度问题：部分文件使用 `eps0 = 8.854187817e-12`（10位），现改用 `Constants.eps0 = 1/(c0²×mu0)` 高精度值
+  - 覆盖模块：IntegralEquations (EFIE/MFIE/SCFIE/VEFIE)、PostProcessing (NearField/Absorption/RadiationIntegral/RCS)、Utilities (Parameters/MieSeries)、FastAlgorithms/MLFMA (MLFMAOperator/Aggregation/Disaggregation)、Parallel/MPI (VolumeAssembly)
+- **日志系统标准化（40+ 处）：**
+  - 所有裸 `println` 替换为 `@info`，便于日志级别控制
+  - 覆盖模块：IntegralEquations (SCFIE 7处, VEFIE 9处)、FastAlgorithms/MLFMA (MLFMAOperator, PMCHWMLFMAOperator 2处含中文)、Parallel/MPI (VolumeAssembly 4处, DistributedGMRES 5处)
+- **接口与代码质量：**
+  - `RWG.jl` / `SWG.jl`: `evaluate()` 从静默返回 `SVector(0,0,0)` 改为 `error()` 明确报错，附加用户指引
+  - `SWG.jl`: 修正边界面注释误导（实际已包含边界面，非注释掉状态）
+  - 文档化 SWG vs RWG 边界处理设计差异（SWG 包含边界面用于 VEFIE 通量连续性，RWG 排除边界边用于 PEC EFIE）
+  - `EFIE.jl`: 移除 4 处已注释的 debug println 死代码
+- **Git 提交：** `refactor: standardize constants and logging across entire codebase` (commit 0da31d3)
+- **待办文档任务：** 需文档化 Parameters.jl 线程安全性限制、EFIE near-interaction 转置 workaround
