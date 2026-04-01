@@ -74,9 +74,6 @@ function radarCrossSection(
     k0 = get_k0()
     eta0 = get_eta0()
 
-    # Debug
-    println("k0: ", k0, " eta0: ", eta0)
-
     Nθ_obs = length(θs_obs)
     Nϕ_obs = length(ϕs_obs)
     nobs = Nθ_obs * Nϕ_obs
