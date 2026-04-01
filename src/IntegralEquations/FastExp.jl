@@ -131,8 +131,8 @@ Useful when the Green's function factor is needed separately.
 @inline function fast_exp_ikr(table::FastExpTable{FT}, R::FT) where {FT<:AbstractFloat}
     @fastmath if R <= table.R_max
         idx_f = R * table.inv_dR + FT(1.0)
-        idx = unsafe_trunc(Int, idx_f)
-        idx = min(idx, table.n_entries - 1)
+        # Use clamp instead of unsafe_trunc + min for consistency with fast_green_func
+        idx = clamp(trunc(Int, idx_f), 1, table.n_entries - 1)
         
         frac = idx_f - idx
         @inbounds return table.table[idx] + (table.table[idx+1] - table.table[idx]) * frac
