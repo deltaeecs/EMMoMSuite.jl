@@ -96,6 +96,8 @@
 - [x] 检视 Round 1 已发现并修正 `benchmark/compare_pmchw_upward_downward_localization_medium.jl` 的参考语义漂移：主 `exact-upward` 现对齐当前 4 点 source 实现，旧 3 点链路明确标记为 legacy 对照
 - [x] 检视 Round 2 已完成 clean review：未发现新的功能正确性 / 架构问题；仅记录 `_receive_terms` 中未使用 `η` / `normal` 的代码整洁度观察项，不影响本轮放行
 - [x] 检视 Round 3：落地修复 `_receive_terms` 死代码（移除 `η` 参数与 `normal`/`v1`/`v2`/`v3`），并发现并修正 benchmark 脚本 3 处旧接口调用（旧签名传入 `eta` 会在运行时抛 `MethodError`）；Round 3 **不属于 clean round**
+- [x] 检视 Round 4（clean）：确认所有接口签名一致、相位符号正确、batch 入口结构合理————第 1 个连续 clean round
+- [x] 检视 Round 5：发现并删除 Phase 17 添加但从未接入的 `src/Accuracy/ReleaseWorkflow.jl`（功能已由 `benchmark/support/release_support.jl` 覆盖）；Round 5 **不属于 clean round**，继续 Round 6
 - [ ] 补做 `docs/build/` 站点重建，消除源码文档与本地构建产物之间的状态滞后
 
 ### 2026-03-11 理论文档实现约定补记

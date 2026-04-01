@@ -280,6 +280,22 @@
 - Phase 17 文件结构检视：`ReleaseWorkflow.jl` 与 `benchmark/reporting/` 三层职责清晰，无新发现。
 - 本轮结论：发现并修复了 2 个问题（1 个已知观察项落地修复，1 个新发现接口不匹配），**Round 3 不属于 clean round**，需继续 Round 4。
 
+## 2026-04-01 Update：PMCHW multilevel 检视 Round 4 / Round 5
+
+### Round 4（clean）
+
+- 检视范围：接口签名一致性、相位符号（source/test）、测试断言、batch 入口设计、benchmark 完整性。
+- 确认所有 `_receive_terms` 调用方使用 6 参数签名 ✓；聚合用 `+jk` / 测试用 `-jk` 相位符号 ✓；`runtests.jl` 不包含慢速 batch6 ✓；benchmark 内 `receive_terms_with_rule` 签名对齐 ✓。
+- **结论：无新问题，Round 4 为 clean round（第 1 个连续 clean round）。**
+
+### Round 5
+
+- 检视范围：扩展至 Phase 17 文件引用链与 EMSuite 主包 include 结构。
+- **发现问题**：`src/Accuracy/ReleaseWorkflow.jl` 从未被任何代码 `include`，是 Phase 17 添加但未接入的死文件（功能已由 `benchmark/support/release_support.jl` 完整覆盖并验证）。该文件属未追踪文件（从未入 git）。
+  - 已删除该文件，消除 `src/` 目录下的死字段混淆。
+  - ROADMAP / PROGRESS 记录修正：Phase 17 发布流程功能的实际实现在 `benchmark/support/release_support.jl`，而非 `src/Accuracy/`。
+- **结论：发现并修复 1 个 Phase 17 遗留死文件问题，Round 5 不属于 clean round，继续 Round 6。**
+
 ## 当前未完成事项
 
 - [ ] MLFMA 多层 upward/downward pass 修正
