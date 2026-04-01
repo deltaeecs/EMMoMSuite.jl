@@ -102,10 +102,8 @@ Falls back to direct computation for R > R_max.
     @fastmath if R <= table.R_max
         # Compute index (1-based) with optimized math
         idx_f = R * table.inv_dR + FT(1.0)
-        idx = unsafe_trunc(Int, idx_f)
-        
-        # Clamp to valid range to avoid bounds check
-        idx = min(idx, table.n_entries - 1)
+        # Safe truncation with clamping to valid range [1, n_entries-1]
+        idx = clamp(trunc(Int, idx_f), 1, table.n_entries - 1)
         
         # Linear interpolation (no bounds check needed)
         frac = idx_f - idx
