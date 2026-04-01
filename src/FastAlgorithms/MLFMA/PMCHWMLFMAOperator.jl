@@ -290,7 +290,7 @@ function aggregate_leaf_pmchw!(
     end
 
     tri_info   = get_triangles_info(basis.mesh, basis)
-    gq         = GaussQuadratureInfo(:Triangle, 3, FT)
+    gq         = GaussQuadratureInfo(:Triangle, 4, FT)
     n_qp       = length(gq.weight)
 
     poles_r̂    = [p.r̂    for p in poles.r̂sθsϕs]
@@ -351,7 +351,6 @@ function _receive_terms(
     field :: AbstractArray,
     r0    :: AbstractVector,
     k     :: Number,
-    η     :: Number,
     poles :: AbstractPolesInfo,
 )
     CT        = typeof(complex(one(real(k))))
@@ -375,9 +374,6 @@ function _receive_terms(
 
         tri   = tri_info[tri_idx]
         v_all = tri.vertices
-
-        v1 = v_all[:, 1]; v2 = v_all[:, 2]; v3 = v_all[:, 3]
-        normal = normalize(cross(v2 - v1, v3 - v1))
 
         local_edge = bf.local_edge_idx[i_supp]
         v_opp      = v_all[:, local_edge]
@@ -440,7 +436,7 @@ function disaggregate_leaf_pmchw_j!(
             bfID = sorted_ids[bfID_sorted]
             bf   = basis.functions[bfID]
 
-            te, tm = _receive_terms(bf, basis, field, r0, k, η, leaf_level.poles)
+            te, tm = _receive_terms(bf, basis, field, r0, k, leaf_level.poles)
             y[bfID]     += te * factor_EJ
             y[bfID + N] += tm * factor_HJ
         end
@@ -478,7 +474,7 @@ function disaggregate_leaf_pmchw_m!(
             bfID = sorted_ids[bfID_sorted]
             bf   = basis.functions[bfID]
 
-            te, tm = _receive_terms(bf, basis, field, r0, k, η, leaf_level.poles)
+            te, tm = _receive_terms(bf, basis, field, r0, k, leaf_level.poles)
             y[bfID]     += tm * factor_EM
             y[bfID + N] += te * factor_HM
         end
