@@ -43,4 +43,7 @@ using Test
     include("test_benchmark_report_data.jl")
     include("test_release_workflow.jl")
     include("test_legacy_parity.jl")
+    
+    # Phase 21: Coverage gap tests for Round 6-12 fixes
+    include("test_coverage_gaps.jl")
 end
