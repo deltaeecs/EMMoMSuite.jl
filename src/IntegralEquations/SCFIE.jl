@@ -21,16 +21,68 @@ export SCFIE,
     SCFIE{FT, CT, N_GQ_S, N_GQ_V} <: AbstractIntegralOperator
 
 Surface-Volume Combined Field Integral Equation (SCFIE) operator.
-Couples Surface EFIE/MFIE with Volume EFIE.
+
+Couples Surface CFIE (for PEC boundaries) with Volume EFIE (for dielectric regions),
+enabling analysis of composite structures with both metallic and dielectric parts.
+
+# Mathematical Formulation
+
+The SCFIE solves for both surface currents ``\\mathbf{J}_s`` (on PEC) and 
+volume polarization currents ``\\mathbf{J}_v`` (in dielectrics):
+
+```math
+\\begin{bmatrix}
+\\mathbf{Z}_{SS} & \\mathbf{Z}_{SV} \\\\
+\\mathbf{Z}_{VS} & \\mathbf{Z}_{VV}
+\\end{bmatrix}
+\\begin{bmatrix}
+\\mathbf{I}_s \\\\
+\\mathbf{I}_v
+\\end{bmatrix}
+=
+\\begin{bmatrix}
+\\mathbf{V}_s \\\\
+\\mathbf{V}_v
+\\end{bmatrix}
+```
+
+where:
+- ``\\mathbf{Z}_{SS}``: Surface-surface coupling (CFIE on PEC)
+- ``\\mathbf{Z}_{VV}``: Volume-volume coupling (VEFIE in dielectric)
+- ``\\mathbf{Z}_{SV}, \\mathbf{Z}_{VS}``: Surface-volume coupling terms
 
 # Fields
-- `freq`: Operating frequency.
-- `k`: Wavenumber (background).
-- `eta`: Intrinsic impedance (background).
-- `alpha`: Coupling parameter (0.0 = EFIE, 1.0 = MFIE).
-- `gq_surf`: Gauss quadrature info for triangle.
-- `gq_vol`: Gauss quadrature info for tetrahedron.
-- `permittivities`: Vector of permittivities for volume elements.
+
+- `freq::FT`: Operating frequency [Hz]
+- `k::FT`: Wavenumber in background medium (free space) [rad/m]
+- `eta::FT`: Intrinsic impedance of background medium [Ω]
+- `alpha::FT`: CFIE weighting parameter for surface (0.0 = EFIE, 0.5 = balanced, 1.0 = MFIE)
+- `gq_surf::GaussQuadratureInfoStruct{FT,N_GQ_S,3}`: Triangle quadrature (7-point default)
+- `gq_vol::GaussQuadratureInfoStruct{FT,N_GQ_V,4}`: Tetrahedron quadrature (5-point default)
+- `permittivities::Vector{CT}`: Complex permittivity for each volume element (``\\varepsilon_r = \\varepsilon_r' - j\\varepsilon_r''``)
+
+# Constructor
+
+    SCFIE(freq, permittivities; alpha=0.5)
+
+# Examples
+
+```julia
+# Dielectric sphere (εᵣ = 4.0) with PEC coating
+freq = 1e9
+εᵣ = [4.0 + 0.0im for _ in 1:num_tetrahedra]
+scfie = SCFIE(freq, εᵣ, alpha=0.5)
+
+# Assemble impedance matrix (requires both surface and volume bases)
+Z = assemble_impedance_matrix(scfie, rwg_basis, swg_basis)
+```
+
+# See Also
+
+- [`CFIE`](@ref): Surface-only combined field equation
+- [`VEFIE`](@ref): Volume-only electric field equation
+- [`RWGBasis`](@ref): Surface basis functions
+- [`SWGBasis`](@ref): Volume basis functions
 """
 struct SCFIE{FT<:AbstractFloat,CT<:Complex,N_GQ_S,N_GQ_V} <: AbstractIntegralOperator
     freq::FT
