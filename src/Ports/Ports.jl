@@ -25,6 +25,7 @@ Phase 20 实现的端口类型：
 module PortsModule
 
 using LinearAlgebra
+using ..CoreModule: Constants
 
 include("AbstractPort.jl")
 include("LumpedPort.jl")

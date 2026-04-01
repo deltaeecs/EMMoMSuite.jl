@@ -73,7 +73,7 @@ function MLFMAOperator(
     bf_centers_list = [reduce(hcat, [bf.center for bf in b.functions]) for b in bases]
     bf_centers = reduce(hcat, bf_centers_list)
 
-    lambda = 299792458.0 / operator.freq
+    lambda = Constants.c0 / operator.freq
     octree, sorted_ids = build_octree(bf_centers, leafCubeEdgel; λ = lambda)
 
     # Inverse permutation

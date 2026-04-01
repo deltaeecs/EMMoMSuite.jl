@@ -33,6 +33,7 @@ using SparseArrays
 using LinearAlgebra
 using StaticArrays: SVector
 using Logging
+using ...CoreModule: Constants
 
 # =============================================================================
 # Common MPI column-partition setup helpers
@@ -490,8 +491,8 @@ function assemble_impedance_matrix_parallel(
     k虏         = k^2
     jk         = im * k
     omega      = 2π * vefie.freq
-    mu0        = FT(4π * 1e-7)
-    eps0       = FT(8.854187817e-12)
+    mu0        = Constants.mu0
+    eps0       = Constants.eps0
     eta0       = sqrt(mu0 / eps0)
     Jη₀divK   = im * eta0 / k
     div4π      = FT(1) / (4 * FT(π))
@@ -673,8 +674,8 @@ function assemble_impedance_matrix_parallel(vefie::VEFIE, basis::PWCHexBasis)
     k虏        = k^2
     jk        = im * k
     omega     = 2π * vefie.freq
-    mu0       = FT(4π * 1e-7)
-    eps0      = FT(8.854187817e-12)
+    mu0       = Constants.mu0
+    eps0      = Constants.eps0
     eta0      = sqrt(mu0 / eps0)
     Jη₀divK  = im * eta0 / k
     div4π     = FT(1) / (4 * FT(π))

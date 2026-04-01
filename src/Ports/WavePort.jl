@@ -149,9 +149,7 @@ end
 `PortModes` 包含 `n_modes` 个模式的完整参数。
 """
 function compute_port_modes(port::WavePort, freq::Real, n_modes::Int = 1)
-    c0 = 299792458.0      # m/s
-    η₀ = 376.730313461   # 真空波阻抗
-    k  = ComplexF64(2π * freq / c0)
+    k  = ComplexF64(2π * freq / Constants.c0)
 
     if n_modes == 1
         # 仅计算指定模式
@@ -165,9 +163,9 @@ function compute_port_modes(port::WavePort, freq::Real, n_modes::Int = 1)
 
         # 特性阻抗
         Z_c = if type_sym === :TE
-            k * η₀ / beta     # Z_TE = η₀ k / β
+            k * Constants.eta0 / beta     # Z_TE = η₀ k / β
         else
-            beta * η₀ / k     # Z_TM = η₀ β / k
+            beta * Constants.eta0 / k     # Z_TM = η₀ β / k
         end
 
         return PortModes(
@@ -198,7 +196,7 @@ function compute_port_modes(port::WavePort, freq::Real, n_modes::Int = 1)
         for (kc_mn, mm, nn) in candidates[1:min(n_modes, length(candidates))]
             beta_mn = sqrt(k^2 - kc_mn^2)
             real(beta_mn) < 0 && (beta_mn = -beta_mn)
-            Z_c_mn = k * η₀ / beta_mn   # TE 模式
+            Z_c_mn = k * Constants.eta0 / beta_mn   # TE 模式
             push!(betas, beta_mn)
             push!(kcs,   kc_mn)
             push!(types, :TE)
