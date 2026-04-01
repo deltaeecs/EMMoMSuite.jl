@@ -98,7 +98,13 @@ Integral of 1/R over the triangle.
 """
 function singularF1(a::FT, b::FT, c::FT) where {FT<:AbstractFloat}
     s = (a + b + c) / 2
-    return -4 * (1 / a * log(1 - a / s) + 1 / b * log(1 - b / s) + 1 / c * log(1 - c / s)) / 3
+    # Numerical protection: avoid log(negative) when triangle is nearly degenerate
+    # Use max(1 - edge/s, eps(FT)) to prevent log(0) or log(negative)
+    eps_ft = eps(FT)
+    term_a = 1 / a * log(max(1 - a / s, eps_ft))
+    term_b = 1 / b * log(max(1 - b / s, eps_ft))
+    term_c = 1 / c * log(max(1 - c / s, eps_ft))
+    return -4 * (term_a + term_b + term_c) / 3
 end
 
 """
@@ -112,13 +118,19 @@ function singularF21(a::FT, b::FT, c::FT, area2::FT) where {FT<:AbstractFloat}
     b2 = b^2
     c2 = c^2
     s = (a + b + c) / 2
+    # Numerical protection for log terms
+    eps_ft = eps(FT)
+    log_a = log(max(1 - a / s, eps_ft))
+    log_b = log(max(1 - b / s, eps_ft))
+    log_c = log(max(1 - c / s, eps_ft))
+    
     return (
         (10 - 3 * (a2 - b2) / c2 - 3 * (a2 - c2) / b2) * a -
         (5 - 3 * (a2 - b2) / c2 - 2 * (b2 - c2) / a2) * b -
         (5 - 3 * (a2 - c2) / b2 - 2 * (c2 - b2) / a2) * c +
-        (a2 - 3 * b2 - 3 * c2 - 8 * area2 / a2) * 2 / a * log(1 - a / s) +
-        (a2 - 2 * b2 - 4 * c2 + 6 * area2 / b2) * 4 / b * log(1 - b / s) +
-        (a2 - 4 * b2 - 2 * c2 + 6 * area2 / c2) * 4 / c * log(1 - c / s)
+        (a2 - 3 * b2 - 3 * c2 - 8 * area2 / a2) * 2 / a * log_a +
+        (a2 - 2 * b2 - 4 * c2 + 6 * area2 / b2) * 4 / b * log_b +
+        (a2 - 4 * b2 - 2 * c2 + 6 * area2 / c2) * 4 / c * log_c
     ) / 30
 end
 

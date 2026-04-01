@@ -149,6 +149,10 @@ end
 `PortModes` 包含 `n_modes` 个模式的完整参数。
 """
 function compute_port_modes(port::WavePort, freq::Real, n_modes::Int = 1)
+    # Validate port dimensions
+    @assert port.a > 0 && port.b > 0 "WavePort dimensions must be positive: a=$(port.a), b=$(port.b)"
+    @assert freq > 0 "Frequency must be positive: freq=$freq"
+    
     k  = ComplexF64(2π * freq / Constants.c0)
 
     if n_modes == 1
