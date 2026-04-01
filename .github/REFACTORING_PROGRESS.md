@@ -316,6 +316,34 @@
 
 ## 当前未完成事项
 
-- [ ] MLFMA 多层 upward/downward pass 修正
 - [ ] F7 direct Round 3 性能回收
 - [ ] Julia General Registry 发布
+- [ ] docs/build/ 站点重建（源码已正确，构建产物滞后）
+
+## 2026-04-01 Update：全工程检视迭代
+
+### 全工程检视原则
+
+在 PMCHW multilevel 检视收口后启动面向全工程的检视迭代，四个维度：程序架构、算法实现、软件工程、开发原则。
+
+### Round 1（发现问题，不属于 clean round）
+
+- **P0 修复：`PostProcessing/RCS.jl:78`** — 移除 `radarCrossSection` 主路径中的活跃调试 `println("k0: ..., eta0: ...")`
+- **P1 修复：`src/Accuracy/BenchmarkReportData.jl`** — 删除已从 `Accuracy.jl` 剔除但滞留于 git 的死文件（与 `ReleaseWorkflow.jl` 同类问题）
+- **Chore 修复：`src/Geometry/MeshGen.jl_temp` + `src/IntegralEquations/MFIE.jl.bak`** — 删除被错误纳入 git 的编辑临时/备份文件
+- **Chore 修复：`.gitignore`** — 补入 `*.jl.bak`、`*.jl_temp`、`*.jl.orig`、`results/`、`test_results/runs/` 防止再次入库
+- **Fix：`FastAlgorithms/MLFMA/OctreeBuilder.jl`** — 将 `println("Warning: nLevels=..."` 改为 `@warn`，接入日志体系
+- **Phase 17 提交补全** — 将前序会话验证通过但未入库的 Phase 17 实现全量提交（LightweightSupport、Project.toml、benchmark 基础设施、测试、报告、文档）
+
+### Round 2（发现问题，不属于 clean round）
+
+- **Fix：`src/EMSuite.jl`** — 补入 `extract_sphere_radius` 到顶层 re-export；该函数在 `Accuracy.jl` 已导出但遗漏于主模块
+- **确认**：所有移除的依赖（LoggingExtras/ProgressMeter/NearestNeighbors/Primes/Roots）已完全清出 src/ 和 test/
+- **确认**：Solvers、IO、Ports 模块无 TODO/活跃调试输出
+
+### Round 3（clean，连续 1）
+
+- 检视范围：FarField/NearField/FieldCut/MLFMAFastPost、Core/Materials/Geometry、benchmark 定位脚本签名、BasisFunctions 占位实现评估
+- `receive_terms_with_rule` 签名在 benchmark 脚本中确认无旧 `eta` 参数，与生产代码一致
+- SWG/RWG `evaluate` 占位实现评估：未被任何生产路径调用，现阶段不阻塞；留作 P3 后续实现
+- **未发现新问题，Round 3 为 clean**（全工程检视第 1 个 clean round）

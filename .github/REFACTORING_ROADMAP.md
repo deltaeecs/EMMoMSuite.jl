@@ -1,6 +1,6 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-03-11（PMCHW medium 逐层定位已确认主因是 leaf source aggregation 的 3 点积分不足；source / receive 均切到 4 点后 medium gate 显著收敛）
+> 最后更新: 2026-04-01（PMCHW medium leaf source/receive 均升至 4 点后已完成主因修正与 8 轮检视收口；全工程检视迭代 Round 1-3 进行中，Round 3 为首个 clean round）
 
 ## 当前焦点
 
@@ -48,8 +48,9 @@
 ### 当前开放项
 
 - [ ] General Registry 发布仍未执行
-- [ ] MLFMA 多层问题已在 PMCHW medium `M-pass` 上完成主因修正；当前代码侧回归与两轮检视已收口，剩余事项主要是 `docs/build` 站点重建与后续更大 case 覆盖
+- [x] MLFMA 多层问题已在 PMCHW medium `M-pass` 上完成主因修正（leaf source 3→4 点积分）；代码侧回归（`test_pmchw_multilevel_quadrature_regression.jl`）与 8 轮检视已收口；剩余事项仅 `docs/build` 站点重建与更大 case 覆盖
 - [ ] F7 direct Round 3 性能回收仍未收口
+- [ ] 全工程检视迭代进行中：Round 1-2 发现并修复问题，Round 3 首次 clean（总计连续 1 轮）
 
 ## 近期已完成工作
 
