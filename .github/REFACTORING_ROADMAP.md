@@ -50,7 +50,12 @@
 - [ ] General Registry 发布仍未执行
 - [x] MLFMA 多层问题已在 PMCHW medium `M-pass` 上完成主因修正（leaf source 3→4 点积分）；代码侧回归（`test_pmchw_multilevel_quadrature_regression.jl`）与 8 轮检视已收口；剩余事项仅 `docs/build` 站点重建与更大 case 覆盖
 - [ ] F7 direct Round 3 性能回收仍未收口
-- [x] 全工程检视 Round 4 已完成代码质量全面修复：物理常数标准化（40+ 处）、日志系统标准化（40+ 处）、接口与代码质量提升；已提交（commit 0da31d3）；剩余文档任务：Parameters.jl 线程安全性、EFIE near-interaction workaround
+- [x] **全工程检视 Round 4-12 已完成**：
+  - Phase 19 完成，达成 3/3 连续 clean round（Round 10, 11, 12）
+  - 修复 22 个阻塞性问题（物理常数标准化、数值稳定性、并行安全、退化几何检查等）
+  - 提交：0da31d3, 50c9ee2, b3197cf, 6da9de1, 6d5584d, 8e68d5d, 74d8652
+  - 生产可用性：95% 综合质量评分，零阻塞性风险
+  - 详见 REFACTORING_PROGRESS.md Round 4-12 章节
 
 ## 近期已完成工作
 
