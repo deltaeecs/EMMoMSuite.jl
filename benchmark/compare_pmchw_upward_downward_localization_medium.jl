@@ -88,7 +88,7 @@ function direct_m_pass_refs(pmchw, basis, op)
     )
 end
 
-function exact_level_agg(level, basis, x, sorted_ids, x_range, k)
+function exact_level_agg(level, basis, x, sorted_ids, x_range, k; quad_order = 4)
     offset = first(x_range) - 1
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -99,7 +99,7 @@ function exact_level_agg(level, basis, x, sorted_ids, x_range, k)
     exact = zeros(CT, nPoles, 2, level.nCubes)
 
     tri_info = get_triangles_info(basis.mesh, basis)
-    gq = GaussQuadratureInfo(:Triangle, 3, FT)
+    gq = GaussQuadratureInfo(:Triangle, quad_order, FT)
     n_qp = length(gq.weight)
 
     poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]
@@ -221,15 +221,15 @@ function run_translate_downward!(octree)
     end
 end
 
-function apply_exact_upward_chain!(octree, basis, x_phys, sorted_ids, x_range, k)
+function apply_exact_upward_chain!(octree, basis, x_phys, sorted_ids, x_range, k; quad_order = 4)
     leaf_level = octree.levels[octree.nLevels]
-    leaf_exact = exact_level_agg(leaf_level, basis, x_phys, sorted_ids, x_range, k)
+    leaf_exact = exact_level_agg(leaf_level, basis, x_phys, sorted_ids, x_range, k; quad_order)
     leaf_level.aggS .= leaf_exact
 
     exact_aggs = Dict{Int,Array{ComplexF64,3}}(octree.nLevels => ComplexF64.(copy(leaf_exact)))
     for levelID in (octree.nLevels - 1):-1:2
         parent_level = octree.levels[levelID]
-        exact_parent = exact_level_agg(parent_level, basis, x_phys, sorted_ids, x_range, k)
+        exact_parent = exact_level_agg(parent_level, basis, x_phys, sorted_ids, x_range, k; quad_order)
         parent_level.aggS = ComplexF64.(copy(exact_parent))
         exact_aggs[levelID] = ComplexF64.(copy(exact_parent))
     end
@@ -259,7 +259,7 @@ function leaf_cube_receive_metrics(octree, basis, pmchw, sorted_ids, kmode, x_m,
         for (local_idx, bfID_sorted) in enumerate(cube.bfInterval)
             bfID = sorted_ids[bfID_sorted]
             bf = basis.functions[bfID]
-            te, tm = PMCHWMLFMAOperatorModule._receive_terms(bf, basis, field, r0, k, eta, leaf_level.poles)
+            te, tm = PMCHWMLFMAOperatorModule._receive_terms(bf, basis, field, r0, k, leaf_level.poles)
             fast_e[local_idx] = tm * factor_EM
             fast_h[local_idx] = te * factor_HM
         end
@@ -278,7 +278,7 @@ function leaf_cube_receive_metrics(octree, basis, pmchw, sorted_ids, kmode, x_m,
     return worst_total
 end
 
-function receive_terms_with_rule(bf, basis, field, r0, k, eta, poles, quad_order)
+function receive_terms_with_rule(bf, basis, field, r0, k, poles, quad_order)
     CT = typeof(complex(one(real(k))))
     FT = real(CT)
     te = zero(CT)
@@ -349,7 +349,7 @@ function leaf_cube_receive_with_rule(octree, basis, pmchw, sorted_ids, kmode, x_
     for bfID_sorted in cube.bfInterval
         bfID = sorted_ids[bfID_sorted]
         bf = basis.functions[bfID]
-        te, tm = receive_terms_with_rule(bf, basis, field, r0, k, eta, leaf_level.poles, quad_order)
+        te, tm = receive_terms_with_rule(bf, basis, field, r0, k, leaf_level.poles, quad_order)
         push!(fast_e, tm * factor_EM)
         push!(fast_h, te * factor_HM)
     end
@@ -379,7 +379,7 @@ function leaf_cube_basis_detail(octree, basis, pmchw, sorted_ids, kmode, x_m, re
     for bfID_sorted in cube.bfInterval
         bfID = sorted_ids[bfID_sorted]
         bf = basis.functions[bfID]
-        te, tm = PMCHWMLFMAOperatorModule._receive_terms(bf, basis, field, r0, k, eta, leaf_level.poles)
+        te, tm = PMCHWMLFMAOperatorModule._receive_terms(bf, basis, field, r0, k, leaf_level.poles)
         fast_e = tm * factor_EM
         fast_h = te * factor_HM
         dense_e = dot(@view(ref.EM[bfID, :]), x_m)
@@ -395,6 +395,34 @@ function leaf_cube_basis_detail(octree, basis, pmchw, sorted_ids, kmode, x_m, re
         ))
     end
 
+    return rows
+end
+
+function leaf_cube_field_difference(approx_snapshots, exact_snapshots, levelID, cubeID)
+    approx_cube = @view approx_snapshots[levelID][:, :, cubeID]
+    exact_cube = @view exact_snapshots[levelID][:, :, cubeID]
+
+    rows = NamedTuple[]
+    for iPole in axes(exact_cube, 1)
+        approx_theta = approx_cube[iPole, 1]
+        approx_phi = approx_cube[iPole, 2]
+        exact_theta = exact_cube[iPole, 1]
+        exact_phi = exact_cube[iPole, 2]
+        abs_err = norm((approx_theta - exact_theta, approx_phi - exact_phi))
+        ref_norm = norm((exact_theta, exact_phi))
+        rel_err = abs_err / (ref_norm + 1e-30)
+        push!(rows, (
+            pole = iPole,
+            abs_err = abs_err,
+            rel_err = rel_err,
+            approx_theta = approx_theta,
+            exact_theta = exact_theta,
+            approx_phi = approx_phi,
+            exact_phi = exact_phi,
+        ))
+    end
+
+    sort!(rows, by = row -> row.abs_err, rev = true)
     return rows
 end
 
@@ -417,7 +445,7 @@ function analyze_case(name, budget, pmchw, basis, x_phys)
         aggregate_leaf_pmchw!(octree, basis, x_phys, sorted_ids, (N + 1):(2N), k)
 
         println()
-        @printf("[%s] upward exact-reintegration check\n", String(kmode))
+        @printf("[%s] upward exact-reintegration check (4-point source)\n", String(kmode))
 
         first_bad = nothing
         for levelID in (octree.nLevels - 1):-1:2
@@ -538,6 +566,49 @@ function analyze_case(name, budget, pmchw, basis, x_phys)
             alt_rule7.rel_h,
             alt_rule7.nbf,
         )
+
+        clear_agg!(octree)
+        apply_exact_upward_chain!(octree, basis, x_phys, sorted_ids, (N + 1):(2N), k; quad_order = 3)
+        run_translate_downward!(octree)
+        exact3_disagg_snapshots = capture_disagg_snapshots(octree)
+        exact3_leaf_worst = leaf_cube_receive_metrics(octree, basis, pmchw, sorted_ids, kmode, x_m, refs)
+        exact3_cube_leaf_disagg = cube_disagg_difference(approx_disagg_snapshots, exact3_disagg_snapshots, octree.nLevels, leaf_worst.cube)
+        @printf(
+            "[%s] exact-upward(3pt src legacy) leaf receive worst cube = %d, rel_total = %.6e, rel_e = %.6e, rel_h = %.6e, nbf = %d\n",
+            String(kmode),
+            exact3_leaf_worst.cube,
+            exact3_leaf_worst.rel,
+            exact3_leaf_worst.rel_e,
+            exact3_leaf_worst.rel_h,
+            exact3_leaf_worst.nbf,
+        )
+        @printf(
+            "[%s] approx-vs-exact-upward(3pt src legacy) leaf disaggG on approx worst cube %d: rel = %.6e, abs = %.6e, ref = %.6e\n",
+            String(kmode),
+            leaf_worst.cube,
+            exact3_cube_leaf_disagg.rel,
+            exact3_cube_leaf_disagg.abs,
+            exact3_cube_leaf_disagg.ref,
+        )
+
+        field_rows = leaf_cube_field_difference(approx_disagg_snapshots, exact3_disagg_snapshots, octree.nLevels, leaf_worst.cube)
+        println("  top pole differences on approx worst cube vs exact-upward(3pt src legacy):")
+        for row in field_rows[1:min(5, length(field_rows))]
+            @printf(
+                "    pole %d: abs = %.6e, rel = %.6e, approx_theta = %.6e%+.6ei, exact_theta = %.6e%+.6ei, approx_phi = %.6e%+.6ei, exact_phi = %.6e%+.6ei\n",
+                row.pole,
+                row.abs_err,
+                row.rel_err,
+                real(row.approx_theta),
+                imag(row.approx_theta),
+                real(row.exact_theta),
+                imag(row.exact_theta),
+                real(row.approx_phi),
+                imag(row.approx_phi),
+                real(row.exact_phi),
+                imag(row.exact_phi),
+            )
+        end
     end
 end
 

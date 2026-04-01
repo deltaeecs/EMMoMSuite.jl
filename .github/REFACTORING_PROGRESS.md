@@ -26,6 +26,62 @@
   - 已测 worst cube 上 7 点规则未稳定优于 4 点：default `k0/k1` 反而略差，loose `k1` 有改善但 loose `k0` 变差，因此 4 点是当前更稳的折中，不宜回退到 3 点，也暂不直接切到 7 点。
 - 结论：后续不再把主怀疑点放在 `aggregate_upward!` 本身，而是继续下钻 `translate! -> disaggregate_downward! -> disaggregate_leaf_pmchw_m!` 的末端链路，重点围绕最差叶盒 `354/439/422` 做中间 `disaggG` 与 leaf receive testing 的点对点比对。
 
+## 2026-03-11 Update：PMCHW medium `M-pass` 主因修正
+
+- 在前述定位脚本基础上，已新增“exact-upward 使用 4 点 source 积分”的对照分支，并输出最差叶盒的 pole 级 `disaggG` 差异。
+- 新结论：主误差不在 `translate!` 或 `disaggregate_downward!`，而在 `aggregate_leaf_pmchw!` 仍使用 3 点三角形积分，和 direct far `K/L` 参考使用的 4 点规则不一致。
+  - default budget：将 exact-upward 的 source 积分改为 4 点后，`k0/k1` 最差叶盒 `rel_total` 从 `5.09e-3 / 2.33e-2` 直接降至 `3.90e-5 / 2.70e-5`；
+  - loose budget：对应指标从 `2.59e-2 / 6.07e-2` 降至 `6.69e-3 / 4.37e-4`；
+  - 同时，当前实现与 exact-upward(4pt src) 的最差叶盒 `disaggG` 差异可压到机器精度或 `1e-5 ~ 1e-4` 量级，说明 source 端积分阶数就是主导项。
+- 已据此修改 `src/FastAlgorithms/MLFMA/PMCHWMLFMAOperator.jl`：
+  - `aggregate_leaf_pmchw!` 的三角形求积从 3 点提升到 4 点；
+  - 保持此前已验证更稳定的 4 点 `_receive_terms` 规则不变。
+- 修正后回归结果：`julia --project=. test/test_pmchw_block_fidelity_medium.jl` 全部 `26/26` 通过，关键指标显著改善：
+  - `default_weak_m.rel_total ≈ 6.90e-7`
+  - `default_m_k0.rel_total ≈ 4.02e-6`
+  - `default_m_k1.rel_total ≈ 1.28e-6`
+  - `loose_weak_m.rel_total ≈ 1.06e-4`
+  - `loose_m_k0.rel_total ≈ 2.32e-4`
+  - `loose_m_k1.rel_total ≈ 3.93e-5`
+- 当前判断：PMCHW medium `M-pass` 的多层主误差已经完成主因修复。后续工作从“继续盲钻 downward”切换为两项收口工作：
+  - 补齐更通用的 `nLevels >= 3` 回归闸门，避免这类 source/receive quadrature 不一致再次回归；
+  - 继续做检视迭代，确认本修正不会在其他算子或大尺寸 case 上引入副作用。
+
+## 2026-03-11 Update：PMCHW multilevel 回归与检视 Round 1
+
+- 已新增直接多层回归 `test/test_pmchw_multilevel_quadrature_regression.jl`，夹具与 medium block fidelity gate 保持一致：
+  - `generate_sphere_mesh(0.5, 10, 20)`、`RWGBasis`、`PMCHW(300e6, 4.0)`；
+  - 显式断言 `k0/k1` 两棵 octree 均满足 `nLevels > 3`；
+  - 对 `M_only` probe 的 `M×k0` / `M×k1` 做 far-only dense `EM/HM` 对照，并分别覆盖 default / loose near-range 预算。
+- 已新增独立慢速批次入口 `test/runtests_batch6.jl`，用于单独执行该回归而不影响现有 batch 组织。
+- 新回归首次运行暴露测试自身缺陷 `UndefVarError: nnz not defined`，已通过补入 `using SparseArrays` 修正。
+- 当前验证结果：
+  - `julia --project=. test/test_pmchw_multilevel_quadrature_regression.jl`：`17/17` 通过；
+  - `julia --project=. test/runtests_batch6.jl`：`17/17` 通过；
+  - 关键指标为 `default_m_k0 ≈ 4.02e-6`、`default_m_k1 ≈ 1.28e-6`、`loose_m_k0 ≈ 2.32e-4`、`loose_m_k1 ≈ 3.93e-5`，并确认 `default_nlevels = loose_nlevels = (5, 5)`。
+- 检视 Round 1 还发现定位 benchmark 在实现已切换到 4 点 source 后出现“参考语义漂移”：主 `exact-upward` 仍默认使用 3 点 source 参考，会把当前正确实现误报成偏差。
+- 已据此修正 `benchmark/compare_pmchw_upward_downward_localization_medium.jl`：
+  - `exact_level_agg(...; quad_order=4)` 与 `apply_exact_upward_chain!(...; quad_order=4)` 现在默认对齐当前 4 点 source 实现；
+  - 旧 3 点 source 对照保留为显式 `legacy` 分支，避免后续定位脚本再次把“当前实现 vs 旧参考”混为“实现误差”。
+- 修正后 benchmark 复核结论：
+  - current implementation 与 exact-upward(4pt src) 的 `disaggG` 差异已到机器精度量级；
+  - 旧 exact-upward(3pt src legacy) 仍稳定复现 `5e-3 ~ 6e-2` 量级的历史偏差，证明该脚本现在既能正确反映当前实现，也保留了旧主因的对照证据。
+- 当前状态：多层回归闸门与第一轮检视修正已完成；下一步只剩继续做第二轮 clean review，并在需要时补做文档站点重建。
+
+## 2026-03-12 Update：PMCHW multilevel 检视 Round 2（clean）
+
+- 已对本轮改动链路完成第二轮 clean review，检视范围聚焦于：
+  - `src/FastAlgorithms/MLFMA/PMCHWMLFMAOperator.jl` 中的 leaf source / receive 路径；
+  - `test/test_pmchw_multilevel_quadrature_regression.jl` 与 `test/runtests_batch6.jl` 的回归覆盖与断言口径；
+  - `benchmark/compare_pmchw_upward_downward_localization_medium.jl` 的 exact-upward 参考语义与 legacy 对照输出。
+- Round 2 结论：未发现新的功能正确性问题、接口兼容性问题或架构越层问题。
+- 本轮仅记录一个低风险代码整洁度观察项：`_receive_terms` 里仍保留未使用的 `η` 参数与三角形 `normal` 局部变量，说明 receive-side 公式探索痕迹尚未完全清理；该项不影响当前数值结果，也不阻塞本轮放行。
+- 因此前述 PMCHW medium `M-pass` 修正现在满足：
+  - 主因修复已完成；
+  - `nLevels > 3` 直接回归已补齐；
+  - 两轮检视中第一轮修正 benchmark 语义漂移，第二轮 clean 无新增问题。
+- 当前剩余事项已从“继续检视代码正确性”收敛为“补做 `docs/build/` 站点重建，并在后续更大 case 上继续扩展覆盖”，不再阻塞本轮代码收口。
+
 ## 2026-03-11 Update：全量文档检视修复
 
 - 已完成理论文档全量扫描，确认问题分为两类：
@@ -211,6 +267,18 @@
 ### Phase 13-17
 
 - 完成 MPI / 性能探索、统一验证报告、发布流程规范化、依赖瘦身与文档刷新
+
+## 2026-04-01 Update：PMCHW multilevel 检视 Round 3
+
+- 本轮检视范围：`_receive_terms` 接口与所有调用方、回归测试断言完整性、benchmark 定位脚本对齐语义、Phase 17 新增文件结构。
+- **发现问题 1**：`_receive_terms` 的 `η` 参数（Round 2 已标记为死代码观察项）未在本轮修复，本轮正式修复：
+  - 移除 `η :: Number` 参数
+  - 移除 `normal = normalize(cross(...))` 及相关 `v1/v2/v3` 临时变量
+  - 同步更新 `disaggregate_leaf_pmchw_j!` / `disaggregate_leaf_pmchw_m!` 两处调用方
+- **发现问题 2**（新发现）：`benchmark/compare_pmchw_upward_downward_localization_medium.jl` 中 3 处直接调用 `PMCHWMLFMAOperatorModule._receive_terms(...)` 或本地 `receive_terms_with_rule(...)` 仍以旧 7 参数形式传入 `eta`，与修复后的 6 参数签名不匹配，将在运行时导致 `MethodError`；本轮已全部修正。
+- 回归测试（`test_pmchw_multilevel_quadrature_regression.jl`）断言结构检视：`nLevels > 3` 断言覆盖 default/loose 两档，门限相对实测值留有 100~3000 倍余量，设计合理。
+- Phase 17 文件结构检视：`ReleaseWorkflow.jl` 与 `benchmark/reporting/` 三层职责清晰，无新发现。
+- 本轮结论：发现并修复了 2 个问题（1 个已知观察项落地修复，1 个新发现接口不匹配），**Round 3 不属于 clean round**，需继续 Round 4。
 
 ## 当前未完成事项
 

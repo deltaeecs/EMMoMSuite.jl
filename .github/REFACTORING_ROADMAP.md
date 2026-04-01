@@ -1,17 +1,17 @@
 # EMSuite 重构路线图
 
-> 最后更新: 2026-03-11（PMCHW medium 逐层定位已确认 upward 不是主放大点；leaf receive 当前采用 4 点规则，较 3 点明显改善且在已测 worst cube 上比 7 点更稳）
+> 最后更新: 2026-03-11（PMCHW medium 逐层定位已确认主因是 leaf source aggregation 的 3 点积分不足；source / receive 均切到 4 点后 medium gate 显著收敛）
 
 ## 当前焦点
 
 ### 1. MLFMA 主链分析与修正
 
 - [x] 完成 Legacy MLFMA 算法拆解与系数链核对
-- [x] 确认 `nLevels >= 3` 的偏差主要位于 upward/downward pass（插值 / 相移）
-- [ ] 针对 upward/downward pass 做逐层点对点比对，定位首个失配节点
-- 当前定位进展：`benchmark/compare_pmchw_upward_downward_localization_medium.jl` 已用 exact reintegration 对 `upward` 各层父盒做点对点对照；`k0/k1` 在 level 4/3/2 的最差相对误差均低于 `5.4e-4`，且将 `upward` 替换为 exact 链后，default 场景 `disaggG` 差异仅到机器精度、loose 场景最差也仅约 `3.0e-4`，说明主放大点不在 `aggregate_upward!`。当前叶层 receive 最差盒约为 default `cube 354`（`k0 ≈ 5.09e-3`, `k1 ≈ 2.33e-2`）与 loose `cube 439/422`（`k0 ≈ 2.59e-2`, `k1 ≈ 6.08e-2`，均以 exact-upward + 4-point receive 计），下一步应集中排查 downward 末端与 leaf testing 链路
-- [ ] 在修正后补齐回归测试，覆盖 `nLevels >= 3` 多层场景
-- [ ] 完成两轮检视迭代，确认无新问题后再推进下一阶段
+- [x] 确认 `nLevels >= 3` 的偏差主要位于 PMCHW `M-pass` 的 leaf source / receive 链路，而非 `aggregate_upward!`
+- [x] 针对 PMCHW medium `M-pass` 做逐层点对点比对，定位到首个主导失配节点
+- 当前定位进展：`benchmark/compare_pmchw_upward_downward_localization_medium.jl` 已先用 exact reintegration 对 `upward` 各层父盒做点对点对照，证明旧 3 点 source aggregation 的父盒误差虽仅约 `1e-4 ~ 1e-3`，但把 exact-upward 改为 4 点 source 积分后，default `k0/k1` 的最差叶盒误差可从 `5.09e-3 / 2.33e-2` 直接降到 `3.90e-5 / 2.70e-5`，loose `k0/k1` 也分别降到 `6.69e-3 / 4.37e-4`。据此已将 `aggregate_leaf_pmchw!` 从 3 点提升到 4 点，并与既有 4 点 receive 配套；`test/test_pmchw_block_fidelity_medium.jl` 当前已收敛到 `default_m_k0 ≈ 4.02e-6`、`default_m_k1 ≈ 1.28e-6`、`loose_m_k0 ≈ 2.32e-4`、`loose_m_k1 ≈ 3.93e-5`
+- [x] 在修正后补齐回归测试，覆盖 `nLevels >= 3` 多层场景（已新增 `test/test_pmchw_multilevel_quadrature_regression.jl` 与 `test/runtests_batch6.jl`）
+- [x] 完成两轮检视迭代，确认无新问题后再推进下一阶段
 
 ### 2. F7 Legacy 对齐后的性能回收
 
@@ -48,7 +48,7 @@
 ### 当前开放项
 
 - [ ] General Registry 发布仍未执行
-- [ ] MLFMA 多层 upward/downward pass 的最终修正仍在分析中
+- [ ] MLFMA 多层问题已在 PMCHW medium `M-pass` 上完成主因修正；当前代码侧回归与两轮检视已收口，剩余事项主要是 `docs/build` 站点重建与后续更大 case 覆盖
 - [ ] F7 direct Round 3 性能回收仍未收口
 
 ## 近期已完成工作
@@ -92,7 +92,11 @@
 - [x] 确认源码文档与路线图已同步到“MLFMA 多层问题仍在分析中”的当前状态
 - [x] 确认 `docs/build/` 仍停留在旧构建产物，不能作为判断 MLFMA 现状的事实来源
 - [x] 确认通用 `test/test_mlfma.jl` 目前以 smoke test 为主，尚未形成 `nLevels >= 3` 的通用数值回归闸门
-- [ ] 补齐文档站点重建与更强的多层回归后，再结束本轮 MLFMA 检视迭代
+- [x] 已补入 `test/test_pmchw_multilevel_quadrature_regression.jl`，以 medium PMCHW `M-pass` far-only 对照直接锁定 `nLevels > 3` 多层 source/receive quadrature 一致性
+- [x] 检视 Round 1 已发现并修正 `benchmark/compare_pmchw_upward_downward_localization_medium.jl` 的参考语义漂移：主 `exact-upward` 现对齐当前 4 点 source 实现，旧 3 点链路明确标记为 legacy 对照
+- [x] 检视 Round 2 已完成 clean review：未发现新的功能正确性 / 架构问题；仅记录 `_receive_terms` 中未使用 `η` / `normal` 的代码整洁度观察项，不影响本轮放行
+- [x] 检视 Round 3：落地修复 `_receive_terms` 死代码（移除 `η` 参数与 `normal`/`v1`/`v2`/`v3`），并发现并修正 benchmark 脚本 3 处旧接口调用（旧签名传入 `eta` 会在运行时抛 `MethodError`）；Round 3 **不属于 clean round**
+- [ ] 补做 `docs/build/` 站点重建，消除源码文档与本地构建产物之间的状态滞后
 
 ### 2026-03-11 理论文档实现约定补记
 
