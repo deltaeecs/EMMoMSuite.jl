@@ -3,6 +3,7 @@ module OctreeBuilder
 using StaticArrays
 using LinearAlgebra
 using OffsetArrays
+using Logging
 using ....Geometry
 using ..Level
 using ..Octree
@@ -54,7 +55,7 @@ function build_octree(leafnodes::Matrix{FT}, leafCubeEdgel::FT; λ = 1.0, L_min:
     if nLevels < 2
         # error("Too few levels ($nLevels). Check parameters!")
         # Allow 2 levels for testing
-        println("Warning: nLevels = $nLevels. MLFMA might degenerate to near-field only.")
+        @warn "nLevels = $nLevels. MLFMA might degenerate to near-field only."
         if nLevels < 1
             nLevels = 1 # Force at least 1 level?
         end
