@@ -15,6 +15,16 @@ Global container for simulation parameters.
 - `omega`: Angular frequency \$\\omega = 2\\pi f\$ (rad/s).
 - `k0`: Free-space wavenumber \$k_0 = \\omega/c_0\$ (rad/m).
 - `eta0`: Free-space intrinsic impedance \$\\eta_0 = \\sqrt{\\mu_0/\\epsilon_0}\$ (\$\\Omega\$).
+
+# Thread Safety
+⚠️ **Warning**: `GLOBAL_PARAMS` is a mutable global struct without thread synchronization.
+Concurrent calls to `set_frequency!` from multiple threads can cause race conditions.
+
+**Current design constraint**: Users must ensure `set_frequency!` is called from a single 
+thread before multi-threaded operations (e.g., matrix assembly, field post-processing).
+
+**Future work**: Consider adding `ReentrantLock` protection or thread-local parameters 
+for safe multi-threaded simulation workflows.
 """
 mutable struct SimulationParameters
     frequency::Float64
