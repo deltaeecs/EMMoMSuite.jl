@@ -72,8 +72,15 @@ function get_triangle_info(mesh::TriangleMesh{IT,FT}, basis::RWGBasis{IT,FT}, t:
 
     area = 0.5 * norm(cross(v2 - v1, v3 - v1))
     center = (v1 + v2 + v3) / 3
+    
+    # Degenerate triangle check: area should be > 0
+    area > eps(FT) || error("Degenerate triangle with area ≈ 0")
     n = normalize(cross(v2 - v1, v3 - v1))
 
+    # Degenerate edge check: all edges should have length > 0
+    l1 > eps(FT) || error("Degenerate edge 1 with length ≈ 0")
+    l2 > eps(FT) || error("Degenerate edge 2 with length ≈ 0")
+    l3 > eps(FT) || error("Degenerate edge 3 with length ≈ 0")
     ev1 = e1 / l1
     ev2 = e2 / l2
     ev3 = e3 / l3

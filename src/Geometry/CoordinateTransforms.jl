@@ -49,7 +49,8 @@ function r̂θϕInfo{FT}(r̂::AbstractVector) where {FT}
         return r̂θϕInfo{FT}(SVector{3,FT}(0, 0, 0), SVector{3,FT}(0, 0, 0), SVector{3,FT}(0, 0, 0))
     end
     r̂_norm = SVector{3,FT}(r̂) / r
-    θ = acos(r̂_norm[3])
+    # Clamp to [-1, 1] to avoid domain error in acos due to floating-point rounding
+    θ = acos(clamp(r̂_norm[3], -one(FT), one(FT)))
     ϕ = atan(r̂_norm[2], r̂_norm[1])
     return r̂θϕInfo(θ, ϕ)
 end
