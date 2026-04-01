@@ -204,8 +204,21 @@ function efie_interaction!(
         calc_self_interaction!(Z_local, efie, tri_test)
     elseif is_adjacent(tri_test, tri_source)
         # Near-term (Singular/Near-Singular)
-        # Enforce T_test.ID < T_src.ID to match Direct Solver and ensure symmetry
-        # calc_near_interaction! is asymmetric due to semi-analytical integration.
+        # 
+        # **Design Constraint (Legacy Parity)**: `calc_near_interaction!` uses semi-analytical
+        # integration that is inherently asymmetric in (test, source) order. To maintain
+        # consistency with Legacy MoM_Basics implementation and ensure impedance matrix symmetry,
+        # we enforce a canonical ordering: always call with test.triID < source.triID.
+        #
+        # When test.triID > source.triID, we compute Z_temp = Z(source, test) and then
+        # transpose: Z_local[m, n] += Z_temp[n, m]. This workaround ensures:
+        # 1. Numerical equivalence with Legacy code (verified in Phase 7 alignment)
+        # 2. Impedance matrix symmetry for reciprocal operators
+        # 3. No algebraic error (transpose restores correct test-source pairing)
+        #
+        # **Future work**: Consider refactoring `calc_near_interaction!` to be symmetric
+        # by design, eliminating the need for this transpose workaround. However, any change
+        # must maintain bit-for-bit equivalence with Legacy to avoid regression.
         if tri_test.triID > tri_source.triID
             Z_temp = zeros(CT, 3, 3)
             calc_near_interaction!(Z_temp, efie, tri_source, tri_test)

@@ -74,12 +74,22 @@ Collection of RWG basis functions defined on a triangular mesh.
 This structure manages the mapping between mesh edges and basis functions.
 It handles the connectivity logic to identify common edges and assign orientations.
 
+# Boundary Edge Design
+
+Unlike `SWGBasis` (which **includes** boundary faces for VEFIE/SCFIE flux continuity),
+`RWGBasis` **excludes** boundary edges. This is intentional: for Surface Integral 
+Equations on Perfect Electric Conductor (PEC) surfaces, current cannot flow out of 
+the closed surface, so boundary edges represent unphysical discontinuities.
+
+Only internal edges (shared between two triangles) are assigned RWG basis functions.
+Boundary edges are marked in `basis_map` with ID = 0.
+
 # Fields
 - `mesh`: The underlying triangular mesh.
-- `functions`: Vector of `RWG` basis function objects.
+- `functions`: Vector of `RWG` basis function objects (excludes boundary edges).
 - `basis_map`: A `3 \\times N_t` matrix mapping (local edge, triangle) pairs to basis function IDs.
   - `basis_map[k, t]` gives the ID of the basis function associated with the \$k\$-th edge of triangle \$t\$.
-  - If 0, no basis function is assigned (e.g., boundary edge not used).
+  - If 0, no basis function is assigned (boundary edge excluded for PEC EFIE).
 """
 struct RWGBasis{IT,FT} <: AbstractBasisFunction
     mesh::TriangleMesh{IT,FT}
