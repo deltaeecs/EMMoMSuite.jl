@@ -1,9 +1,8 @@
 module LoggingUtils
 
 using Logging
-using LoggingExtras
 using Dates
-using ProgressMeter
+using ..LightweightSupport: StreamLogger, TeeLogger, @showprogress
 
 export init_logging, @showprogress
 
@@ -24,36 +23,15 @@ function init_logging(
     console_level::LogLevel = Logging.Info,
     file_level::LogLevel = Logging.Debug,
 )
-    # Date format
-    date_format = "yyyy-mm-dd HH:MM:SS"
-
-    # Format function
-    function fmt(io, args)
-        # [TIME] [LEVEL] [MODULE] Message
-        t = Dates.format(now(), date_format)
-        l = args.level
-        m = args._module
-        msg = args.message
-        println(io, "[$t] [$l] [$m] $msg")
-    end
-
-    # Console Logger
-    # We use FormatLogger for consistent formatting.
-    console_logger = MinLevelLogger(FormatLogger(fmt, stderr), console_level)
-
-    # File Logger
-    # Ensure directory exists
     log_dir = dirname(log_file)
     if !isempty(log_dir) && !isdir(log_dir)
         mkpath(log_dir)
     end
 
-    file_logger = MinLevelLogger(FormatLogger(fmt, log_file; append = true), file_level)
-
-    # Tee Logger
+    console_logger = StreamLogger(stderr, console_level)
+    file_logger = StreamLogger(open(log_file, "a"), file_level)
     tee_logger = TeeLogger(console_logger, file_logger)
 
-    # Set global logger
     global_logger(tee_logger)
 
     @info "Logging initialized. Console level: $console_level, File level: $file_level, Log file: $log_file"
