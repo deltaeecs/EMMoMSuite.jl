@@ -1,13 +1,13 @@
-# EMSuite General Registry Release Checklist
+# EMMoMSuite General Registry Release Checklist
 
-This checklist tracks everything needed before publishing EMSuite to Julia General Registry.
+This checklist tracks everything needed before publishing EMMoMSuite to Julia General Registry.
 
 ## 1. Package Metadata
 
 - [x] `Project.toml` has stable `name`, `uuid`, `version`.
 - [x] `Project.toml` has dependency and compat constraints.
-- [ ] `authors` field updated from placeholder values.
-- [ ] Repository URL and homepage confirmed in repo metadata.
+- [x] `authors` field updated from placeholder values (`xyhe <1225385871@qq.com>`).
+- [x] Repository URL and homepage confirmed in repo metadata（发布时写入 `deltaeecs/EMMoMSuite.jl`）。
 
 ## 2. Quality Gates
 
@@ -34,7 +34,7 @@ This checklist tracks everything needed before publishing EMSuite to Julia Gener
 - [ ] Merge release commit to default branch.
 - [ ] Open release PR to General Registry via Registrator comment.
 - [ ] Resolve AutoMerge or review comments from General Registry.
-- [ ] Confirm package install via `Pkg.add("EMSuite")` after merge.
+- [ ] Confirm package install via `Pkg.add("EMMoMSuite")` after merge.
 
 ## 6. Post-Release
 

@@ -1,6 +1,6 @@
-# EMSuite.jl
+# EMMoMSuite.jl
 
-EMSuite is a Julia-based computational electromagnetics toolkit centered on Method of Moments workflows for scattering, radiation, and transmission problems.
+EMMoMSuite is a Julia-based computational electromagnetics toolkit centered on Method of Moments workflows for scattering, radiation, and transmission problems.
 
 ## What You Get
 

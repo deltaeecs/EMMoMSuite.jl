@@ -1,4 +1,4 @@
-# EMSuite 重构进度
+# EMMoMSuite 重构进度
 
 > 最后更新: 2026-04-01 16:50 UTC
 
@@ -6,7 +6,58 @@
 
 - 当前主线问题：MLFMA 多层 upward/downward pass 的逐层对齐与修正
 - 当前次主线问题：F7 direct 路径 Round 3 性能回收
+- 当前治理任务：`EMSuite.jl -> EMMoMSuite.jl` 改名执行已进入实施阶段，主包入口与主要脚本迁移已完成
 - 发布流程、统一报告、依赖瘦身、README 与理论文档修复已完成当前轮次收口
+
+## 2026-04-16 Update：EMMoMSuite 改名执行 Round 1
+
+- 已在 `.worktrees/emmomsuite-rename` 上创建独立分支 `feat/emmomsuite-rename`，避免直接在 `master` 上做大规模重命名。
+- 已完成包入口迁移：
+  - `Project.toml` 包名已切换为 `EMMoMSuite`
+  - `src/EMSuite.jl` 已重命名为 `src/EMMoMSuite.jl`
+  - 顶层模块名已切换为 `module EMMoMSuite`
+  - `src/Driver.jl` 等源码中的顶层模块引用已切换到 `EMMoMSuite`
+- 已按 TDD 补入并验证回归：
+  - 新增 `test/test_package_rename.jl`
+  - 红灯 1：`using EMMoMSuite` 在改名前失败
+  - 绿灯 1：入口改名后 `using EMMoMSuite` 通过
+  - 红灯 2：公开类型 `EMMoMSuiteConfig` 初始不存在
+  - 绿灯 2：将 `EMSuiteConfig` 改名为 `EMMoMSuiteConfig` 后通过
+- 已完成第二批大范围迁移：
+  - `test/**` 的 `using EMSuite` / `EMSuite.*` 已迁移
+  - `benchmark/**` 的 `using EMSuite` / `EMSuite.*` 已迁移
+  - `docs/**` 的 `using EMSuite` / `modules = [EMSuite]` / `sitename = "EMSuite.jl"` 已迁移
+  - `benchmark` 子包名与入口模块已切换为 `EMMoMSuiteBenchmarkSupport`
+- docs 验证当前状态：
+  - `docs` 环境已可 `Pkg.develop(path=<worktree root>)` 并解析 `EMMoMSuite`
+  - `docs/make.jl` 中已修复一处损坏的 UTF-8 注释
+  - 当前仍阻塞于独立 Markdown 解析错误：`Documenter.SetupBuildDirectory` 阶段报 `TypeError: expected AbstractMatch, got Nothing`
+  - 该问题已进入下一轮排查；目前判断这属于 docs 内容/渲染层阻塞，而非包名迁移遗漏
+
+## 2026-04-16 Update：EMMoMSuite 改名执行 Round 2（docs 链路恢复）
+
+- 已新增并使用 `docs/diagnose_markdown_parse.jl` 逐页定位 Markdown 解析失败页面，确认阻塞根因是多份 docs 源页的 UTF-8/文本损坏，而不是 `EMMoMSuite` 包名迁移遗漏。
+- 已重写以下损坏页面为干净 UTF-8 内容，并保留当前新包名与可执行示例：
+  - `docs/src/api/public_api.md`
+  - `docs/src/guide/examples.md`
+  - `docs/src/guide/installation.md`
+  - `docs/src/guide/quick_start.md`
+  - `docs/src/theory/basis_functions.md`
+  - `docs/src/theory/fast_algorithms.md`
+  - `docs/src/theory/method_of_moments.md`
+  - `docs/src/theory/solvers.md`
+- 验证结果：
+  - `Push-Location .worktrees/emmomsuite-rename/docs; julia --project=. diagnose_markdown_parse.jl; Pop-Location` 已输出 `ALL_PARSED`
+  - `Push-Location .worktrees/emmomsuite-rename/docs; julia --project=. make.jl; Pop-Location` 已完成 Documenter HTML 构建
+  - 构建产物已落到 `docs/build/index.html` 与对应子目录，确认 docs 站点可生成
+- 额外观察：
+  - 在 Windows 上，`Documenter` 的 `SetupBuildDirectory` 有时会因已存在的 `docs/build/` 句柄报 `rm("build"): permission denied (EACCES)`
+  - 当前已验证手动删除 `docs/build/` 后重跑可恢复正常，这属于本地文件锁/时序问题，不是改名本身的功能阻塞
+- 当前状态：
+  - `using EMMoMSuite` 回归测试通过
+  - benchmark 子环境 `using EMMoMSuiteBenchmarkSupport` 通过
+  - docs 逐页解析与完整构建均已通过
+  - Phase 20 已从“主链迁移 + docs 阻塞”推进到“进入 clean review 与最终命名边界审查”
 
 ## 2026-03-11 Update：PMCHW medium 逐层节点定位
 

@@ -21,7 +21,7 @@ This method is used in `Legacy` code for near-interactions (`EFIEOnNearTris`) an
     $$ I \approx \sum_{i=1}^{N} w_i \left[ \boldsymbol{\rho}(\mathbf{r}_i) \cdot \mathbf{I}_{vec}(\mathbf{r}_i) \right] $$
 
 ## Method B: Fully Analytical (Double Surface Integral)
-This method is used in `EMSuite` (and `Legacy` self-term `EFIERWGTri`) via the function `singularF21`.
+This method is used in `EMMoMSuite` (and `Legacy` self-term `EFIERWGTri`) via the function `singularF21`.
 It uses a closed-form expression for the double surface integral of the potential kernel over a flat triangle.
 
 Formula (Eibert/Wilton):
@@ -55,8 +55,8 @@ We compared the raw output of `singularF1` and `singularF21` (Method B) with the
 *   **Method A (Semi-Analytical)**: Converges to Method B result (within 15% at depth 6 for vector term, <0.2% for scalar term).
 *   **Sign Convention**: `faceSingularityIg` in Legacy kernels appears to return negative values for the $1/R$ integral. This must be accounted for.
 
-### 3. Implementation in EMSuite
-EMSuite uses Method B (`singularF21`) for the self-term.
+### 3. Implementation in EMMoMSuite
+EMMoMSuite uses Method B (`singularF21`) for the self-term.
 The implementation correctly applies the $Area^2$ scaling:
 ```julia
 val_singular = singularF21(...) - F1
@@ -68,5 +68,5 @@ This ensures the physical quantity (Integral) is correct.
 *   `singularF21` is a **Fully Analytical** closed-form expression (Method B), not "Inner Analytical Outer Numerical".
 *   The "Inner Analytical Outer Numerical" approach corresponds to Method A (`faceSingularityIg` + Quadrature), which is used in Legacy for near-terms.
 *   Both methods yield consistent results when scaling and sign conventions are handled correctly.
-*   EMSuite's use of Method B for self-terms is accurate and efficient.
+*   EMMoMSuite's use of Method B for self-terms is accurate and efficient.
 

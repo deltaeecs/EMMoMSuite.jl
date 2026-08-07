@@ -1,4 +1,4 @@
-# EMSuite 重构路线图
+# EMMoMSuite 重构路线图
 
 > 最后更新: 2026-04-01（全工程检视 Round 4 完成代码质量全面修复，包括物理常数标准化、日志系统标准化与接口完善）
 
@@ -28,6 +28,7 @@
 - [x] 本地文档站点已切换为 `.html` 直达链接，避免 `file` 浏览下二次点击目录页
 - [x] `.github/REFACTORING_ROADMAP.md` / `.github/REFACTORING_PROGRESS.md` 已从损坏文本重建为可维护版本
 - [x] 将理论文档补充为“教材公式 + EMSuite 实现约定”的双层说明，统一记录 RWG 符号折叠、MLFMA 向量顺序与预条件残差口径
+- [ ] Phase 20：`EMSuite.jl -> EMMoMSuite.jl` 全工程改名执行中，已完成主包入口、test/benchmark/docs 导入迁移、公开配置类型改名，以及 docs 源页修复与本地站点重建验证
 - [ ] 后续若新增 Phase，计划文档需继续遵循 `copilot-instructions.md` 中的计划规范与检视要求
 
 ## 当前状态快照
@@ -58,6 +59,17 @@
   - 详见 REFACTORING_PROGRESS.md Round 4-12 章节
 
 ## 近期已完成工作
+
+### 2026-04-16 Phase 20 改名执行推进
+
+- [x] 已在隔离 worktree `feat/emmomsuite-rename` 中启动正式迁移
+- [x] 已完成主包入口改名：`Project.toml`、`src/EMMoMSuite.jl`、`module EMMoMSuite`
+- [x] 已新增 `test/test_package_rename.jl`，并完成 `using EMMoMSuite` 红绿回归
+- [x] 已完成 test / benchmark / docs / root run 脚本的顶层导入迁移
+- [x] 已将公开配置类型从 `EMSuiteConfig` 改名为 `EMMoMSuiteConfig`
+- [x] 已修复 docs Markdown 源页编码损坏，`docs/diagnose_markdown_parse.jl` 已达成 `ALL_PARSED`
+- [x] 已完成 `docs/make.jl` 本地构建验证；Windows 下若 `Documenter` 清理 `docs/build` 触发 `EACCES`，可先手动删除 `docs/build/` 后重跑
+- [ ] 进入 Phase 20 clean review，继续审查剩余命名边界与发布收口项
 
 ### 2026-03-10 F7 Legacy 对齐排查
 

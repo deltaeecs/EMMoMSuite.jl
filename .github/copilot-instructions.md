@@ -1,4 +1,4 @@
-# EMSuite.jl Copilot Instructions
+# EMMoMSuite.jl Copilot Instructions
 
 ## 计划与进度文件
 

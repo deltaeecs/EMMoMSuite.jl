@@ -1,6 +1,6 @@
 # Theory Overview
 
-This section summarizes the modeling and solver stack used in EMSuite.
+This section summarizes the modeling and solver stack used in EMMoMSuite.
 
 ## 1. Problem Classes
 

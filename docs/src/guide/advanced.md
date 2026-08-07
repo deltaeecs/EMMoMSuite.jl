@@ -1,13 +1,13 @@
 # Advanced Guide
 
-This guide focuses on medium/large-scale workflows and fidelity controls used in EMSuite Phase 15.
+This guide focuses on medium/large-scale workflows and fidelity controls used in EMMoMSuite Phase 15.
 
 ## 1. PMCHW Block/Operator Strong-Form Solve
 
 Use PMCHW shell with strong form when comparing dense and matrix-free backends under the same physical probe.
 
 ```julia
-using EMSuite
+using EMMoMSuite
 using IterativeSolvers
 
 freq = 300e6
@@ -38,8 +38,8 @@ Zin = input_impedance(pmchw, feed, I, basis)
 `PMCHWMLFMAErrorBudget` exposes near/far and truncation controls explicitly.
 
 ```julia
-using EMSuite
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 budget = PMCHWMLFMAErrorBudget(Float64;
     near_range_scale = 4.0,
