@@ -1,5 +1,5 @@
-using EMSuite
-using EMSuite.Parallel
+using EMMoMSuite
+using EMMoMSuite.Parallel
 using MPI
 using Test
 using LinearAlgebra

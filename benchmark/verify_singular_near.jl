@@ -1,6 +1,6 @@
-using EMSuite
-using EMSuite.IntegralEquations.EFIEModule.Singularities
-using EMSuite.Geometry
+using EMMoMSuite
+using EMMoMSuite.IntegralEquations.EFIEModule.Singularities
+using EMMoMSuite.Geometry
 using LinearAlgebra
 using StaticArrays
 
@@ -333,7 +333,7 @@ function verify_IS_r1()
         # BUT `edgev` passed to `faceSingularityIgIvecg` usually comes from `TriangleInfo`.
         # In `TriangleInfo`, `edgev` are usually the edge vectors (v_next - v_prev).
         
-        # Let's check `MoM_Kernels` or `EMSuite` `TriangleInfo` definition.
+        # Let's check `MoM_Kernels` or `EMMoMSuite` `TriangleInfo` definition.
     end
 end
 

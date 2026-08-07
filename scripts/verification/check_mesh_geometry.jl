@@ -1,9 +1,9 @@
-using EMSuite
-using EMSuite.Geometry
+using EMMoMSuite
+using EMMoMSuite.Geometry
 using Printf
 
 function check_mesh()
-    mesh_file = joinpath(@__DIR__, "../../../MoM_AllinOne/meshfiles/sphere_600MHz.nas")
+    mesh_file = joinpath(@__DIR__, "../../../deps/fixtures/AllinOne/meshfiles/sphere_600MHz.nas")
     if !isfile(mesh_file)
         println("Error: Mesh file not found: $mesh_file")
         return

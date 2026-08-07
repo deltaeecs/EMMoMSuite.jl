@@ -1,6 +1,6 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.PostProcessing.RCS
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.PostProcessing.RCS
 using LinearAlgebra
 using StaticArrays
 using Printf

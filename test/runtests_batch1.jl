@@ -1,7 +1,7 @@
 # 分批覆盖率测试脚本 - 第1批: 基础测试（快速）
-# 从 EMSuite/test 目录运行: julia --project=../../EMSuite --code-coverage=user runtests_batch1.jl
+# 从 EMMoMSuite/test 目录运行: julia --project=../../EMMoMSuite --code-coverage=user runtests_batch1.jl
 using Test
-using EMSuite
+using EMMoMSuite
 
 # 批1: 基础/几何/积分方程
 include("test_materials.jl")

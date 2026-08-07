@@ -7,8 +7,8 @@
 #
 # 这些函数不依赖多进程 MPI，单进程即可测试。
 using Test
-using EMSuite
-using EMSuite.Parallel: MPIArrays
+using EMMoMSuite
+using EMMoMSuite.Parallel: MPIArrays
 using LinearAlgebra
 
 @testset "MPIArray Utils" begin

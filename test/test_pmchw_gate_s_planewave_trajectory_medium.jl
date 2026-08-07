@@ -12,7 +12,7 @@ test_pmchw_gate_s_planewave_trajectory_medium.jl — Phase 15 PMCHW medium plane
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using IterativeSolvers
 

@@ -1,82 +1,73 @@
 # Quick Start
 
-本指南演示如何用 EMSuite 计算 PEC 金属板的双站 RCS，
-完整流程从加载网格到输出 RCS（单位：dBsm）。
+本指南演示如何使用 EMMoMSuite 计算 PEC 金属板的双站 RCS，流程覆盖网格读取、积分方程装配、求解和结果导出。
 
-## 1. 准备网格文件
+## 1. 准备网格
 
-EMSuite 支持 Nastran（`.nas`）和 Gmsh（`.msh`）格式。
-本示例使用 `plate.nas`——一块位于 XY 平面的矩形金属板。
+EMMoMSuite 支持 Nastran `.nas` 和 Gmsh `.msh` 等常见网格格式。下面示例假设当前目录中已有一块位于 XY 平面的矩形金属板网格 `plate.nas`。
 
-## 2. 仿真脚本
-
-新建文件 `run_plate.jl`：
+## 2. 编写求解脚本
 
 ```julia
-using EMSuite
+using EMMoMSuite
 
-# ─── 1. 频率与全局参数 ────────────────────────────────────────────────────
-freq = 300e6        # 300 MHz
-set_frequency!(freq)   # 更新全局 k0、η0（供 RCS/激励向量内部使用）
+freq = 300e6
+set_frequency!(freq)
 
-# ─── 2. 加载网格 ──────────────────────────────────────────────────────────
-mesh  = read_nas_mesh("plate.nas")
-println("网格: $(num_elements(mesh)) 个三角形，$(num_vertices(mesh)) 个节点")
+mesh = read_nas_mesh("plate.nas")
+println("网格: $(num_elements(mesh)) 个三角形, $(num_vertices(mesh)) 个节点")
 
-# ─── 3. 基函数 ────────────────────────────────────────────────────────────
 basis = RWGBasis(mesh)
 println("未知量数: $(num_basis(basis))")
 
-# ─── 4. 积分方程算子 + 阻抗矩阵 ──────────────────────────────────────────
 efie = EFIE(freq)
-Z    = assemble_impedance_matrix(efie, basis)
+Z = assemble_impedance_matrix(efie, basis)
 
-# ─── 5. 激励源（+z 方向入射，x 极化）──────────────────────────────────────
-inc_wave = PlaneWave(freq, π/2, π, [1.0, 0.0, 0.0])
-V        = excitation_vector(inc_wave, basis)
+inc_wave = PlaneWave(freq, π / 2, π, [1.0, 0.0, 0.0])
+V = excitation_vector(inc_wave, basis)
 
-# ─── 6. 求解 ─────────────────────────────────────────────────────────────
 I_coeff = solve!(LUSolver(), Z, V)
 
-# ─── 7. RCS 计算 ─────────────────────────────────────────────────────────
-θ_obs  = collect(range(0.0, π, length = 181))   # 0° ~ 180°
-ϕ_obs  = [0.0]                                  # phi = 0 平面
+theta_obs = collect(range(0.0, π, length = 181))
+phi_obs = [0.0]
 
-_, rcs_total, rcs_db = radarCrossSection(θ_obs, ϕ_obs, I_coeff, basis)
-println("单站 RCS (θ=90°): ", rcs_db[91, 1], " dBsm")
+_, rcs_total, rcs_db = radarCrossSection(theta_obs, phi_obs, I_coeff, basis)
+println("单站 RCS (theta = 90 deg): ", rcs_db[91, 1], " dBsm")
 
-# ─── 8. 保存结果 ─────────────────────────────────────────────────────────
-save_RCS_txt("plate_rcs.txt", θ_obs, ϕ_obs, rcs_db)
+save_RCS_txt("plate_rcs.txt", theta_obs, phi_obs, rcs_db)
 save_results_hdf5("plate_results.h5", I_coeff, rcs_db)
-println("完成！结果已保存至 plate_rcs.txt 和 plate_results.h5")
+println("完成，结果已保存到 plate_rcs.txt 和 plate_results.h5")
 ```
 
-## 3. 运行
+## 3. 运行脚本
 
 ```bash
 julia --project=. run_plate.jl
 ```
 
-## 4. 使用 MLFMA 加速（大规模问题）
+## 4. 使用 MLFMA 加速大规模问题
 
-对于 N > 10,000 个未知量，推荐使用 MLFMA 替代直接装配：
+当未知量规模较大时，可以把直接矩阵装配替换为 MLFMA 算子与迭代求解。
 
 ```julia
-# 替换步骤 4–6
-op       = EFIE(freq)
+op = EFIE(freq)
 mlfma_op = MLFMAOperator(op, basis)
 
-V        = excitation_vector(inc_wave, basis)
-precon   = BlockJacobiPreconditioner(mlfma_op, basis)
-I_coeff  = solve!(GMRESSolver(tol = 1e-4, maxiter = 500, restart = 50),
-                  mlfma_op, V, Pl = precon)
+V = excitation_vector(inc_wave, basis)
+precon = BlockJacobiPreconditioner(mlfma_op, basis)
+I_coeff = solve!(
+    GMRESSolver(tol = 1e-4, maxiter = 500, restart = 50),
+    mlfma_op,
+    V,
+    Pl = precon,
+)
 ```
 
-## 5. 可视化电流分布（ParaView）
+## 5. 导出可视化结果
 
 ```julia
 save_vtk("plate_currents", mesh, abs.(I_coeff))
 ```
 
-生成 `plate_currents.vtu`，可在 ParaView 中打开查看表面电流密度。
+生成的 `plate_currents.vtu` 可以在 ParaView 中查看表面电流分布。
 

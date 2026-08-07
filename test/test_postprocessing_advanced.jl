@@ -10,7 +10,7 @@ Phase 21 测试：高级后处理与快速算法
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using StaticArrays
 using LinearAlgebra
 

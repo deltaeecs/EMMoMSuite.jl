@@ -2,18 +2,18 @@
 # 覆盖率目标: Preconditioners.jl — 所有预条件器类型的构造与应用
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using SparseArrays
 
-# Preconditioners 通过 EMSuite.Solvers 导出
-using EMSuite.Solvers:
+# Preconditioners 通过 EMMoMSuite.Solvers 导出
+using EMMoMSuite.Solvers:
     IdentityPreconditioner,
     DiagonalPreconditioner,
     ILUPreconditioner,
     SPAIPreconditioner,
     BlockJacobiPreconditioner
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 @testset "Preconditioners" begin
     # 构造简单测试矩阵：5×5 对角占优复数稀疏矩阵

@@ -11,8 +11,8 @@
 #   - MeshTypes.jl (HexahedraInfo, Quads4Hexa, hex_volume, tet_volume, get_free_vns)
 #
 using Test
-using EMSuite
-using EMSuite.Geometry
+using EMMoMSuite
+using EMMoMSuite.Geometry
 using StaticArrays
 using LinearAlgebra
 
@@ -84,7 +84,7 @@ end
 end
 
 @testset "HexahedraInfo - Geometric" begin
-    using EMSuite.Geometry: hex_volume, tet_volume, get_free_vns, HexahedraMesh,
+    using EMMoMSuite.Geometry: hex_volume, tet_volume, get_free_vns, HexahedraMesh,
                             HexahedraInfo, Quads4Hexa, HEXA_FACE_VERTEX_IDS,
                             construct_gq3d_index_map, gq3d_to_face2d_idx,
                             GaussQuadratureInfo
@@ -120,7 +120,7 @@ end
         SVector{4,Float64}(1.0,1.0,1.0,1.0),
         zero(SMatrix{3,4,Float64,12}),
         zero(SMatrix{3,4,Float64,12}))
-    @test isapprox(EMSuite.Geometry.area(q2), 1.0; rtol=1e-10)
+    @test isapprox(EMMoMSuite.Geometry.area(q2), 1.0; rtol=1e-10)
 
     # construct_gq3d_index_map
     idx_map = construct_gq3d_index_map(2)
@@ -139,7 +139,7 @@ end
     mesh = make_single_hex_mesh()
     basis = RBFBasis(mesh)
     perms = fill(2.0+0.0im, 1)
-    hexas = EMSuite.BasisFunctions.get_hexahedra_info(mesh, basis, perms)
+    hexas = EMMoMSuite.BasisFunctions.get_hexahedra_info(mesh, basis, perms)
     @test length(hexas) == 1
     hexa = hexas[1]
     @test hexa.volume > 0.0  # Volume positive (Legacy decomposition value)
@@ -160,15 +160,15 @@ end
     @test num_basis(basis) == 3
 
     # support
-    @test EMSuite.CoreModule.support(basis, 1) == 1  # DOF 1 → hex 1
-    @test EMSuite.CoreModule.support(basis, 2) == 1
-    @test EMSuite.CoreModule.support(basis, 3) == 1
+    @test EMMoMSuite.CoreModule.support(basis, 1) == 1  # DOF 1 → hex 1
+    @test EMMoMSuite.CoreModule.support(basis, 2) == 1
+    @test EMMoMSuite.CoreModule.support(basis, 3) == 1
 
     # evaluate: unit vectors
     r = SVector(0.5, 0.5, 0.5)
-    @test EMSuite.CoreModule.evaluate(basis, 1, r) ≈ SVector(1.0, 0.0, 0.0)
-    @test EMSuite.CoreModule.evaluate(basis, 2, r) ≈ SVector(0.0, 1.0, 0.0)
-    @test EMSuite.CoreModule.evaluate(basis, 3, r) ≈ SVector(0.0, 0.0, 1.0)
+    @test EMMoMSuite.CoreModule.evaluate(basis, 1, r) ≈ SVector(1.0, 0.0, 0.0)
+    @test EMMoMSuite.CoreModule.evaluate(basis, 2, r) ≈ SVector(0.0, 1.0, 0.0)
+    @test EMMoMSuite.CoreModule.evaluate(basis, 3, r) ≈ SVector(0.0, 0.0, 1.0)
 
     # Volume should be positive (Legacy decomposition convention)
     @test basis.functions[1].volume > 0.0
@@ -193,7 +193,7 @@ end
 
     # evaluate
     r = SVector(0.5, 0.5, 0.5)
-    v = EMSuite.CoreModule.evaluate(basis, 1, r)
+    v = EMMoMSuite.CoreModule.evaluate(basis, 1, r)
     @test length(v) == 3
 
     # Two-hex mesh: 1 shared interior face + 10 boundary faces = 11 BFs
@@ -336,13 +336,13 @@ end
     # PWCHexBasis path
     basis_pwc = PWCHexBasis(mesh)
     perms = fill(2.0+0.0im, 1)
-    hexas_pwc = EMSuite.BasisFunctions.get_hexahedra_info(mesh, basis_pwc, perms)
+    hexas_pwc = EMMoMSuite.BasisFunctions.get_hexahedra_info(mesh, basis_pwc, perms)
     @test length(hexas_pwc) == 1
     @test hexas_pwc[1].volume > 0.0  # Volume positive
 
     # RBFBasis path (already tested in HexahedraInfo, just verify correctness)
     basis_rbf = RBFBasis(mesh)
-    hexas_rbf = EMSuite.BasisFunctions.get_hexahedra_info(mesh, basis_rbf, perms)
+    hexas_rbf = EMMoMSuite.BasisFunctions.get_hexahedra_info(mesh, basis_rbf, perms)
     @test length(hexas_rbf) == 1
     # Volume must be positive (actual value depends on Legacy tet-decomposition)
     @test hexas_rbf[1].volume > 0.0

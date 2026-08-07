@@ -8,7 +8,7 @@ C3: S-CFIE MLFMA vs Legacy Direct 基线对比。
 用法: julia --project=. benchmark/verify_SCFIE_mlfma_vs_legacy.jl
 """
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Printf
 using Statistics
@@ -31,7 +31,7 @@ function verify_SCFIE_mlfma_vs_legacy()
     lambda = 299792458.0 / freq
 
     # 2. Mesh
-    mesh_dir = joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles")
+    mesh_dir = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles")
     mesh_file = joinpath(mesh_dir, "sphere_600MHz.nas")
     if !isfile(mesh_file)
         error("Mesh file not found: $mesh_file")

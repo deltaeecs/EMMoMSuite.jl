@@ -1,112 +1,118 @@
-# 示例 (Examples)
+# 示例
 
-## 1. PEC 球面 Mie 级数验证（CFIE）
+## 1. PEC 球面散射与 Mie 级数对照
 
-PEC 球面散射是最基础的验证算例，可与 Mie 级数精确解对比。
+PEC 球面散射是最基础的验证算例，可与 Mie 级数精确解进行比较。
 
 ```julia
-using EMSuite
+using EMMoMSuite
 
-freq  = 1e9                          # 1 GHz
-r_m   = 0.1                          # 球半径 0.1 m ≈ 0.33λ
+freq = 1e9
+radius = 0.1
 set_frequency!(freq)
 
-mesh  = generate_sphere_mesh(r_m, 8) # 生成球面三角网格
+mesh = generate_sphere_mesh(radius, 8, 16)
 basis = RWGBasis(mesh)
 println("N = $(num_basis(basis)) DOF")
 
-cfie = CFIE(freq, 0.5)               # α=0.5 避免内部谐振
-Z    = assemble_impedance_matrix(cfie, basis)
+cfie = CFIE(freq, 0.5)
+Z = assemble_impedance_matrix(cfie, basis)
 
-inc  = PlaneWave(freq, π/2, π, [1.0, 0.0, 0.0])   # +z 方向入射，x 极化
-V    = excitation_vector(inc, basis)
-I    = solve!(LUSolver(), Z, V)
+inc = PlaneWave(freq, π / 2, π, [1.0, 0.0, 0.0])
+V = excitation_vector(inc, basis)
+I = solve!(LUSolver(), Z, V)
 
-θ = collect(range(0.0, π, length = 181))
-_, _, rcs_db = radarCrossSection(θ, [0.0], I, basis)
-println("单站 RCS (θ=90°): $(rcs_db[91,1]) dBsm")
+theta = collect(range(0.0, π, length = 181))
+_, _, rcs_db = radarCrossSection(theta, [0.0], I, basis)
+println("Monostatic RCS at 90 deg = $(rcs_db[91, 1]) dBsm")
 ```
 
-## 2. 金属目标散射（EFIE + MLFMA）
+## 2. 金属目标散射与 MLFMA
 
-大规模问题使用 MLFMA 加速矩阵向量乘。
+大规模金属散射问题通常需要 MLFMA 加速矩阵向量乘。
 
 ```julia
-using EMSuite
+using EMMoMSuite
 
 freq = 3e9
 set_frequency!(freq)
 
-mesh  = read_nas_mesh("jet.nas")
+mesh = read_nas_mesh("jet.nas")
 basis = RWGBasis(mesh)
-println("N = $(num_basis(basis)) RWG 基函数")
+println("N = $(num_basis(basis)) RWG basis functions")
 
-efie     = EFIE(freq)
+efie = EFIE(freq)
 mlfma_op = MLFMAOperator(efie, basis, leafCubeEdgel = 0.3)
 
-inc     = PlaneWave(freq, π/2, π, [1.0, 0.0, 0.0])
-V       = excitation_vector(inc, basis)
-precon  = BlockJacobiPreconditioner(mlfma_op, basis)
-I_coeff = solve!(GMRESSolver(tol = 1e-4, maxiter = 500, restart = 50),
-                 mlfma_op, V, Pl = precon)
+inc = PlaneWave(freq, π / 2, π, [1.0, 0.0, 0.0])
+V = excitation_vector(inc, basis)
+precon = BlockJacobiPreconditioner(mlfma_op, basis)
+I_coeff = solve!(
+    GMRESSolver(tol = 1e-4, maxiter = 500, restart = 50),
+    mlfma_op,
+    V,
+    Pl = precon,
+)
 
-θ = collect(range(0.0, π, length = 181))
-_, _, rcs_db = radarCrossSection(θ, [0.0], I_coeff, basis)
-save_RCS_txt("jet_rcs.txt", θ, [0.0], rcs_db)
+theta = collect(range(0.0, π, length = 181))
+_, _, rcs_db = radarCrossSection(theta, [0.0], I_coeff, basis)
+save_RCS_txt("jet_rcs.txt", theta, [0.0], rcs_db)
 ```
 
-## 3. 介质体散射（VEFIE + SWG）
+## 3. 介质体散射与 VEFIE
 
 ```julia
-using EMSuite
+using EMMoMSuite
 
 freq = 1e9
 set_frequency!(freq)
 
-mesh  = read_nas_mesh("dielectric_sphere.nas")   # 四面体网格
-εr    = [ComplexF64(4.0, -0.1)]
+mesh = read_nas_mesh("dielectric_sphere.nas")
+eps_r = [ComplexF64(4.0, -0.1)]
 basis = SWGBasis(mesh)
 
 vefie = VEFIE(freq)
-Z     = assemble_impedance_matrix(vefie, basis, εr)
-inc   = PlaneWave(freq, π/2, π, [1.0, 0.0, 0.0])
-V     = excitation_vector(inc, basis, εr)
-I     = solve!(LUSolver(), Z, V)
+Z = assemble_impedance_matrix(vefie, basis, eps_r)
+inc = PlaneWave(freq, π / 2, π, [1.0, 0.0, 0.0])
+V = excitation_vector(inc, basis, eps_r)
+I = solve!(LUSolver(), Z, V)
 
-θ = collect(range(0.0, π, length = 181))
-_, _, rcs_db = radarCrossSection(θ, [0.0], I, basis, εr)
-save_RCS_txt("dielectric_rcs.txt", θ, [0.0], rcs_db)
+theta = collect(range(0.0, π, length = 181))
+_, _, rcs_db = radarCrossSection(theta, [0.0], I, basis, eps_r)
+save_RCS_txt("dielectric_rcs.txt", theta, [0.0], rcs_db)
 ```
 
 ## 4. MPI 分布式并行
 
 ```bash
-# 启动 4 进程
 mpiexecjl -n 4 julia --project=. run_parallel.jl
 ```
 
 ```julia
 # run_parallel.jl
-using EMSuite, MPI
+using EMMoMSuite, MPI
 
 MPI.Init()
 init_parallel!()
 
-freq = 1e9;  set_frequency!(freq)
-mesh  = read_nas_mesh("large_plate.nas")
-basis = RWGBasis(mesh)
-efie  = EFIE(freq)
+freq = 1e9
+set_frequency!(freq)
 
-Z_mpi = assemble_impedance_matrix_parallel(efie, basis)  # MPIMatrix
-inc   = PlaneWave(freq, π/2, π, [1.0, 0.0, 0.0])
-V     = excitation_vector(inc, basis)
-I     = mpi_gmres(Z_mpi, V; tol = 1e-4, maxiter = 300)
+mesh = read_nas_mesh("large_plate.nas")
+basis = RWGBasis(mesh)
+efie = EFIE(freq)
+
+Z_mpi = assemble_impedance_matrix_parallel(efie, basis)
+inc = PlaneWave(freq, π / 2, π, [1.0, 0.0, 0.0])
+V = excitation_vector(inc, basis)
+I = mpi_gmres(Z_mpi, V; tol = 1e-4, maxiter = 300)
 
 if mpi_rank() == 0
-    θ = collect(range(0.0, π, length = 181))
-    _, _, rcs_db = radarCrossSection(θ, [0.0], I, basis)
-    save_RCS_txt("parallel_rcs.txt", θ, [0.0], rcs_db)
+    theta = collect(range(0.0, π, length = 181))
+    _, _, rcs_db = radarCrossSection(theta, [0.0], I, basis)
+    save_RCS_txt("parallel_rcs.txt", theta, [0.0], rcs_db)
 end
+
 MPI.Finalize()
 ```
 

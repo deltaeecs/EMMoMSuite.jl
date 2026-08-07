@@ -12,7 +12,7 @@ test_nmuller_gmres_trajectory_medium.jl — Phase 15 PMCHW vs N-Muller 中尺度
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using IterativeSolvers
 using Random

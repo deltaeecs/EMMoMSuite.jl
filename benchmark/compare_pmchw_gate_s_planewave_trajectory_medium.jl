@@ -1,6 +1,6 @@
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using IterativeSolvers
 using Printf

@@ -23,7 +23,7 @@ export permittivity, permeability, impedance
 # Re-export Configuration
 include("Configuration.jl")
 using .Configuration
-export EMSuiteConfig, load_config
+export EMMoMSuiteConfig, load_config
 export SimulationConfig, GeometryConfig, BasisConfig, ExcitationConfig, SolverConfig, OutputConfig
 
 # Re-export Results

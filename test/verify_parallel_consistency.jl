@@ -1,9 +1,9 @@
 using MPI
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Parallel: assemble_impedance_matrix_parallel, gather
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Parallel: assemble_impedance_matrix_parallel, gather
 using Test
 using LinearAlgebra
 

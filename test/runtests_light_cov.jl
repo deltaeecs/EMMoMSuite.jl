@@ -1,7 +1,7 @@
 # runtests_light_cov.jl
 # 轻量覆盖率测试套件，跳过 MLFMA 和大型装配（覆盖率 instrumentation 下过慢）。
 # 可通过以下方式运行:
-#   julia --project=EMSuite --code-coverage=user --startup-file=no EMSuite/test/runtests_light_cov.jl
+#   julia --project=EMMoMSuite --code-coverage=user --startup-file=no EMMoMSuite/test/runtests_light_cov.jl
 #
 # 跳过的模块:
 #   - test_mlfma.jl              (MLFMA近场装配, ~5M核函数调用, coverage下极慢)
@@ -17,7 +17,7 @@
 
 using Test
 
-@testset "EMSuite (light coverage)" begin
+@testset "EMMoMSuite (light coverage)" begin
     include("test_materials.jl")
     include("test_geometry.jl")
     include("test_basis_functions.jl")

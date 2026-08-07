@@ -16,7 +16,7 @@ run_F5_F6_sphere.jl — Phase 14 精度基准：Sphere 散射 F5-F6
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra, Printf, Statistics, Dates
 using Base.Threads
 
@@ -26,8 +26,8 @@ LinearAlgebra.ldiv!(P::LUPreconditioner, x) = (x .= P.F \ x)
 
 # ─── 路径 ─────────────────────────────────────────────────────────────────────
 const ROOT_DIR   = joinpath(@__DIR__, "..", "..")
-const MESH_DIR   = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles")
-const FEKO_DIR   = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "deps", "compare_feko")
+const MESH_DIR   = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "meshfiles")
+const FEKO_DIR   = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "deps", "compare_feko")
 const RESULT_DIR = joinpath(ROOT_DIR, "test_results", "accuracy")
 mkpath(RESULT_DIR)
 

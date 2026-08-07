@@ -1,72 +1,126 @@
-# 矩量法实现 (Method of Moments Implementation)
+# 矩量法实现
 
-本章详细介绍矩量法（MoM）的数值实现细节，包括矩阵填充、数值积分和奇异性处理。
+本章聚焦矩量法在代码中的离散实现，包括伽辽金离散、矩阵元素计算、数值积分以及奇异和近奇异积分处理。
 
-## 1. 伽辽金法 (Galerkin Method)
+## 1. 伽辽金离散
 
-将积分方程写为算子形式 $L(\mathbf{J}) = \mathbf{E}^{inc}$。
-将电流展开为 $\mathbf{J} = \sum I_n \mathbf{f}_n$。
-选用测试函数 $\mathbf{t}_m = \mathbf{f}_m$ 对方程两边做内积：
+设连续积分方程写成
+
 $$
-\sum_{n=1}^N I_n \langle \mathbf{f}_m, L(\mathbf{f}_n) \rangle = \langle \mathbf{f}_m, \mathbf{E}^{inc} \rangle
+L(\mathbf{J}) = \mathbf{E}^{inc}.
 $$
-得到线性方程组 $\mathbf{Z} \mathbf{I} = \mathbf{V}$。
+
+将未知电流展开为
+
+$$
+\mathbf{J} = \sum_{n=1}^{N} I_n \mathbf{f}_n,
+$$
+
+并取测试函数 $\mathbf{t}_m = \mathbf{f}_m$，则得到
+
+$$
+\sum_{n=1}^{N} I_n \langle \mathbf{f}_m, L(\mathbf{f}_n) \rangle
+=
+\langle \mathbf{f}_m, \mathbf{E}^{inc} \rangle.
+$$
+
+这对应离散线性系统
+
+$$
+\mathbf{Z} \mathbf{I} = \mathbf{V}.
+$$
 
 ## 2. 矩阵元素计算
 
-### 2.1 EFIE 阻抗矩阵
-$$
-Z_{mn}^{EFIE} = j\omega\mu \int_{S_m} \int_{S_n} \mathbf{f}_m(\mathbf{r}) \cdot \mathbf{f}_n(\mathbf{r}') G(R) dS' dS + \frac{1}{j\omega\epsilon} \int_{S_m} \int_{S_n} (\nabla \cdot \mathbf{f}_m) (\nabla' \cdot \mathbf{f}_n) G(R) dS' dS
-$$
-计算涉及 4 个三角形对 $(T_m^\pm, T_n^\pm)$ 的积分累加。
+### 2.1 EFIE 矩阵
 
-若按上一章的统一记号，把 RWG 的方向折叠到带符号边长 $\tilde l_{m,i}$、$\tilde l_{n,j}$ 中，则矩阵元更贴近实现地写成
+对表面 EFIE，典型阻抗矩阵元为
+
 $$
-Z_{mn}^{EFIE} = \sum_{i=1}^2 \sum_{j=1}^2 \left( Z_{mn,L}^{(i,j)} + Z_{mn,\phi}^{(i,j)} \right),
+Z_{mn}^{EFIE} =
+j \omega \mu
+\int_{S_m} \int_{S_n}
+\mathbf{f}_m(\mathbf{r}) \cdot \mathbf{f}_n(\mathbf{r}') G(R)
+\, dS' dS
++
+\frac{1}{j \omega \epsilon}
+\int_{S_m} \int_{S_n}
+(\nabla \cdot \mathbf{f}_m)
+(\nabla' \cdot \mathbf{f}_n)
+G(R)
+\, dS' dS.
 $$
-其中
+
+对 RWG-RWG 配对，实现中通常会先拆成四个支撑子三角形配对：
+
 $$
-Z_{mn,L}^{(i,j)} = j\omega\mu \frac{\tilde l_{m,i} \tilde l_{n,j}}{4 A_{m,i} A_{n,j}}
+Z_{mn}^{EFIE} = \sum_{i=1}^{2} \sum_{j=1}^{2}
+\left(Z_{mn,L}^{(i,j)} + Z_{mn,\phi}^{(i,j)}\right).
+$$
+
+若沿用带符号边长记号，则每个局部子项可统一写成
+
+$$
+Z_{mn,L}^{(i,j)} =
+j \omega \mu
+\frac{\tilde l_{m,i} \tilde l_{n,j}}{4 A_{m,i} A_{n,j}}
 \int_{T_{m,i}} \int_{T_{n,j}}
-\left( \mathbf{r} - \mathbf{v}_{m,i}^{\mathrm{opp}} \right)
+\left(\mathbf{r} - \mathbf{v}_{m,i}^{\mathrm{opp}}\right)
 \cdot
-\left( \mathbf{r}' - \mathbf{v}_{n,j}^{\mathrm{opp}} \right)
+\left(\mathbf{r}' - \mathbf{v}_{n,j}^{\mathrm{opp}}\right)
 G(R)
 \, dS' dS,
 $$
+
 $$
-Z_{mn,\phi}^{(i,j)} = \frac{1}{j\omega\epsilon}
+Z_{mn,\phi}^{(i,j)} =
+\frac{1}{j \omega \epsilon}
 \frac{\tilde l_{m,i}}{A_{m,i}}
 \frac{\tilde l_{n,j}}{A_{n,j}}
-\int_{T_{m,i}} \int_{T_{n,j}} G(R)\, dS' dS.
+\int_{T_{m,i}} \int_{T_{n,j}} G(R) \, dS' dS.
 $$
 
-这样四个子三角形配对使用同一套几何模板，差别只体现在 $A$、$\mathbf{v}^{\mathrm{opp}}$ 和带符号边长 $\tilde l$ 上。EMSuite 当前 RWG 路径正是按这种“局部几何 + 局部符号”分解来实现装配的。
+这种写法与 EMMoMSuite 当前的局部几何加局部符号分解最接近。
 
-### 2.2 MFIE 阻抗矩阵
+### 2.2 MFIE 矩阵
+
+MFIE 的离散形式包含主值积分与恒等项：
+
 $$
-Z_{mn}^{MFIE} = \frac{1}{2} \int_{S_m} \mathbf{f}_m \cdot \mathbf{f}_n dS - \int_{S_m} \mathbf{f}_m \cdot \left( \hat{n} \times \int_{S_n} \mathbf{f}_n \times \nabla' G dS' \right) dS
+Z_{mn}^{MFIE} =
+\frac{1}{2} \int_{S_m} \mathbf{f}_m \cdot \mathbf{f}_n \, dS
+-
+\int_{S_m}
+\mathbf{f}_m \cdot
+\left(
+\hat{\mathbf{n}} \times \int_{S_n} \mathbf{f}_n \times \nabla' G \, dS'
+\right) dS.
 $$
 
-在 RWG-RWG 离散下，MFIE 的奇异主值项与 EFIE 一样会拆成四个支撑子三角形配对。若继续采用带符号边长记号，则局部法向、叉乘方向和 RWG 正负号可以统一折叠到局部几何因子中，而不需要在公式层面单独维护“正半/负半”两套写法。
+在 RWG-RWG 离散下，同样需要拆到局部支撑配对层面处理。局部法向、叉乘方向和正负支撑符号都应在统一的几何模板里表达，而不是再额外维护两套公式。
 
-### 2.3 体积分方程 (VIE) 阻抗矩阵
+### 2.3 VIE 矩阵
 
-对于非磁性介质（$\mu=\mu_0$），VIE 方程为：
-$$
-\mathbf{D}(\mathbf{r}) - \epsilon_0 (\epsilon_r(\mathbf{r}) - 1) \int_V \overline{\mathbf{G}}_e(\mathbf{r}, \mathbf{r}') \cdot \frac{\mathbf{D}(\mathbf{r}')}{\epsilon_0 \epsilon_r(\mathbf{r}')} dV' = \epsilon_0 \mathbf{E}^{inc}(\mathbf{r})
-$$
-使用 SWG 基函数 $\mathbf{f}_n$ 展开电通量密度 $\mathbf{D} = \sum D_n \mathbf{f}_n$。
-阻抗矩阵元素 $Z_{mn}$ 涉及两个四面体 $V_m, V_n$ 的体积分：
-$$
-Z_{mn}^{VIE} = \int_{V_m} \frac{\mathbf{f}_m \cdot \mathbf{f}_n}{\epsilon_0 \epsilon_r} dV - \int_{V_m} \mathbf{f}_m \cdot \left( k_0^2 \int_{V_n} (\epsilon_r^{-1}-1) \mathbf{f}_n G dV' + \nabla \int_{V_n} (\epsilon_r^{-1}-1) (\nabla' \cdot \mathbf{f}_n) G dV' \right) dV
-$$
-注意第二项中的 $\nabla\nabla$ 操作通常通过分部积分转移到测试函数上，类似于 EFIE。
+对非磁介质，体积分方程常写为
 
-### 2.4 面-体耦合积分方程 (Surface-Volume Coupled IE)
+$$
+\mathbf{D}(\mathbf{r})
+- \epsilon_0 (\epsilon_r(\mathbf{r}) - 1)
+\int_V
+\overline{\mathbf{G}}_e(\mathbf{r}, \mathbf{r}')
+\cdot
+\frac{\mathbf{D}(\mathbf{r}')}{\epsilon_0 \epsilon_r(\mathbf{r}')}
+\, dV'
+=
+\epsilon_0 \mathbf{E}^{inc}(\mathbf{r}).
+$$
 
-对于涂覆介质的金属目标，需联立求解表面电流 $\mathbf{J}_S$ 和体极化电流 $\mathbf{J}_V$。
-方程组结构：
+若使用 SWG 基函数展开 $\mathbf{D} = \sum D_n \mathbf{f}_n$，则矩阵元涉及两个四面体上的体积分。实现时重点在于体格林函数核、散度项以及近邻四面体的积分精度控制。
+
+### 2.4 面体耦合系统
+
+对涂覆目标或导体和介质混合问题，常需联立面电流与体极化电流：
+
 $$
 \begin{bmatrix}
 Z_{SS} & Z_{SV} \\
@@ -75,82 +129,88 @@ Z_{VS} & Z_{VV}
 \begin{bmatrix}
 I_S \\
 I_V
-\end{bmatrix} = \begin{bmatrix}
+\end{bmatrix}
+=
+\begin{bmatrix}
 V_S \\
 V_V
-\end{bmatrix}
+\end{bmatrix}.
 $$
-*   $Z_{SS}$: 传统的 EFIE 矩阵（RWG-RWG）。
-*   $Z_{VV}$: 传统的 VIE 矩阵（SWG-SWG）。
-*   $Z_{SV}$: 体电流产生的场在表面上的测试（RWG-SWG）。
-*   $Z_{VS}$: 表面电流产生的场在体内的测试（SWG-RWG）。
 
-计算 $Z_{SV}$ 时，源点在四面体 $V_n$ 内，场点在三角形 $S_m$ 上。需处理混合维度的积分。
+这里：
 
-## 3. 数值积分 (Numerical Integration)
+- $Z_{SS}$ 对应表面未知量之间的耦合。
+- $Z_{VV}$ 对应体未知量之间的耦合。
+- $Z_{SV}$ 与 $Z_{VS}$ 对应面体交叉耦合项。
 
-### 3.1 高斯求积 (Gaussian Quadrature)
-对于非奇异积分，采用三角形高斯求积公式。
+混合维度积分往往比纯面或纯体积分更敏感，需要专门的近奇异处理策略。
+
+## 3. 数值积分
+
+### 3.1 高斯求积
+
+对非奇异积分，最常用的是三角形或四面体上的高斯求积：
+
 $$
-\int_T g(\mathbf{r}) dS \approx A_T \sum_{i=1}^{N_{quad}} w_i g(\mathbf{r}_i)
+\int_T g(\mathbf{r}) \, dS
+\approx
+A_T \sum_{i=1}^{N_{quad}} w_i g(\mathbf{r}_i).
 $$
-通常外层积分采用低阶（如 3 点），内层积分采用高阶（如 7 点或更高）。
 
-对于 EMSuite 当前 RWG surface 路径，理论文档中常见的双面积分通常会在实现里进一步拆成：
+在实现中，常按 self、near、far 三类配对分别采用不同的积分核与积分阶数。对 RWG 表面路径，一个双面积分通常会展开为：
 
-*   外层测试三角形上的固定阶高斯点；
-*   内层源三角形上的固定阶高斯点；
-*   对 self / near / far 三类配对分别走不同的核函数或奇异性处理路径。
+- 外层测试三角形高斯点循环。
+- 内层源三角形高斯点循环。
+- 针对近邻或奇异配对切换到专门的局部核或解析修正。
 
-因此，推导时最好先写出“支撑配对求和”，再写每个配对子项的数值积分结构，这样更容易与代码一一对应。
+### 3.2 工程实现原则
 
-## 4. 奇异性处理 (Singularity Treatment)
+为了与代码一一对应，推导文档最好先写支撑配对求和，再写每个局部配对的积分表达式。这样更容易与装配函数中的循环结构和数据访问方式对齐。
 
-当源三角形 $T^{src}$ 和场三角形 $T^{obs}$ 重合或共边时，格林函数 $G \sim 1/R$ 出现奇异性。
+## 4. 奇异性处理
 
-### 4.1 奇异性减法 (Singularity Subtraction)
+当源面元和观测面元重合或共享边顶点时，格林函数中的 $1 / R$ 项会导致奇异或近奇异行为。
+
+### 4.1 奇异性减除
+
+常见策略是把奇异核拆成“可解析项 + 光滑余项”：
+
 $$
-\int_T F(\mathbf{r}') \frac{1}{R} dS' = \int_T \left( \frac{F(\mathbf{r}')}{R} - \frac{F(\mathbf{r})}{R} \right) dS' + F(\mathbf{r}) \int_T \frac{1}{R} dS'
+\int_T F(\mathbf{r}') \frac{1}{R} dS'
+=
+\int_T
+\left(
+\frac{F(\mathbf{r}')}{R} - \frac{F(\mathbf{r})}{R}
+\right) dS'
++
+F(\mathbf{r}) \int_T \frac{1}{R} dS'.
 $$
-第一项数值积分，第二项解析积分。
+
+第一项可数值积分，第二项交给解析公式。
 
 ### 4.2 Wilton 解析积分
-对于静态奇异项 $\int_T \frac{1}{R} dS'$，Wilton (1984) 给出了基于几何参数的解析公式，涉及对数项和反正切项。
 
-### 4.3 Duffy 变换 (Duffy Transformation)
-另一种处理奇异性的方法是将三角形域变换为正方形域，通过变量代换消除雅可比行列式中的奇异性。
-$$
-\int_0^1 \int_0^{1-x} \frac{f(x,y)}{\sqrt{x^2+y^2}} dy dx \xrightarrow{x=u, y=u v} \int_0^1 \int_0^1 \frac{f(u, uv)}{u\sqrt{1+v^2}} u dv du
-$$
-变换后被积函数平滑，可直接使用高斯积分。
+对三角形上的静态奇异积分，Wilton 类公式能把结果写成对数项和反正切项的组合，是经典的 self 项处理工具。
 
-### 4.4 近奇异性处理 (Near-Singularity)
-当源与场非常接近但不重合时（如细导线、薄介质层），积分呈现剧烈变化。
+### 4.3 Duffy 变换
 
-#### 4.4.1 投影变换法 (Projection Method)
-将源三角形 $T'$ 投影到观测点 $\mathbf{r}$ 在 $T'$ 所在平面的投影点 $\mathbf{r}_0$ 为中心的极坐标系 $(\rho, \phi)$ 中。
-$$
-\frac{1}{R} = \frac{1}{\sqrt{\rho^2 + d^2}}
-$$
-其中 $d$ 是观测点到源平面的垂直距离。
-积分转化为：
-$$
-\int_{T'} \frac{1}{R} dS' = \sum_{i=1}^3 \int_{\phi_i}^{\phi_{i+1}} \int_{0}^{R_i(\phi)} \frac{\rho}{\sqrt{\rho^2 + d^2}} d\rho d\phi
-$$
-内层 $\rho$ 积分有解析解 $\sqrt{R_i(\phi)^2 + d^2} - d$。外层 $\phi$ 积分通常采用数值积分。
+Duffy 变换通过变量代换把三角形奇异积分映射到正方形参考域，并显式消去雅可比中的奇异因子。例如
 
-#### 4.4.2 自适应细分 (Adaptive Subdivision)
-根据距离 $d$ 和源单元尺寸 $h$ 的比值，递归地将源三角形划分为 4 个子三角形。
-准则：如果 $d < C \cdot h$，则细分。
-对每个子三角形，如果满足准则则直接高斯积分，否则继续细分或使用投影法。
-这种方法精度高但计算量大。
+$$
+\int_0^1 \int_0^{1-x} \frac{f(x,y)}{\sqrt{x^2+y^2}} \, dy \, dx
+\xrightarrow{x = u,\, y = u v}
+\int_0^1 \int_0^1
+\frac{f(u, u v)}{u \sqrt{1+v^2}} u \, dv \, du.
+$$
 
-#### 4.4.3 变量代换法 (Sinh Transformation)
-对于一维线积分的近奇异性，常用 Sinh 变换消除 $1/\sqrt{x^2+d^2}$ 类型的奇异性。
-$$
-x = d \sinh(u) \implies dx = d \cosh(u) du
-$$
-$$
-\sqrt{x^2+d^2} = d \cosh(u)
-$$
-被积函数中的奇异项被完全抵消。
+变换后被积函数更平滑，可继续使用常规求积规则。
+
+### 4.4 近奇异积分
+
+当源和场很近但不重合时，积分虽然不真正发散，但会出现剧烈梯度变化。常见处理办法包括：
+
+- 投影法：把源单元投影到观测点附近的局部坐标系中处理径向积分。
+- 自适应细分：按距离和单元尺度递归细分源单元。
+- 变量代换：对一维或准一维强变化核使用例如 sinh 变换来拉平积分核。
+
+这些技术的目标都是把高梯度积分变回平滑可积的数值问题。

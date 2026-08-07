@@ -1,4 +1,4 @@
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using StaticArrays
 using Test

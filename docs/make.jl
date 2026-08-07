@@ -1,5 +1,5 @@
 using Documenter
-using EMSuite
+using EMMoMSuite
 
 const DOCS_ROOT = @__DIR__
 const DOCS_SRC = joinpath(DOCS_ROOT, "src")
@@ -76,16 +76,12 @@ end
 generated_source = prepare_documenter_source(DOCS_SRC)
 
 makedocs(
-    sitename = "EMSuite.jl",
+    sitename = "EMMoMSuite.jl",
     source = generated_source,
-    format = Documenter.HTML(
-        repolink = "",
-        prettyurls = false,
-        edit_link = "master",
-    ),
-    modules = [EMSuite],
+    format = Documenter.HTML(repolink = "", prettyurls = false, edit_link = "master"),
+    modules = [EMMoMSuite],
     remotes = nothing,
-    checkdocs = :none,      # 不强制要求所有 docstring 出现在手册中
+    checkdocs = :none,      # Do not require every docstring to appear in the manual.
     warnonly = true,
     pages = [
         "Home" => "index.md",
@@ -107,9 +103,9 @@ makedocs(
             "Post-Processing" => "theory/post_processing.md",
         ],
         "API Reference" => "api/public_api.md",
-    ]
+    ],
 )
 
 # deploydocs(
-#     repo = "github.com/username/EMSuite.jl.git",
+#     repo = "github.com/username/EMMoMSuite.jl.git",
 # )

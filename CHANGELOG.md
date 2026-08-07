@@ -9,6 +9,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- 待定：后续版本功能预留。
+
+## [0.1.0] - 2026-08-07
+
+### Changed
+- **Rename**: Renamed the primary package identity from `EMSuite.jl` to `EMMoMSuite.jl` to make the Method of Moments focus explicit and distinguish the refactored package from legacy naming.
+- **Consolidation**: 原分散 MoM 包（`MoM_Basics` / `MoM_Kernels` / `MoM_AllinOne` / `MoM_MPI` / `MoM_Lebedev` / `MoM_Visualizing` / `MPIArray4MoMs`）功能已完整并入本包；旧仓库已归档，网格与 FEKO 基线数据收编至 `deps/fixtures/`。
+- **Dependencies**: 移除对未注册旧包（`MoM_AllinOne` / `MoM_Basics` / `MoM_Kernels`）的运行时依赖，包可独立安装。
+- **Metadata**: 更新 `uuid`、`authors`，包名统一为 `EMMoMSuite`。
+
+### Fixed
+- **MLFMA near-field race**: `assemble_near_field` 使用动态 `Threads.@threads` 时，迭代任务迁移线程可能导致同一 per-thread 缓冲区被并发写入，`Z_near` 间歇性损坏；改为 `:static` 调度后结果完全确定。
+- **SCFIE kernel constants**: `scfie_coupling_interaction` / `scfie_sv_only_interaction` 中未定义符号 `mu0`/`eps0` 改为 `Constants.mu0`/`Constants.eps0`。
+- **Tests**: 修复 `test_coverage_gaps.jl` 非法 `@test expr "msg"` 语法与 API 引用；重写 `test_integral_equations_endtoend.jl` / `test_integral_equations_frequency.jl`（原按不存在 API 编写，从未跑通）；修正复数对称矩阵的转置口径。
+
+### Added
+- **Fixtures**: 新增 `deps/fixtures/`（旧包网格 + FEKO 基线 CSV），测试与 benchmark 自包含。
+
+### Changed
 - **Code Style**: Applied `JuliaFormatter.jl` (v1.0.62) to all 79 `src/` files (default style, `indent=4`, `margin=100`). Configuration in `.JuliaFormatter.toml`.
 - **Scripts**: Added `scripts/format_code.jl` (format `src/`) and `scripts/install_formatter.jl` (global install helper).
 - **Basis Functions**: `PWC` (Piecewise Constant, 3 DOF/tet) and `RBF` (Rao-Billinghast-Farris) basis functions.
@@ -32,7 +51,7 @@ Key algorithmic improvements:
 - **SCFIE coupling**: Reciprocity `Z_VS = Z_SV^T / κ`; cyclic row-parallel scheduling; Fss boundary parallel.
 
 ### Changed
-- Refactored legacy code (`MoM_Basics`, `MoM_Kernels`, `MoM_MPI`) into a unified `EMSuite` package.
+- Refactored legacy code (`MoM_Basics`, `MoM_Kernels`, `MoM_MPI`) into a unified `EMMoMSuite` package.
 - `Driver.jl` supports multi-IE type (`EFIE`/`MFIE`/`CFIE`/`VEFIE`/`SCFIE`).
 - `Configuration.jl`: added `ie_type`, `cfie_alpha`, `permittivities` fields.
 - MPI parallel CFIE assembly uses independent EFIE+MFIE interactions + linear combination.

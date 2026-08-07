@@ -22,13 +22,13 @@ run_F7_F9_plate.jl — Phase 14 精度基准：介质板散射 F7, F9
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra, Printf, Statistics, Dates
 
 # ─── 路径 ─────────────────────────────────────────────────────────────────────
 const ROOT_DIR   = joinpath(@__DIR__, "..", "..")
-const MESH_DIR   = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles")
-const FEKO_DIR   = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "deps", "compare_feko")
+const MESH_DIR   = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "meshfiles")
+const FEKO_DIR   = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "deps", "compare_feko")
 const RESULT_DIR = joinpath(ROOT_DIR, "test_results", "accuracy")
 mkpath(RESULT_DIR)
 
@@ -78,7 +78,7 @@ if "F7" in enabled
     mesh      = read_nas_mesh(mesh_file, scale = 1.0)
     swg_basis = SWGBasis(mesh)
     n_vol     = num_basis(swg_basis)
-    n_tet     = EMSuite.CoreModule.num_elements(mesh)
+    n_tet     = EMMoMSuite.CoreModule.num_elements(mesh)
     println("  SWG 基函数: $n_vol, 四面体: $n_tet")
 
     perms = fill(εr, n_tet)
@@ -114,7 +114,7 @@ if "F9" in enabled
     swg_basis = SWGBasis(vol_mesh)
     n_surf = num_basis(rwg_basis)
     n_vol  = num_basis(swg_basis)
-    n_tet  = EMSuite.CoreModule.num_elements(vol_mesh)
+    n_tet  = EMMoMSuite.CoreModule.num_elements(vol_mesh)
     println("  RWG: $n_surf, SWG: $n_vol, Total: $(n_surf+n_vol)")
 
     perms = fill(εr, n_tet)
