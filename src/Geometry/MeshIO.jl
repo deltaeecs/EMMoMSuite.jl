@@ -79,7 +79,7 @@ mesh = read_nas_mesh("model_mm.nas", scale=1e-3)
 mesh = read_nas_mesh("model.nas", FT=Float32)
 
 # Typical workflow
-using EMSuite.Geometry
+using EMMoMSuite.Geometry
 mesh = read_nas_mesh("antenna.nas", scale=1e-3)
 @assert num_triangles(mesh) > 0  # Check surface elements
 ```
@@ -680,7 +680,7 @@ Write a TriangleMesh to a Nastran (.nas) file.
 """
 function write_nas_mesh(pathname::String, mesh::TriangleMesh; scale = 1.0)
     open(pathname, "w") do f
-        println(f, "\$ Created by EMSuite")
+        println(f, "\$ Created by EMMoMSuite")
         println(f, "BEGIN BULK")
 
         # Write GRID points
@@ -719,7 +719,7 @@ Write a TetrahedraMesh to a Nastran (.nas) file using free-field GRID and CTETRA
 """
 function write_nas_mesh(pathname::String, mesh::TetrahedraMesh; scale = 1.0)
     open(pathname, "w") do f
-        println(f, "\$ Created by EMSuite")
+        println(f, "\$ Created by EMMoMSuite")
         println(f, "BEGIN BULK")
 
         for i = 1:num_vertices(mesh)

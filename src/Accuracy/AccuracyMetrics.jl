@@ -27,9 +27,9 @@ RCS 精度对比结果（单个 φ 切面或两切面组合）。
 # 字段
 - `label`:               测试标识（如 "F1_SEFIE_Jet_Direct_phi0"）
 - `n_points`:            对比点数
-- `rmse_dB`:             均方根误差（dB）= √(mean((EMSuite - Ref)²))
-- `max_err_dB`:          最大绝对误差（dB）= max(|EMSuite - Ref|)
-- `mean_bias_dB`:        均值偏差（dB）= mean(EMSuite - Ref)
+- `rmse_dB`:             均方根误差（dB）= √(mean((EMMoMSuite - Ref)²))
+- `max_err_dB`:          最大绝对误差（dB）= max(|EMMoMSuite - Ref|)
+- `mean_bias_dB`:        均值偏差（dB）= mean(EMMoMSuite - Ref)
 - `backscatter_err_dB`:  后向散射处（θ=180°）的单点误差（dB）
 - `pass`:                是否通过精度门限
 - `threshold_dB`:        精度门限（dB）
@@ -89,10 +89,10 @@ AntennaAccuracyResult(label, Zin_r, D_err, pat_rmse, s11_e, im_z, pass) =
         backscatter_theta = 180.0,
     ) -> AccuracyResult
 
-计算 EMSuite 仿真 RCS 与参考 RCS 之间的精度指标。
+计算 EMMoMSuite 仿真 RCS 与参考 RCS 之间的精度指标。
 
 # 参数
-- `rcs_emsuite_dBsm`: EMSuite 计算结果（dBsm）
+- `rcs_emsuite_dBsm`: EMMoMSuite 计算结果（dBsm）
 - `rcs_ref_dBsm`:     参考值（Feko 或 Mie，dBsm）
 - `theta_deg`:        对应的 θ 角度值（度）
 - `label`:            测试标识字符串
@@ -114,7 +114,7 @@ function compute_rcs_accuracy(
     backscatter_theta::Float64 = 180.0,
 )
     length(rcs_emsuite_dBsm) == length(rcs_ref_dBsm) ||
-        throw(ArgumentError("EMSuite 与参考 RCS 长度不同"))
+        throw(ArgumentError("EMMoMSuite 与参考 RCS 长度不同"))
     length(rcs_emsuite_dBsm) == length(theta_deg) ||
         throw(ArgumentError("RCS 与 theta_deg 长度不同"))
 

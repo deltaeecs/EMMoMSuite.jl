@@ -138,7 +138,7 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 
 """
-    write_stl_mesh(pathname::String, mesh::TriangleMesh; name="EMSuite")
+    write_stl_mesh(pathname::String, mesh::TriangleMesh; name="EMMoMSuite")
 
 Write `mesh` to an ASCII STL file.
 
@@ -146,7 +146,7 @@ The facet normal for each triangle is computed from the vertex ordering (`v2-v1`
 × `v3-v1`, normalised).  If the triangle is degenerate (zero-area), a zero
 normal is written.
 """
-function write_stl_mesh(pathname::String, mesh::TriangleMesh; name::String="EMSuite")
+function write_stl_mesh(pathname::String, mesh::TriangleMesh; name::String="EMMoMSuite")
     open(pathname, "w") do f
         println(f, "solid $name")
 

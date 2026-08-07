@@ -1,5 +1,5 @@
 """
-    Ports — EMSuite 端口体系
+    Ports — EMMoMSuite 端口体系
 
 Phase 20 实现的端口类型：
 - `LumpedPort`:            集总端口（R/L/C/电压源/电流源）

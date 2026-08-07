@@ -497,7 +497,11 @@ function assemble_near_field(
     # Determine if CFIE/SCFIE needs Z_mfie buffer
     needs_mfie = operator isa CFIE || operator isa SCFIE
 
-    Threads.@threads for i_cube = 1:n_cubes
+    # NOTE: must use static scheduling. With dynamic scheduling, iteration tasks
+    # can migrate between Julia threads after `tid = Threads.threadid()` is
+    # captured, so two tasks can concurrently write the same per-thread buffer
+    # (Is[tid]/Js[tid]/Vs[tid]/counts[tid]) and corrupt Z_near nondeterministically.
+    Threads.@threads :static for i_cube = 1:n_cubes
         tid = Threads.threadid()
 
         # MPI rank filter: skip cubes not assigned to this rank
