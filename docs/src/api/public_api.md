@@ -1,11 +1,11 @@
 # API 参考
 
-本页面从源代码 docstring 自动生成，覆盖 EMSuite 所有公开导出的类型与函数。
+本页面从源代码 docstring 自动生成，覆盖 EMMoMSuite 的公开导出类型与函数。
 
 模块分类速查：
 
 | 类别 | 关键类型/函数 |
-|------|-------|
+|------|---------------|
 | **几何** | `TriangleMesh`, `TetrahedraMesh`, `HexahedraMesh`, `read_nas_mesh`, `generate_sphere_mesh` |
 | **基函数** | `RWGBasis`, `SWGBasis`, `PWCBasis`, `PWCHexBasis`, `RBFBasis` |
 | **积分方程** | `EFIE`, `MFIE`, `CFIE`, `VEFIE`, `SCFIE`, `assemble_impedance_matrix` |
@@ -20,7 +20,7 @@
 ## 完整 API 文档
 
 ```@autodocs
-Modules = [EMSuite]
+Modules = [EMMoMSuite]
 ```
 
 ---
