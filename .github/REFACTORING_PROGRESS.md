@@ -6,7 +6,24 @@
 
 - 当前主线问题：MLFMA 多层 upward/downward pass 的逐层对齐与修正
 - 当前次主线问题：F7 direct 路径 Round 3 性能回收
+- 当前新增治理任务：`EMSuite.jl -> EMMoMSuite.jl` 全工程改名规划已启动，待进入执行阶段
 - 发布流程、统一报告、依赖瘦身、README 与理论文档修复已完成当前轮次收口
+
+## 2026-04-15 Update：EMMoMSuite 改名规划启动
+
+- 已确认新名称采用 `EMMoMSuite.jl`，目标是在 Julia 包/顶层模块/仓库对外标识三层保持一致。
+- 已完成第一轮边界梳理，确认本次改名不是仅修改 `Project.toml`，而是覆盖：
+  - 主包入口：`Project.toml`、`src/EMSuite.jl`、内部 `using ..EMSuite`
+  - 子环境与构建：`docs/Project.toml`、`docs/make.jl`、path-based manifest 刷新
+  - 运行链：`test/**`、`benchmark/**`、`run_tests.jl`、`scripts/**`
+  - 当前对外文档：`README.md`、`CHANGELOG.md`、`docs/src/**`、`.github/RELEASE_CHECKLIST.md`
+  - 治理文档：`.github/REFACTORING_ROADMAP.md`、`.github/REFACTORING_PROGRESS.md`、`.github/plans/**`
+- 已新增正式计划文档：`.github/plans/phase_20_emmomsuite_rename_plan.md`
+- 当前已冻结的执行原则：
+  - 不在同一个包内长期保留 `EMSuite` / `EMMoMSuite` 双顶层导入并行
+  - 当前可执行入口和现行说明必须全部切到 `EMMoMSuite`
+  - 历史文档仅在“确属历史事实”时保留旧名，其余按当前事实改写
+- 下一步进入执行阶段时，将按 5 个提交面推进：包入口、测试/benchmark、docs、治理文档、仓库 rollout。
 
 ## 2026-03-11 Update：PMCHW medium 逐层节点定位
 

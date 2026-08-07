@@ -19,3 +19,4 @@ Thumbs.db
 # Runtime artifacts (simulation/test run outputs)
 /results/
 /test_results/runs/
+/.worktrees/

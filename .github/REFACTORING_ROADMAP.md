@@ -28,6 +28,7 @@
 - [x] 本地文档站点已切换为 `.html` 直达链接，避免 `file` 浏览下二次点击目录页
 - [x] `.github/REFACTORING_ROADMAP.md` / `.github/REFACTORING_PROGRESS.md` 已从损坏文本重建为可维护版本
 - [x] 将理论文档补充为“教材公式 + EMSuite 实现约定”的双层说明，统一记录 RWG 符号折叠、MLFMA 向量顺序与预条件残差口径
+- [ ] Phase 20：执行 `EMSuite.jl -> EMMoMSuite.jl` 全工程改名，统一主包、docs、benchmark、发布清单与仓库入口命名
 - [ ] 后续若新增 Phase，计划文档需继续遵循 `copilot-instructions.md` 中的计划规范与检视要求
 
 ## 当前状态快照
@@ -58,6 +59,13 @@
   - 详见 REFACTORING_PROGRESS.md Round 4-12 章节
 
 ## 近期已完成工作
+
+### 2026-04-15 Phase 20 改名规划启动
+
+- [x] 确认新包名采用 `EMMoMSuite.jl`
+- [x] 完成影响边界梳理：主包入口、docs 子环境、benchmark/test 脚本、README/CHANGELOG、路线图/进度文档与 `.github/plans/**`
+- [x] 新增正式计划文档 `.github/plans/phase_20_emmomsuite_rename_plan.md`
+- [ ] 后续执行阶段需按计划完成分提交迁移与双轮 clean review
 
 ### 2026-03-10 F7 Legacy 对齐排查
 
