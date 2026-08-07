@@ -1,7 +1,7 @@
 module Driver
 
-using ..EMSuite
-using ..EMSuite.CoreModule: PlaneWave, SimulationResult
+using ..EMMoMSuite
+using ..EMMoMSuite.CoreModule: PlaneWave, SimulationResult
 using Logging
 
 export run_simulation

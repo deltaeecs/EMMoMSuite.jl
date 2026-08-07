@@ -3,7 +3,7 @@ module Parameters
 export SimulationParameters, set_frequency!, get_k0, get_eta0, get_omega
 
 # Import authoritative physical constants from CoreModule
-import ..CoreModule: Constants
+import ...CoreModule: Constants
 
 """
     SimulationParameters
