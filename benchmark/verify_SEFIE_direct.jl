@@ -1,10 +1,10 @@
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using DataFrames, CSV
 using Printf
 
 # Paths
-const MOM_ALLINONE_DIR = "f:/OneDrive/MoM/MoM_AllinOne"
+const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne")
 const LEGACY_BASELINE_DIR = joinpath(@__DIR__, "../test_results/legacy_baseline")
 const OUTPUT_DIR = joinpath(@__DIR__, "../test_results/emsuite_verification")
 
@@ -49,7 +49,7 @@ function verify_SEFIE_direct()
     # Legacy PlaneWave:
     #   Direction: -r_hat. At (90, 0), r_hat is +x. So Direction is -x.
     #   Polarization: -theta_hat. At (90, 0), theta_hat is -z. So Polarization is +z.
-    # EMSuite PlaneWave:
+    # EMMoMSuite PlaneWave:
     #   Direction: k_dir. We want -x. So Theta=90, Phi=180 (π).
     #   Polarization: We want +z. So [0, 0, 1].
     source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
@@ -87,7 +87,7 @@ function verify_SEFIE_direct()
         # Calculate difference
         diff = RCS_emsuite_phi0_dB .- RCS_legacy_phi0_dB
         mean_diff = sum(diff) / length(diff)
-        println("Mean Difference (EMSuite - Legacy): $(mean_diff) dB")
+        println("Mean Difference (EMMoMSuite - Legacy): $(mean_diff) dB")
         
         # RMSE after removing mean offset
         rmse = sqrt(sum((diff .- mean_diff).^2) / length(diff))
@@ -96,7 +96,7 @@ function verify_SEFIE_direct()
         # Save results
         df_out = DataFrame(
             Theta_Rad = θs_obs,
-            RCS_EMSuite_Phi0_dB = RCS_emsuite_phi0_dB,
+            RCS_EMMoMSuite_Phi0_dB = RCS_emsuite_phi0_dB,
             RCS_Legacy_Phi0_dB = RCS_legacy_phi0_dB,
             Diff_dB = diff
         )

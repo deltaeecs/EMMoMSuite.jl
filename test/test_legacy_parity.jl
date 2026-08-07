@@ -1,14 +1,28 @@
 using Test
-using EMSuite
-using EMSuite.IntegralEquations
-using EMSuite.PostProcessing
-using EMSuite.FastAlgorithms
-using EMSuite.BasisFunctions
-using EMSuite.Geometry
-using MoM_Basics
-using MoM_Kernels
+using EMMoMSuite
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.FastAlgorithms
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.Geometry
 using LinearAlgebra
 
+# Legacy parity tests compare against the archived MoM_Basics / MoM_Kernels
+# packages. They only run when those legacy packages are available on
+# LOAD_PATH (e.g. a local checkout of the legacy repos); otherwise they are
+# skipped so the published package remains self-contained.
+const _HAS_LEGACY_PARITY_DEPS =
+    Base.find_package("MoM_Basics") !== nothing &&
+    Base.find_package("MoM_Kernels") !== nothing
+
+if _HAS_LEGACY_PARITY_DEPS
+    @eval using MoM_Basics
+    @eval using MoM_Kernels
+else
+    @info "Skipping legacy parity tests: MoM_Basics / MoM_Kernels not available on LOAD_PATH"
+end
+
+if _HAS_LEGACY_PARITY_DEPS
 @testset "Legacy Parity Constants" begin
     # Constants from MoM_Basics/src/ParametersSet.jl
     # JKeta_div_16pi = 1im * k0 * eta0 / (16pi)
@@ -106,7 +120,7 @@ end
     vefie = VEFIE(1.2e9, permittivities)
     tetras = get_tetrahedra_info(mesh, basis, permittivities)
 
-    threshold = EMSuite.IntegralEquations.VEFIEModule._vefie_regular_threshold(vefie, tetras[1])
+    threshold = EMMoMSuite.IntegralEquations.VEFIEModule._vefie_regular_threshold(vefie, tetras[1])
     lambda0 = 299792458.0 / 1.2e9
     expected = 0.15 * lambda0 / sqrt(abs(permittivities[1]))
 
@@ -114,15 +128,15 @@ end
 end
 
 @testset "Legacy Parity VEFIE Singular Kernels" begin
-    EMSuite.set_frequency!(1.2e9)
+    EMMoMSuite.set_frequency!(1.2e9)
 
-    mesh_file = joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles", "plate_1dot2GHz.nas")
-    mesh = EMSuite.read_nas_mesh(mesh_file, scale = 1.0)
+    mesh_file = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles", "plate_1dot2GHz.nas")
+    mesh = EMMoMSuite.read_nas_mesh(mesh_file, scale = 1.0)
     basis = SWGBasis(mesh)
-    permittivities = fill(ComplexF64(2.0 * (1 - 0.0002im)), EMSuite.CoreModule.num_elements(mesh))
+    permittivities = fill(ComplexF64(2.0 * (1 - 0.0002im)), EMMoMSuite.CoreModule.num_elements(mesh))
     vefie = VEFIE(1.2e9, permittivities)
     tetras = get_tetrahedra_info(mesh, basis, permittivities)
-    cache = EMSuite.IntegralEquations.precompute_vefie_basis(vefie, tetras)
+    cache = EMMoMSuite.IntegralEquations.precompute_vefie_basis(vefie, tetras)
 
     MoM_Basics.setPrecision!(Float64)
     MoM_Basics.SimulationParams.SHOWIMAGE = false
@@ -134,13 +148,13 @@ end
     MoM_Basics.setGeosPermittivity!(legacy_tetras, ComplexF64(2.0 * (1 - 0.0002im)))
 
     self_legacy = ComplexF64.(MoM_Kernels.EFIEOnTetraSWG(legacy_tetras[1]))
-    self_ems = Matrix(EMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, tetras[1]))
+    self_ems = Matrix(EMMoMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, tetras[1]))
     near_legacy = ComplexF64.(first(MoM_Kernels.EFIEOnNearTetrasSWG(legacy_tetras[1], legacy_tetras[2])))
-    near_ems = Matrix(EMSuite.IntegralEquations.VEFIEModule._ordered_swg_near_kernel(vefie, tetras[1], tetras[2]))
-    sscg = (1 / (4 * pi)) .* EMSuite.IntegralEquations.VEFIEModule.compute_SSCg(vefie.k)
-    probe_point = tetras[1].vertices * EMSuite.Geometry.GaussQuadratureInfo(:Tetrahedron, 11, Float64).coordinate[:, 1]
+    near_ems = Matrix(EMMoMSuite.IntegralEquations.VEFIEModule._ordered_swg_near_kernel(vefie, tetras[1], tetras[2]))
+    sscg = (1 / (4 * pi)) .* EMMoMSuite.IntegralEquations.VEFIEModule.compute_SSCg(vefie.k)
+    probe_point = tetras[1].vertices * EMMoMSuite.Geometry.GaussQuadratureInfo(:Tetrahedron, 11, Float64).coordinate[:, 1]
     face_legacy = MoM_Kernels.faceSingularityIg(probe_point, legacy_tetras[1].faces[1], abs(legacy_tetras[1].facesArea[1]), legacy_tetras[1].facesn̂[:, 1])
-    face_ems = EMSuite.IntegralEquations.VEFIEModule.faceSingularityIg(
+    face_ems = EMMoMSuite.IntegralEquations.VEFIEModule.faceSingularityIg(
         probe_point,
         tetras[1].faces[1].vertices,
         tetras[1].faces[1].edgel,
@@ -151,7 +165,7 @@ end
         sscg,
     )
     vol_legacy, ivec_legacy = MoM_Kernels.volumeSingularityIgIvecg(probe_point, legacy_tetras[1])
-    vol_ems, ivec_ems = EMSuite.IntegralEquations.VEFIEModule.volumeSingularityIgIvecg(probe_point, tetras[1], sscg)
+    vol_ems, ivec_ems = EMMoMSuite.IntegralEquations.VEFIEModule.volumeSingularityIgIvecg(probe_point, tetras[1], sscg)
 
     for face_idx = 1:4
         @test tetras[1].facesArea[face_idx] * tetras[1].bfsSign[face_idx] ≈ legacy_tetras[1].facesArea[face_idx] atol = 1e-12
@@ -166,5 +180,6 @@ end
     @test ivec_ems ≈ ivec_legacy ./ (4 * pi) atol = 1e-10
     @test norm(self_ems - self_legacy) < 1e-10
     @test norm(near_ems - near_legacy) < 1e-12
-    @test norm(self_ems + Matrix(EMSuite.IntegralEquations.vefie_mass_matrix_cached(vefie, tetras[1], cache[1])) - self_legacy) > norm(self_ems - self_legacy)
+    @test norm(self_ems + Matrix(EMMoMSuite.IntegralEquations.vefie_mass_matrix_cached(vefie, tetras[1], cache[1])) - self_legacy) > norm(self_ems - self_legacy)
+end
 end

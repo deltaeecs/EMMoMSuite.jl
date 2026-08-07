@@ -1,6 +1,6 @@
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 
-using EMSuite
+using EMMoMSuite
 using IterativeSolvers
 using LinearAlgebra
 using SparseArrays
@@ -9,7 +9,7 @@ using Printf
 using Dates
 using CSV
 using DataFrames
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 function parse_cli(args)
     preset = isempty(args) ? "small" : lowercase(args[1])

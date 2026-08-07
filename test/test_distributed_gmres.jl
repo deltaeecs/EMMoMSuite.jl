@@ -5,17 +5,17 @@
 #   - distributed_gmres!：log=true 历史记录，verbose=true 路径
 #   - mpi_gmres!：收敛历史 API
 using Test
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
 using LinearAlgebra
 using MPI
 
 # ── row_partition 单元测试（内部函数，通过 Parallel 模块访问）─────────────────
 @testset "row_partition" begin
-    # 内部函数：通过 EMSuite.Parallel 访问
-    rp = EMSuite.Parallel.row_partition
+    # 内部函数：通过 EMMoMSuite.Parallel 访问
+    rp = EMMoMSuite.Parallel.row_partition
 
     # N=10, nproc=3：分区应为 [1:4], [5:7], [8:10]
     r0 = rp(10, 0, 3);  @test r0 == 1:4

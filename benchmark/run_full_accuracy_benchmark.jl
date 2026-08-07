@@ -1,18 +1,18 @@
-# Comprehensive Accuracy Benchmark for EMSuite (v2 - memory-aware)
+# Comprehensive Accuracy Benchmark for EMMoMSuite (v2 - memory-aware)
 # Runs:
 #   1. SEFIE Direct (Jet, EFIE, 100MHz) vs Legacy
 #   2. SCFIE Direct (Jet, CFIE alpha=0.5, 100MHz) vs SEFIE Direct
 #   3. SEFIE MLFMA (Jet, EFIE+GMRES, 100MHz) vs Legacy & vs Direct
 #   4. SCFIE MLFMA (Sphere, CFIE alpha=0.5, 600MHz) vs Legacy
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Printf
 using Statistics
 using CSV, DataFrames
 using SparseArrays
 
-const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "..", "MoM_AllinOne")
+const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne")
 const LEGACY_BASELINE_DIR = joinpath(@__DIR__, "..", "test_results", "legacy_baseline")
 const OUTPUT_DIR = joinpath(@__DIR__, "..", "test_results", "emsuite_verification")
 
@@ -51,7 +51,7 @@ function compare_rcs(RCS_dBsm, θs, legacy_file; label="")
     for (i, th) in enumerate(θs)
         td = round(th * 180 / π, digits=1)
         if td in [-180.0, -90.0, 0.0, 90.0, 180.0]
-            @printf("  θ=%+7.1f° | EMSuite=%+8.2f | Legacy=%+8.2f | Diff=%+6.3f dB\n",
+            @printf("  θ=%+7.1f° | EMMoMSuite=%+8.2f | Legacy=%+8.2f | Diff=%+6.3f dB\n",
                 td, RCS_dBsm[i,1], df.RCS_Phi0_dBsm[i], d0[i])
         end
     end
@@ -59,7 +59,7 @@ function compare_rcs(RCS_dBsm, θs, legacy_file; label="")
     for (i, th) in enumerate(θs)
         td = round(th * 180 / π, digits=1)
         if td in [-180.0, -90.0, 0.0, 90.0, 180.0]
-            @printf("  θ=%+7.1f° | EMSuite=%+8.2f | Legacy=%+8.2f | Diff=%+6.3f dB\n",
+            @printf("  θ=%+7.1f° | EMMoMSuite=%+8.2f | Legacy=%+8.2f | Diff=%+6.3f dB\n",
                 td, RCS_dBsm[i,2], df.RCS_Phi90_dBsm[i], d90[i])
         end
     end
@@ -102,7 +102,7 @@ function compare_rcs_arrays(RCS_A, RCS_B, θs; labelA="A", labelB="B")
 end
 
 println("=" ^ 70)
-println("EMSuite Comprehensive Accuracy Benchmark (v2)")
+println("EMMoMSuite Comprehensive Accuracy Benchmark (v2)")
 println("=" ^ 70)
 println("Threads: $(Threads.nthreads())")
 println()

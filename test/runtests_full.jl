@@ -14,7 +14,7 @@ runtests_full.jl
 
 using Test
 
-@testset "EMSuite Full Test Suite" begin
+@testset "EMMoMSuite Full Test Suite" begin
     # Fast tests
     println("\n" * "="^60)
     println("Running FAST tests...")

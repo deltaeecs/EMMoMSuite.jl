@@ -1,9 +1,9 @@
 using Test
-using EMSuite
-using EMSuite.PostProcessing
-using EMSuite.Geometry
-using EMSuite.Utilities.Parameters
-using EMSuite.BasisFunctions
+using EMMoMSuite
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.Geometry
+using EMMoMSuite.Utilities.Parameters
+using EMMoMSuite.BasisFunctions
 using StaticArrays
 using LinearAlgebra
 
@@ -106,7 +106,7 @@ end
 # FieldCut.jl
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "FieldCut" begin
-    using EMSuite.PostProcessing: field_cut_line, field_cut_plane
+    using EMMoMSuite.PostProcessing: field_cut_line, field_cut_plane
 
     freq = 300e6
     set_frequency!(freq)
@@ -158,7 +158,7 @@ end
 # Phase 17.3 — geoVolumeCurrentCal
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "geoVolumeCurrentCal" begin
-    using EMSuite.PostProcessing: geoElectricJCal, geoVolumeCurrentCal
+    using EMMoMSuite.PostProcessing: geoElectricJCal, geoVolumeCurrentCal
 
     freq = 300e6
     set_frequency!(freq)
@@ -215,7 +215,7 @@ end
 # Phase 17.5 — AntennaMetrics
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "AntennaMetrics" begin
-    using EMSuite.PostProcessing: antenna_directivity, input_impedance, beam_metrics
+    using EMMoMSuite.PostProcessing: antenna_directivity, input_impedance, beam_metrics
 
     freq = 300e6
     set_frequency!(freq)
@@ -320,7 +320,7 @@ end
 # Phase 17.8 — absorbed_power / SAR
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "Absorption" begin
-    using EMSuite.PostProcessing: absorbed_power, sar
+    using EMMoMSuite.PostProcessing: absorbed_power, sar
 
     freq = 300e6
     set_frequency!(freq)

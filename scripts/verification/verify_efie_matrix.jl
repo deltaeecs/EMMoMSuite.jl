@@ -1,4 +1,4 @@
-using EMSuite
+using EMMoMSuite
 using JLD2
 using LinearAlgebra
 using Test
@@ -12,7 +12,7 @@ function verify_efie()
     
     println("Frequency: ", freq)
     
-    # Setup EMSuite
+    # Setup EMMoMSuite
     println("Reading mesh from JLD2...")
     nodes = data["nodes"]
     triangles = data["triangles"]
@@ -42,7 +42,7 @@ function verify_efie()
     nodes = convert(Matrix{Float64}, nodes)
     triangles = convert(Matrix{Int}, triangles)
     
-    mesh = EMSuite.Geometry.TriangleMesh(n_elems, nodes, triangles)
+    mesh = EMMoMSuite.Geometry.TriangleMesh(n_elems, nodes, triangles)
     
     println("Setting up basis...")
     basis = RWGBasis(mesh)

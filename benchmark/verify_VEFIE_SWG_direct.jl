@@ -1,33 +1,33 @@
-# D1: VEFIE Direct — EMSuite SWG vs Legacy SWG on Tetra.nas
+# D1: VEFIE Direct — EMMoMSuite SWG vs Legacy SWG on Tetra.nas
 # Mesh: Tetra.nas (pure dielectric body), 300 MHz, εr=2.0
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.CoreModule.Sources
 using LinearAlgebra
 using Printf
 using DelimitedFiles
 
 function verify_vefie_swg()
     println("==================================================")
-    println("   D1: VEFIE Direct — EMSuite SWG vs Legacy       ")
+    println("   D1: VEFIE Direct — EMMoMSuite SWG vs Legacy       ")
     println("==================================================")
 
     # 1. Parameters
     freq = 300e6
     c0 = 299792458.0
     lambda = c0 / freq
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
     println("f = $(freq/1e6) MHz, λ = $(round(lambda, digits=4)) m")
 
     # 2. Mesh
-    mesh_file = joinpath(@__DIR__, "../../MoM_AllinOne/meshfiles/Tetra.nas")
+    mesh_file = joinpath(@__DIR__, "../deps/fixtures/AllinOne/meshfiles/Tetra.nas")
     @assert isfile(mesh_file) "Mesh not found: $mesh_file"
     println("Loading mesh: $mesh_file")
     mesh = read_nas_mesh(mesh_file)
@@ -87,7 +87,7 @@ function verify_vefie_swg()
     ϕs = [0.0, π / 2]
     RCS_components, RCS_total, RCS_dB = radarCrossSection(θs, ϕs, D, basis, permittivities)
 
-    # Save EMSuite result
+    # Save EMMoMSuite result
     outdir = joinpath(@__DIR__, "../test_results/emsuite_verification")
     mkpath(outdir)
     outfile = joinpath(outdir, "VEFIE_SWG_Tetra.csv")
@@ -100,7 +100,7 @@ function verify_vefie_swg()
             end
         end
     end
-    println("  EMSuite RCS saved to $outfile")
+    println("  EMMoMSuite RCS saved to $outfile")
 
     # 10. Load Legacy baseline
     legacy_file = joinpath(@__DIR__, "../test_results/legacy_baseline/VEFIE_SWG_Tetra.csv")
@@ -131,7 +131,7 @@ function verify_vefie_swg()
     diff = emsuite_e_rcs[1:n_match] .- legacy_e_rcs[1:n_match]
 
     println("\n==================================================")
-    println("   Comparison: EMSuite vs Legacy (E-plane, phi=0) ")
+    println("   Comparison: EMMoMSuite vs Legacy (E-plane, phi=0) ")
     println("==================================================")
     println("  Points: $n_match")
     println("  Mean Diff: $(round(mean(diff), digits=4)) dB")
@@ -145,7 +145,7 @@ function verify_vefie_swg()
     println("  RMSE (de-meaned): $(round(rmse_dm, digits=4)) dB")
 
     println("\n=== Key Angle Comparison ===")
-    @printf("  %5s  %12s  %12s  %10s\n", "θ(°)", "EMSuite", "Legacy", "Diff(dB)")
+    @printf("  %5s  %12s  %12s  %10s\n", "θ(°)", "EMMoMSuite", "Legacy", "Diff(dB)")
     for deg in [0, 30, 60, 90, 120, 150, 180]
         idx = deg + 1
         if idx <= n_match

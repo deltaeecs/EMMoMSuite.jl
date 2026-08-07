@@ -1,6 +1,6 @@
-using EMSuite
-using EMSuite.PostProcessing.RadiationIntegral
-using EMSuite.Utilities.Parameters: get_k0, get_eta0, set_frequency!
+using EMMoMSuite
+using EMMoMSuite.PostProcessing.RadiationIntegral
+using EMMoMSuite.Utilities.Parameters: get_k0, get_eta0, set_frequency!
 using LinearAlgebra
 using StaticArrays
 using Printf
@@ -23,15 +23,15 @@ function verify_vsefie_allinone()
     set_frequency!(freq)
     
     # 2. Mesh
-    # EMSuite is in MoM/EMSuite
+    # EMMoMSuite is in MoM/EMMoMSuite
     # MoM_AllinOne is in MoM/MoM_AllinOne
-    # @__DIR__ is MoM/EMSuite/scripts/verification
-    # dirname(@__DIR__) is MoM/EMSuite/scripts
-    # dirname(dirname(@__DIR__)) is MoM/EMSuite
+    # @__DIR__ is MoM/EMMoMSuite/scripts/verification
+    # dirname(@__DIR__) is MoM/EMMoMSuite/scripts
+    # dirname(dirname(@__DIR__)) is MoM/EMMoMSuite
     # dirname(dirname(dirname(@__DIR__))) is MoM
     
     root_dir = dirname(dirname(dirname(@__DIR__)))
-    mesh_file = joinpath(root_dir, "MoM_AllinOne", "meshfiles", "plate_and_metal_1dot2GHz.nas")
+    mesh_file = joinpath(root_dir, "deps", "fixtures", "AllinOne", "meshfiles", "plate_and_metal_1dot2GHz.nas")
     println("Loading mesh from: $mesh_file")
     
     surface_mesh, volume_mesh = read_mixed_nas_mesh(mesh_file, scale=1.0)
@@ -102,7 +102,7 @@ function verify_vsefie_allinone()
     println("Calculating RCS...")
     
     # Load Reference Data
-    ref_file = joinpath(root_dir, "MoM_AllinOne", "deps", "compare_feko", "plate_metal_1dot2GHzRCS.csv")
+    ref_file = joinpath(root_dir, "deps", "fixtures", "AllinOne", "deps", "compare_feko", "plate_metal_1dot2GHzRCS.csv")
     df = CSV.read(ref_file, DataFrame; delim=' ', ignorerepeated=true)
     
     # Extract FEKO data (First 721 points are phi=0 cut)
@@ -158,7 +158,7 @@ function verify_vsefie_allinone()
     println("RCS Relative Difference (Norm): $diff")
     
     # Print some values
-    println("Theta (deg) | FEKO (m^2) | EMSuite (m^2)")
+    println("Theta (deg) | FEKO (m^2) | EMMoMSuite (m^2)")
     for i in 1:50:length(feko_theta_deg)
         @printf("%10.2f | %10.4e | %10.4e\n", feko_theta_deg[i], feko_rcs_m2[i], rcs_emsuite[i])
     end

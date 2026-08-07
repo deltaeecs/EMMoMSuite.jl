@@ -13,10 +13,10 @@ test_pmchw_gate_s_mlfma_medium.jl — Phase 15 Gate S 中尺度四路对照回�
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using IterativeSolvers
 using LinearAlgebra
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 function make_gate_s_mlfma_medium_fixture()
     mesh = generate_sphere_mesh(0.5, 10, 20)

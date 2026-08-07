@@ -12,12 +12,12 @@ test_pmchw_mlfma_budget_medium.jl — Phase 15 PMCHW MLFMA budget 中尺度专�
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using IterativeSolvers
 using LinearAlgebra
 using Random
 using SparseArrays
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 function make_pmchw_budget_medium_fixture()
     mesh = generate_sphere_mesh(0.5, 10, 20)

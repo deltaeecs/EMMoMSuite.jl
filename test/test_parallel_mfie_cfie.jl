@@ -2,11 +2,11 @@
 # Phase 9 测试覆盖率补全：验证 Assembly.jl 中 MFIE 和 CFIE 并行装配路径
 # 覆盖目标: _fill_local!(MFIE)、_fill_local!(CFIE) 两条 dispatch 分支
 using Test
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Parallel
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Parallel
 using LinearAlgebra
 using MPI
 

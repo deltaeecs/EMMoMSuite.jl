@@ -13,7 +13,7 @@ test_pmchw_nmuller_planewave_restart_sweep_medium.jl — Phase 15 plane-wave den
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using IterativeSolvers
 

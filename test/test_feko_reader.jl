@@ -11,10 +11,10 @@ test_feko_reader.jl — Phase 14 TDD: Feko CSV 解析器单元测试
 """
 
 using Test
-using EMSuite.Accuracy: read_feko_rcs, split_phi_cuts
+using EMMoMSuite.Accuracy: read_feko_rcs, split_phi_cuts
 
 const FEKO_DIR = joinpath(
-    @__DIR__, "..", "..", "MoM_AllinOne", "deps", "compare_feko"
+    @__DIR__, "..", "deps", "fixtures", "AllinOne", "deps", "compare_feko"
 )
 
 const FEKO_FILES = [

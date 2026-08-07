@@ -92,7 +92,7 @@ report_path = joinpath(RESULT_DIR, "ACCURACY_REPORT.md")
 
 open(report_path, "w") do io
     ts = Dates.format(now(), "yyyy-mm-dd HH:MM")
-    println(io, "# EMSuite Phase 14 全量精度对比报告")
+    println(io, "# EMMoMSuite Phase 14 全量精度对比报告")
     println(io, "")
     println(io, "- **生成时间**: $ts")
     println(io, "- **基准**: Feko 商业软件 / Mie 解析级数")

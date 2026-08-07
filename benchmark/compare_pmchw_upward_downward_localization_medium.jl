@@ -1,19 +1,19 @@
 using Pkg;
 Pkg.activate(joinpath(@__DIR__, ".."));
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Random
 using Printf
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule:
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule:
     PMCHWMLFMAOperator, PMCHWMLFMAErrorBudget, aggregate_leaf_pmchw!
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule
-using EMSuite.FastAlgorithms.MLFMA.Aggregation: aggregate_upward!
-using EMSuite.FastAlgorithms.MLFMA.Disaggregation: disaggregate_downward!
-using EMSuite.FastAlgorithms.MLFMA.Translation: translate!
-using EMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
-using EMSuite.IntegralEquations.Impedance: get_triangles_info
-using EMSuite.Geometry: GaussQuadratureInfo
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule
+using EMMoMSuite.FastAlgorithms.MLFMA.Aggregation: aggregate_upward!
+using EMMoMSuite.FastAlgorithms.MLFMA.Disaggregation: disaggregate_downward!
+using EMMoMSuite.FastAlgorithms.MLFMA.Translation: translate!
+using EMMoMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
+using EMMoMSuite.IntegralEquations.Impedance: get_triangles_info
+using EMMoMSuite.Geometry: GaussQuadratureInfo
 
 function make_fixture()
     mesh = generate_sphere_mesh(0.5, 10, 20)

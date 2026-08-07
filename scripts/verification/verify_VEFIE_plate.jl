@@ -1,11 +1,11 @@
 
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.CoreModule.Sources
 using LinearAlgebra
 using Printf
 # using CSV
@@ -20,10 +20,10 @@ function verify_vefie_plate()
     freq = 12e8 # 1.2 GHz
     
     # Set global parameters
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
     
     # 2. Mesh
-    mesh_file = joinpath(@__DIR__, "../../../MoM_AllinOne/meshfiles/plate_1dot2GHz.nas")
+    mesh_file = joinpath(@__DIR__, "../../../deps/fixtures/AllinOne/meshfiles/plate_1dot2GHz.nas")
     if !isfile(mesh_file)
         println("Error: Mesh file not found: $mesh_file")
         return

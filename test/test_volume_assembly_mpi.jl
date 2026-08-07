@@ -3,19 +3,19 @@
 # 使用 P=1 单进程直接调用，无需 mpiexec，覆盖率工具可正常捕获
 
 using Test
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Parallel
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Parallel
 using LinearAlgebra
 using MPI
 
 # TriTetra.nas 路径解析（与 test_scfie.jl 相同的查找逻辑）
 function find_tritetra_mesh()
     candidates = [
-        joinpath(@__DIR__, "..", "..", "MoM_Basics",  "meshfiles", "TriTetra.nas"),
-        joinpath(@__DIR__, "..", "..", "MoM_Kernels", "meshfiles", "TriTetra.nas"),
+        joinpath(@__DIR__, "..", "deps", "fixtures", "Basics",  "meshfiles", "TriTetra.nas"),
+        joinpath(@__DIR__, "..", "deps", "fixtures", "Kernels", "meshfiles", "TriTetra.nas"),
     ]
     for c in candidates
         isfile(c) && return c

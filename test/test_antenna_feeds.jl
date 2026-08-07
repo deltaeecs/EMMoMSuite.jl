@@ -1,5 +1,5 @@
 using Test
-using EMSuite
+using EMMoMSuite
 
 @testset "Antenna feed edge selection" begin
     freq = 3e8

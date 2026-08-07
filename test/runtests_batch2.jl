@@ -1,6 +1,6 @@
 # 分批覆盖率测试脚本 - 第2批: MLFMA + 并行（中速）
 using Test
-using EMSuite
+using EMMoMSuite
 
 include("test_mlfma.jl")
 include("test_parallel.jl")

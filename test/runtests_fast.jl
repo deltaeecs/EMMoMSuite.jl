@@ -13,7 +13,7 @@ runtests_fast.jl
 
 using Test
 
-@testset "EMSuite Fast Tests" begin
+@testset "EMMoMSuite Fast Tests" begin
     @testset "Core Modules" begin
         include("test_materials.jl")
         include("test_geometry.jl")

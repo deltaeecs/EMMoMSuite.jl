@@ -1,6 +1,8 @@
 using Test
 
-include(joinpath(@__DIR__, "..", "benchmark", "support", "release_support.jl"))
+if !isdefined(Main, :ReleaseSupport)
+    include(joinpath(@__DIR__, "..", "benchmark", "support", "release_support.jl"))
+end
 using .ReleaseSupport
 
 @testset "Phase 16 BenchmarkReportData" begin

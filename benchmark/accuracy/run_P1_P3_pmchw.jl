@@ -17,8 +17,8 @@ run_P1_P3_pmchw.jl — Phase 14 精度基准：PMCHW 介质球散射 P1-P3
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
-using EMSuite
-using EMSuite.Accuracy.ReferenceData: extract_sphere_radius, mie_dielectric_bistatic_rcs_dBsm
+using EMMoMSuite
+using EMMoMSuite.Accuracy.ReferenceData: extract_sphere_radius, mie_dielectric_bistatic_rcs_dBsm
 using LinearAlgebra, Printf, Statistics, Dates
 using Base.Threads
 
@@ -28,7 +28,7 @@ end
 
 # ─── 路径 ─────────────────────────────────────────────────────────────────────
 const ROOT_DIR   = joinpath(@__DIR__, "..", "..")
-const MESH_DIR   = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles")
+const MESH_DIR   = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "meshfiles")
 const RESULT_DIR = joinpath(ROOT_DIR, "test_results", "accuracy")
 mkpath(RESULT_DIR)
 

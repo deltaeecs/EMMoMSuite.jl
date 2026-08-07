@@ -1,17 +1,17 @@
-using EMSuite
+using EMMoMSuite
 using MoM_Basics
 using MoM_Kernels
 using LinearAlgebra
 
-EMSuite.set_frequency!(1.2e9)
+EMMoMSuite.set_frequency!(1.2e9)
 
-mesh_file = joinpath(@__DIR__, "..", "..", "..", "MoM_AllinOne", "meshfiles", "plate_1dot2GHz.nas")
-mesh = EMSuite.read_nas_mesh(mesh_file, scale = 1.0)
-swg = EMSuite.SWGBasis(mesh)
-perms = fill(ComplexF64(2.0 * (1 - 0.0002im)), EMSuite.CoreModule.num_elements(mesh))
-vefie = EMSuite.VEFIE(1.2e9, perms)
-ems_tetras = EMSuite.get_tetrahedra_info(mesh, swg, perms)
-ems_cache = EMSuite.IntegralEquations.precompute_vefie_basis(vefie, ems_tetras)
+mesh_file = joinpath(@__DIR__, "..", "..", "..", "deps", "fixtures", "AllinOne", "meshfiles", "plate_1dot2GHz.nas")
+mesh = EMMoMSuite.read_nas_mesh(mesh_file, scale = 1.0)
+swg = EMMoMSuite.SWGBasis(mesh)
+perms = fill(ComplexF64(2.0 * (1 - 0.0002im)), EMMoMSuite.CoreModule.num_elements(mesh))
+vefie = EMMoMSuite.VEFIE(1.2e9, perms)
+ems_tetras = EMMoMSuite.get_tetrahedra_info(mesh, swg, perms)
+ems_cache = EMMoMSuite.IntegralEquations.precompute_vefie_basis(vefie, ems_tetras)
 
 MoM_Basics.setPrecision!(Float64)
 MoM_Basics.SimulationParams.SHOWIMAGE = false
@@ -26,14 +26,14 @@ mesh_data, _ = MoM_Basics.getMeshData(mesh_file; meshUnit = :m)
 _, legacy_nbf, legacy_tetras, _ = MoM_Basics.getCellsBFs(mesh_data, :SWG)
 MoM_Basics.setGeosPermittivity!(legacy_tetras, ComplexF64(2.0 * (1 - 0.0002im)))
 
-ems_source = EMSuite.PlaneWave(1.2e9, 3pi / 4, pi, [-1.0, 0.0, 1.0])
+ems_source = EMMoMSuite.PlaneWave(1.2e9, 3pi / 4, pi, [-1.0, 0.0, 1.0])
 legacy_source = MoM_Basics.PlaneWave(pi / 4, 0.0, 0.0, 1.0)
 
-ems_v = EMSuite.excitation_vector(vefie, ems_source, swg, perms)
+ems_v = EMMoMSuite.excitation_vector(vefie, ems_source, swg, perms)
 legacy_v = ComplexF64.(MoM_Kernels.getExcitationVector(legacy_tetras, legacy_nbf, legacy_source))
 
 println("ems_tetras=$(length(ems_tetras)) legacy_tetras=$(length(legacy_tetras))")
-println("ems_nbf=$(EMSuite.num_basis(swg)) legacy_nbf=$(legacy_nbf)")
+println("ems_nbf=$(EMMoMSuite.num_basis(swg)) legacy_nbf=$(legacy_nbf)")
 println("center_diff_1=$(norm(ems_tetras[1].center - legacy_tetras[1].center))")
 println("excitation_maxabs=$(maximum(abs.(ems_v - legacy_v))) excitation_fro=$(norm(ems_v - legacy_v))")
 println("excitation_first=$(ems_v[1]) legacy_first=$(legacy_v[1])")
@@ -42,8 +42,8 @@ probe_i = zeros(ComplexF64, legacy_nbf)
 probe_i[1] = 1.0 + 0.0im
 theta_obs = [0.3]
 phi_obs = [0.0, pi / 2]
-_, ems_rcs_total, ems_rcs_db = EMSuite.radarCrossSection(theta_obs, phi_obs, probe_i, swg, perms)
-ems_j = EMSuite.geoElectricJCal(probe_i, swg, perms)
+_, ems_rcs_total, ems_rcs_db = EMMoMSuite.radarCrossSection(theta_obs, phi_obs, probe_i, swg, perms)
+ems_j = EMMoMSuite.geoElectricJCal(probe_i, swg, perms)
 
 function compute_legacy_rcs_total(coeffs, geos_info, theta_vals, phi_vals)
     j_geos = MoM_Kernels.geoElectricJCal(coeffs, geos_info, MoM_Basics.VSBFTypes.vbfType)
@@ -80,7 +80,7 @@ function compare_pair(label, it, js)
 
     if it == js
         legacy_block = ComplexF64.(MoM_Kernels.EFIEOnTetraSWG(legacy_t))
-        ems_block = Matrix(EMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, ems_t))
+        ems_block = Matrix(EMMoMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, ems_t))
     else
         dist = norm(legacy_t.center - legacy_s.center)
         if dist < legacy_threshold(legacy_t)
@@ -89,7 +89,7 @@ function compare_pair(label, it, js)
             legacy_block, _ = MoM_Kernels.EFIEOnTetrasSWG(legacy_t, legacy_s)
         end
         legacy_block = ComplexF64.(legacy_block)
-        ems_block = Matrix(EMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, ems_t, ems_s, cache_t, cache_s))
+        ems_block = Matrix(EMMoMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, ems_t, ems_s, cache_t, cache_s))
     end
 
     diff = ems_block - legacy_block
@@ -104,9 +104,9 @@ function ems_self_decomposition(tet)
     omega = 2pi * vefie.freq
     eps0 = FT(8.854187817e-12)
     div4pi = one(FT) / (4pi)
-    sscg = div4pi .* EMSuite.IntegralEquations.VEFIEModule.compute_SSCg(k)
-    gq_tet = EMSuite.Geometry.GaussQuadratureInfo(:Tetrahedron, 11, FT)
-    gq_tri = EMSuite.Geometry.GaussQuadratureInfo(:Triangle, 7, FT)
+    sscg = div4pi .* EMMoMSuite.IntegralEquations.VEFIEModule.compute_SSCg(k)
+    gq_tet = EMMoMSuite.Geometry.GaussQuadratureInfo(:Tetrahedron, 11, FT)
+    gq_tri = EMMoMSuite.Geometry.GaussQuadratureInfo(:Triangle, 7, FT)
     rgt = tet.vertices * gq_tet.coordinate
 
     c1f1 = zeros(CT, 4, 4)
@@ -118,7 +118,7 @@ function ems_self_decomposition(tet)
     ivecg_div_vs = Matrix{CT}(undef, 3, length(gq_tet.weight))
     for gi in eachindex(gq_tet.weight)
         rgi = @view rgt[:, gi]
-        ig_v, ivecg_v = EMSuite.IntegralEquations.VEFIEModule.volumeSingularityIgIvecg(rgi, tet, sscg)
+        ig_v, ivecg_v = EMMoMSuite.IntegralEquations.VEFIEModule.volumeSingularityIgIvecg(rgi, tet, sscg)
         ig_div_vs[gi] = ig_v / tet.volume
         ivecg_div_vs[:, gi] .= ivecg_v / tet.volume
     end
@@ -134,7 +134,7 @@ function ems_self_decomposition(tet)
             ig_s_div_s = zero(CT)
             for gi in eachindex(gq_tet.weight)
                 rgi = @view rgt[:, gi]
-                ig = EMSuite.IntegralEquations.VEFIEModule.faceSingularityIg(
+                ig = EMMoMSuite.IntegralEquations.VEFIEModule.faceSingularityIg(
                     rgi,
                     tet.faces[ni].vertices,
                     tet.faces[ni].edgel,
@@ -186,16 +186,16 @@ function ems_self_decomposition(tet)
 
             if isbdm && (δκn != 0) && (arean > 0)
                 f6 = if n_global == tet.inBfsID[mi]
-                    EMSuite.IntegralEquations.VEFIEModule._same_face_f6(tet.faces[ni], gq_tri, k, div4pi)
+                    EMMoMSuite.IntegralEquations.VEFIEModule._same_face_f6(tet.faces[ni], gq_tri, k, div4pi)
                 else
-                    rq_face_m = EMSuite.IntegralEquations.VEFIEModule._triangle_points(tet.faces[mi], gq_tri)
-                    rq_face_n = EMSuite.IntegralEquations.VEFIEModule._triangle_points(tet.faces[ni], gq_tri)
+                    rq_face_m = EMMoMSuite.IntegralEquations.VEFIEModule._triangle_points(tet.faces[mi], gq_tri)
+                    rq_face_n = EMMoMSuite.IntegralEquations.VEFIEModule._triangle_points(tet.faces[ni], gq_tri)
                     acc = zero(CT)
                     for gj in eachindex(gq_tri.weight)
                         rgj = @view rq_face_m[:, gj]
                         for gi in eachindex(gq_tri.weight)
                             rgi = @view rq_face_n[:, gi]
-                            acc += EMSuite.IntegralEquations.fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tri.weight[gi] * gq_tri.weight[gj]
+                            acc += EMMoMSuite.IntegralEquations.fast_green_func(vefie.exp_table, norm(rgi - rgj)) * gq_tri.weight[gi] * gq_tri.weight[gj]
                         end
                     end
                     acc
@@ -350,7 +350,7 @@ function compare_hybrid_self(tet_idx)
     ems_tet = ems_tetras[tet_idx]
     legacy_block = ComplexF64.(MoM_Kernels.EFIEOnTetraSWG(legacy_tetras[tet_idx]))
     self_terms = ems_self_decomposition(ems_tet)
-    mass_block = Matrix(EMSuite.IntegralEquations.vefie_mass_matrix_cached(vefie, ems_tet, ems_cache[tet_idx]))
+    mass_block = Matrix(EMMoMSuite.IntegralEquations.vefie_mass_matrix_cached(vefie, ems_tet, ems_cache[tet_idx]))
     hybrid_block = mass_block + self_terms.cf23 + self_terms.f45 + self_terms.f6
     diff = hybrid_block - legacy_block
     println("hybrid_self tet=$tet_idx maxabs=$(maximum(abs.(diff))) fro=$(norm(diff))")
@@ -363,7 +363,7 @@ function compare_specific_pair(it, js, label)
     legacy_block = legacy_far ?
         first(MoM_Kernels.EFIEOnTetrasSWG(legacy_tetras[it], legacy_tetras[js])) :
         first(MoM_Kernels.EFIEOnNearTetrasSWG(legacy_tetras[it], legacy_tetras[js]))
-    ems_block = EMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, ems_tetras[it], ems_tetras[js], ems_cache[it], ems_cache[js])
+    ems_block = EMMoMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, ems_tetras[it], ems_tetras[js], ems_cache[it], ems_cache[js])
     diff = Matrix(ems_block) - ComplexF64.(legacy_block)
     println("$label pair=($it,$js) dist=$dist legacy_thr=$legacy_thr ems_thr=$ems_thr legacy_far=$legacy_far ems_far=$ems_far")
     println("$label pair=($it,$js) maxabs=$(maximum(abs.(diff))) fro=$(norm(diff))")
@@ -371,12 +371,12 @@ function compare_specific_pair(it, js, label)
 
     if legacy_far && ems_far
         far_alt = Matrix(
-            EMSuite.IntegralEquations.VEFIEModule._ordered_swg_far_kernel(
+            EMMoMSuite.IntegralEquations.VEFIEModule._ordered_swg_far_kernel(
                 vefie,
                 ems_tetras[it],
                 ems_tetras[js],
-                EMSuite.Geometry.GaussQuadratureInfo(:Tetrahedron, 5, Float64),
-                EMSuite.Geometry.GaussQuadratureInfo(:Triangle, 4, Float64),
+                EMMoMSuite.Geometry.GaussQuadratureInfo(:Tetrahedron, 5, Float64),
+                EMMoMSuite.Geometry.GaussQuadratureInfo(:Triangle, 4, Float64),
             ),
         )
         far_alt_diff = far_alt - ComplexF64.(legacy_block)
@@ -405,7 +405,7 @@ end
 
 function ems_use_far(tet_t, tet_s)
     dist = norm(tet_t.center - tet_s.center)
-    threshold = EMSuite.IntegralEquations.VEFIEModule._vefie_regular_threshold(vefie, tet_t)
+    threshold = EMMoMSuite.IntegralEquations.VEFIEModule._vefie_regular_threshold(vefie, tet_t)
     return dist > threshold, threshold, dist
 end
 
@@ -444,7 +444,7 @@ function scan_reference_row(ref_idx)
             first(MoM_Kernels.EFIEOnNearTetrasSWG(legacy_ref, legacy_tet))
         end
         legacy_block = ComplexF64.(legacy_block)
-        ems_block = Matrix(EMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, ems_ref, ems_tet, cache_ref, cache_tet))
+        ems_block = Matrix(EMMoMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, ems_ref, ems_tet, cache_ref, cache_tet))
         diff_norm = norm(ems_block - legacy_block)
 
         if diff_norm > max_diff
@@ -478,7 +478,7 @@ function assemble_ems_row(row_id)
         isnothing(local_i) && continue
 
         cache_t = ems_cache[ti]
-        self_block = Matrix(EMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, tet_t))
+        self_block = Matrix(EMMoMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, tet_t))
         for local_j = 1:4
             col_id = tet_t.inBfsID[local_j]
             col_id == 0 && continue
@@ -489,7 +489,7 @@ function assemble_ems_row(row_id)
             sj == ti && continue
             tet_s = ems_tetras[sj]
             cache_s = ems_cache[sj]
-            block = Matrix(EMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s))
+            block = Matrix(EMMoMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s))
             for local_j = 1:4
                 col_id = tet_s.inBfsID[local_j]
                 col_id == 0 && continue
@@ -573,9 +573,9 @@ function trace_entry_contributions(row_id, col_id)
             cache_s = ems_cache[sj]
 
             ems_block = if ti == sj
-                Matrix(EMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, tet_t_ems))
+                Matrix(EMMoMSuite.IntegralEquations.VEFIEModule._ordered_swg_self_kernel(vefie, tet_t_ems))
             else
-                Matrix(EMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, tet_t_ems, tet_s_ems, cache_t, cache_s))
+                Matrix(EMMoMSuite.IntegralEquations.vefie_element_interaction_kernel(vefie, tet_t_ems, tet_s_ems, cache_t, cache_s))
             end
 
             legacy_block = if ti == sj

@@ -1,4 +1,4 @@
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using StaticArrays
 using CSV, DataFrames
@@ -6,7 +6,7 @@ using Statistics
 
 # Parameters
 freq = 1.2e9 # 1.2 GHz
-mesh_file = "f:/OneDrive/MoM/MoM_AllinOne/meshfiles/plate_1dot2GHz.nas"
+mesh_file = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles", "plate_1dot2GHz.nas")
 
 # 1. Load Mesh
 println("Loading mesh: $mesh_file")

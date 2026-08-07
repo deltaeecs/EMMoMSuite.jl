@@ -153,7 +153,7 @@ function load_accuracy_curve(csv_path::String; label::Union{Nothing, String} = n
 
     sample = first(rows)
     theta_col = _require_column(sample, ["theta_deg"], "theta")
-    model_col = _require_column(sample, ["rcs_emsuite_dBsm", "rcs_ems_dBsm"], "EMSuite 曲线")
+    model_col = _require_column(sample, ["rcs_emsuite_dBsm", "rcs_ems_dBsm"], "EMMoMSuite 曲线")
     ref_col = _require_column(sample, ["rcs_feko_dBsm", "rcs_mie_dBsm", "rcs_ref_dBsm"], "参考曲线")
     diff_col = _require_column(sample, ["diff_dB"], "误差")
 

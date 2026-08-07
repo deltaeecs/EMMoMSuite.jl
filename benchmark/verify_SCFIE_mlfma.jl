@@ -1,12 +1,12 @@
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using DataFrames, CSV
 using Printf
 using Statistics
-using EMSuite.Solvers
+using EMMoMSuite.Solvers
 
 # Paths
-const MOM_ALLINONE_DIR = "f:/OneDrive/MoM/MoM_AllinOne"
+const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne")
 const OUTPUT_DIR = joinpath(@__DIR__, "../test_results/emsuite_verification")
 
 if !isdir(OUTPUT_DIR)

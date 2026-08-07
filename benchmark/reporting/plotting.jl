@@ -18,7 +18,7 @@ function generate_accuracy_group_plot(group_name::String, curves::Vector{Accurac
         y_all = vcat(curve.rcs_model_dBsm, curve.rcs_reference_dBsm)
         x_annot = maximum(curve.theta_deg) - 0.02 * (maximum(curve.theta_deg) - minimum(curve.theta_deg))
         y_annot = minimum(y_all) + 0.08 * (maximum(y_all) - minimum(y_all) + eps())
-        plot!(plt[idx], curve.theta_deg, curve.rcs_model_dBsm; label = "EMSuite", lw = lw_main, color = main_color)
+        plot!(plt[idx], curve.theta_deg, curve.rcs_model_dBsm; label = "EMMoMSuite", lw = lw_main, color = main_color)
         plot!(plt[idx], curve.theta_deg, curve.rcs_reference_dBsm; label = ref_name, lw = lw_ref, ls = :dash, color = ref_color)
         xlabel!(plt[idx], "theta (deg)")
         ylabel!(plt[idx], "RCS (dBsm)")
@@ -52,7 +52,7 @@ function generate_accuracy_group_polar_plot(group_name::String, curves::Vector{A
         order = sortperm(angles)
         y_all = vcat(curve.rcs_model_dBsm, curve.rcs_reference_dBsm)
         radial_offset = abs(minimum(y_all)) + padding
-        plot!(plt[idx], angles[order], curve.rcs_model_dBsm[order] .+ radial_offset; proj = :polar, label = "EMSuite", lw = lw_main, color = main_color)
+        plot!(plt[idx], angles[order], curve.rcs_model_dBsm[order] .+ radial_offset; proj = :polar, label = "EMMoMSuite", lw = lw_main, color = main_color)
         plot!(plt[idx], angles[order], curve.rcs_reference_dBsm[order] .+ radial_offset; proj = :polar, label = ref_name, lw = lw_ref, ls = :dash, color = ref_color)
         title!(plt[idx], "$(pretty_label(group_name)) | $(cut_name) | $(ref_name) | RMSE=$(round(summary.rmse_dB, digits = 3)) dB | offset=$(round(radial_offset, digits = 2))")
     end
