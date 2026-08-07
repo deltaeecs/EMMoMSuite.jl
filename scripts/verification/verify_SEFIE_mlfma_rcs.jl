@@ -1,12 +1,12 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.FastAlgorithms.MLFMA
-using EMSuite.PostProcessing
-using EMSuite.Utilities.Parameters
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.Utilities.Parameters
+using EMMoMSuite.CoreModule.Sources
 using StaticArrays
 using LinearAlgebra
 using SpecialFunctions
@@ -171,10 +171,10 @@ function verify_mlfma_rcs()
     theta_range = collect(0:0.02:π) # 0 to 180 degrees
     phi_range = [0.0] # E-plane
     
-    # Use EMSuite.PostProcessing.radarCrossSection
+    # Use EMMoMSuite.PostProcessing.radarCrossSection
     # Returns: (RCS_components, RCS_total, RCS_dB)
     # Note: RCS_total is a Matrix [theta, phi]
-    _, rcs_mlfma, rcs_mlfma_db_matrix = EMSuite.PostProcessing.radarCrossSection(theta_range, phi_range, x, basis)
+    _, rcs_mlfma, rcs_mlfma_db_matrix = EMMoMSuite.PostProcessing.radarCrossSection(theta_range, phi_range, x, basis)
     
     # Extract vector for phi=0
     rcs_mlfma_db = vec(rcs_mlfma_db_matrix)

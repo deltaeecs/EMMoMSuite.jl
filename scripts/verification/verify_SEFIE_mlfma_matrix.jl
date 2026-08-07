@@ -1,8 +1,8 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.FastAlgorithms.MLFMA
 using LinearAlgebra
 using Printf
 using Random

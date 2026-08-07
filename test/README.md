@@ -1,8 +1,8 @@
-# EMSuite Test Configuration
+# EMMoMSuite Test Configuration
 
 ## Test Tiers
 
-EMSuite 测试套件分为三个层次，以平衡速度和覆盖率：
+EMMoMSuite 测试套件分为三个层次，以平衡速度和覆盖率：
 
 ### 🚀 Fast Tests (`runtests_fast.jl`)
 **运行时间**: < 5 分钟  

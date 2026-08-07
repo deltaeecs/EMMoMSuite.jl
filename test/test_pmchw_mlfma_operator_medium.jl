@@ -13,12 +13,12 @@ test_pmchw_mlfma_operator_medium.jl — Phase 15 中尺度正确性回归
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Random
 using SparseArrays
 using IterativeSolvers
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 function make_medium_pmchw_fixture()
     mesh = generate_sphere_mesh(0.5, 10, 20)

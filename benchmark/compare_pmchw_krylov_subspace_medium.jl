@@ -1,12 +1,12 @@
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Printf
 using CSV
 using DataFrames
 using SparseArrays
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 function make_fixture()
     mesh = generate_sphere_mesh(0.5, 10, 20)

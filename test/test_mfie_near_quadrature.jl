@@ -1,7 +1,7 @@
 using Test
 
 @testset "MFIE Near Quadrature" begin
-    using EMSuite
+    using EMMoMSuite
     using LinearAlgebra
 
     nodes = [
@@ -24,12 +24,12 @@ using Test
     tri2 = get_triangle_info(mesh, basis, 2)
 
     z_actual = zeros(ComplexF64, 3, 3)
-    EMSuite.IntegralEquations.MFIEModule.mfie_interaction!(z_actual, mfie, tri1, tri2)
+    EMMoMSuite.IntegralEquations.MFIEModule.mfie_interaction!(z_actual, mfie, tri1, tri2)
 
-    r_test_near = EMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_near)
-    r_src_near = EMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_near)
+    r_test_near = EMMoMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_near)
+    r_src_near = EMMoMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_near)
     z_near = zeros(ComplexF64, 3, 3)
-    EMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
+    EMMoMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
         z_near,
         mfie,
         tri1,
@@ -39,10 +39,10 @@ using Test
         mfie.gq_near.weight,
     )
 
-    r_test_far = EMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_far)
-    r_src_far = EMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_far)
+    r_test_far = EMMoMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_far)
+    r_src_far = EMMoMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_far)
     z_far = zeros(ComplexF64, 3, 3)
-    EMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
+    EMMoMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
         z_far,
         mfie,
         tri1,
@@ -58,7 +58,7 @@ using Test
 end
 
 @testset "MFIE Close Nonadjacent Quadrature" begin
-    using EMSuite
+    using EMMoMSuite
     using LinearAlgebra
 
     nodes = [
@@ -80,15 +80,15 @@ end
     tri1 = get_triangle_info(mesh, basis, 1)
     tri2 = get_triangle_info(mesh, basis, 3)
 
-    @test EMSuite.IntegralEquations.MFIEModule.needs_near_quadrature(tri1, tri2)
+    @test EMMoMSuite.IntegralEquations.MFIEModule.needs_near_quadrature(tri1, tri2)
 
     z_actual = zeros(ComplexF64, 3, 3)
-    EMSuite.IntegralEquations.MFIEModule.mfie_interaction!(z_actual, mfie, tri1, tri2)
+    EMMoMSuite.IntegralEquations.MFIEModule.mfie_interaction!(z_actual, mfie, tri1, tri2)
 
-    r_test_near = EMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_near)
-    r_src_near = EMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_near)
+    r_test_near = EMMoMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_near)
+    r_src_near = EMMoMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_near)
     z_near = zeros(ComplexF64, 3, 3)
-    EMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
+    EMMoMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
         z_near,
         mfie,
         tri1,
@@ -102,7 +102,7 @@ end
 end
 
 @testset "MFIE Gap-Based Near Quadrature" begin
-    using EMSuite
+    using EMMoMSuite
     using LinearAlgebra
 
     h = 0.35 * sqrt(3)
@@ -134,17 +134,17 @@ end
     center_dist = norm(tri1.center - tri2.center)
     @test center_dist > 1.5 * (r1 + r2)
 
-    min_gap = EMSuite.IntegralEquations.MFIEModule._triangle_triangle_distance(tri1, tri2)
+    min_gap = EMMoMSuite.IntegralEquations.MFIEModule._triangle_triangle_distance(tri1, tri2)
     @test min_gap < 0.75 * (r1 + r2)
-    @test EMSuite.IntegralEquations.MFIEModule.needs_near_quadrature(tri1, tri2)
+    @test EMMoMSuite.IntegralEquations.MFIEModule.needs_near_quadrature(tri1, tri2)
 
     z_actual = zeros(ComplexF64, 3, 3)
-    EMSuite.IntegralEquations.MFIEModule.mfie_interaction!(z_actual, mfie, tri1, tri2)
+    EMMoMSuite.IntegralEquations.MFIEModule.mfie_interaction!(z_actual, mfie, tri1, tri2)
 
-    r_test_near = EMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_near)
-    r_src_near = EMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_near)
+    r_test_near = EMMoMSuite.Geometry.get_global_quad_points(tri1, mfie.gq_near)
+    r_src_near = EMMoMSuite.Geometry.get_global_quad_points(tri2, mfie.gq_near)
     z_near = zeros(ComplexF64, 3, 3)
-    EMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
+    EMMoMSuite.IntegralEquations.MFIEModule.calc_k_term_fast!(
         z_near,
         mfie,
         tri1,

@@ -1,10 +1,10 @@
 using Test
-using EMSuite
-using EMSuite.FastAlgorithms.MLFMA
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.CoreModule
+using EMMoMSuite
+using EMMoMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.CoreModule
 using StaticArrays
 using LinearAlgebra
 using MPI

@@ -1,6 +1,6 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.IntegralEquations.EFIEModule.Singularities
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.IntegralEquations.EFIEModule.Singularities
 using LinearAlgebra
 using StaticArrays
 using Printf
@@ -14,7 +14,7 @@ end
 
 # 2. Inner Analytical, Outer Numerical (Method A)
 # We need to implement `faceSingularityIg` logic here or import it.
-# It is available in `EMSuite.IntegralEquations.EFIEModule.Singularities`.
+# It is available in `EMMoMSuite.IntegralEquations.EFIEModule.Singularities`.
 
 function method_a_semi_analytical(tri, num_points)
     # Setup Quadrature
@@ -29,7 +29,7 @@ function method_a_semi_analytical(tri, num_points)
     # Weights and coords for 7-point rule (standard)
     # alpha, beta, gamma, weight
     # This is hardcoded for now or we can use `GaussQuadrature.jl` if we had it.
-    # We'll use the one from EMSuite.
+    # We'll use the one from EMMoMSuite.
     
     # Create a dummy EFIE to get quadrature
     # We need a way to get quadrature points without full EFIE struct if possible.
@@ -70,8 +70,8 @@ function method_a_semi_analytical(tri, num_points)
             # A = 1/3, 1/3, 1/3, w = 0.225
             # ...
             
-            # Let's rely on `EMSuite`'s quadrature if we can load it.
-            # `EMSuite.Geometry.GaussQuadrature`
+            # Let's rely on `EMMoMSuite`'s quadrature if we can load it.
+            # `EMMoMSuite.Geometry.GaussQuadrature`
             
             # For this script, I'll implement a simple 1-point rule with deep recursion.
             # 1-point rule: center, weight=1.0
@@ -112,7 +112,7 @@ function method_a_semi_analytical(tri, num_points)
             # Let's use `singularF21` as the "Ground Truth" for the inner integral?
             # No, that defeats the purpose.
             
-            # We will use `faceSingularityIgIvecg` from EMSuite.
+            # We will use `faceSingularityIgIvecg` from EMMoMSuite.
             
             # Let's assume Ivecg is \int (r' - r) / R dS'.
             # Then \int r'/R = Ivecg + r * Ig.
@@ -171,7 +171,7 @@ edgen[:, 1] = cross(facen, edgev[:, 1])
 edgen[:, 2] = cross(facen, edgev[:, 2])
 edgen[:, 3] = cross(facen, edgev[:, 3])
 
-tri = EMSuite.Geometry.TriangleInfo(
+tri = EMMoMSuite.Geometry.TriangleInfo(
     1, 0, area, 
     SVector{3, Int}([1,2,3]), 
     SMatrix{3,3, Float64}(hcat(v1, v2, v3)), 

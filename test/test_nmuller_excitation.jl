@@ -1,5 +1,5 @@
 using Test
-using EMSuite
+using EMMoMSuite
 
 @testset "N-Muller DeltaGap 激励 + input_impedance heuristic" begin
     mesh = generate_sphere_mesh(0.1, 4, 6)
@@ -22,8 +22,8 @@ using EMSuite
 
         @test length(V_nmuller) == 2N
         @test all(iszero, V_nmuller[1:N])
-        @test V_nmuller[N + 1] ≈ EMSuite.Constants.eps0 * V_feed * edge_len
-        @test V_nmuller[N + 1:2N] ≈ EMSuite.Constants.eps0 .* V_pmchw[1:N]
+        @test V_nmuller[N + 1] ≈ EMMoMSuite.Constants.eps0 * V_feed * edge_len
+        @test V_nmuller[N + 1:2N] ≈ EMMoMSuite.Constants.eps0 .* V_pmchw[1:N]
     end
 
     @testset "input_impedance currently uses front-half heuristic only" begin

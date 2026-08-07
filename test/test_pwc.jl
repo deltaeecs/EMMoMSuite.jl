@@ -1,5 +1,5 @@
 using Test
-using EMSuite
+using EMMoMSuite
 using StaticArrays
 using LinearAlgebra
 
@@ -35,19 +35,19 @@ using LinearAlgebra
         @test basis.functions[2].inBfsID == SVector(4, 5, 6)
 
         # Support mapping: global ID → tet index
-        @test EMSuite.CoreModule.support(basis, 1) == 1  # DOF 1 → tet 1
-        @test EMSuite.CoreModule.support(basis, 3) == 1  # DOF 3 → tet 1
-        @test EMSuite.CoreModule.support(basis, 4) == 2  # DOF 4 → tet 2
-        @test EMSuite.CoreModule.support(basis, 6) == 2  # DOF 6 → tet 2
+        @test EMMoMSuite.CoreModule.support(basis, 1) == 1  # DOF 1 → tet 1
+        @test EMMoMSuite.CoreModule.support(basis, 3) == 1  # DOF 3 → tet 1
+        @test EMMoMSuite.CoreModule.support(basis, 4) == 2  # DOF 4 → tet 2
+        @test EMMoMSuite.CoreModule.support(basis, 6) == 2  # DOF 6 → tet 2
 
         # Evaluate: unit vectors
         r = SVector(0.25, 0.25, 0.25)
-        @test EMSuite.CoreModule.evaluate(basis, 1, r) ≈ SVector(1.0, 0.0, 0.0)  # x̂
-        @test EMSuite.CoreModule.evaluate(basis, 2, r) ≈ SVector(0.0, 1.0, 0.0)  # ŷ
-        @test EMSuite.CoreModule.evaluate(basis, 3, r) ≈ SVector(0.0, 0.0, 1.0)  # ẑ
-        @test EMSuite.CoreModule.evaluate(basis, 4, r) ≈ SVector(1.0, 0.0, 0.0)  # x̂ (tet 2)
-        @test EMSuite.CoreModule.evaluate(basis, 5, r) ≈ SVector(0.0, 1.0, 0.0)  # ŷ (tet 2)
-        @test EMSuite.CoreModule.evaluate(basis, 6, r) ≈ SVector(0.0, 0.0, 1.0)  # ẑ (tet 2)
+        @test EMMoMSuite.CoreModule.evaluate(basis, 1, r) ≈ SVector(1.0, 0.0, 0.0)  # x̂
+        @test EMMoMSuite.CoreModule.evaluate(basis, 2, r) ≈ SVector(0.0, 1.0, 0.0)  # ŷ
+        @test EMMoMSuite.CoreModule.evaluate(basis, 3, r) ≈ SVector(0.0, 0.0, 1.0)  # ẑ
+        @test EMMoMSuite.CoreModule.evaluate(basis, 4, r) ≈ SVector(1.0, 0.0, 0.0)  # x̂ (tet 2)
+        @test EMMoMSuite.CoreModule.evaluate(basis, 5, r) ≈ SVector(0.0, 1.0, 0.0)  # ŷ (tet 2)
+        @test EMMoMSuite.CoreModule.evaluate(basis, 6, r) ≈ SVector(0.0, 0.0, 1.0)  # ẑ (tet 2)
 
         # Volumes should be positive
         @test basis.functions[1].volume > 0
@@ -131,8 +131,8 @@ using LinearAlgebra
         # Need mixed mesh. Try to find TriTetra.nas
         mesh_file = ""
         for candidate in [
-            joinpath(@__DIR__, "..", "..", "MoM_Basics", "meshfiles", "TriTetra.nas"),
-            joinpath(@__DIR__, "..", "..", "MoM_Kernels", "meshfiles", "TriTetra.nas"),
+            joinpath(@__DIR__, "..", "deps", "fixtures", "Basics", "meshfiles", "TriTetra.nas"),
+            joinpath(@__DIR__, "..", "deps", "fixtures", "Kernels", "meshfiles", "TriTetra.nas"),
         ]
             if isfile(candidate)
                 mesh_file = candidate

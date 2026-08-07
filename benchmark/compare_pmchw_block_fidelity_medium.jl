@@ -1,17 +1,17 @@
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using SparseArrays
 using Random
 using Printf
 using CSV
 using DataFrames
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator, aggregate_leaf_pmchw!, disaggregate_leaf_pmchw_m!
-using EMSuite.FastAlgorithms.MLFMA.Aggregation: aggregate_upward!
-using EMSuite.FastAlgorithms.MLFMA.Disaggregation: disaggregate_downward!
-using EMSuite.FastAlgorithms.MLFMA.Translation: translate!
-using EMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator, aggregate_leaf_pmchw!, disaggregate_leaf_pmchw_m!
+using EMMoMSuite.FastAlgorithms.MLFMA.Aggregation: aggregate_upward!
+using EMMoMSuite.FastAlgorithms.MLFMA.Disaggregation: disaggregate_downward!
+using EMMoMSuite.FastAlgorithms.MLFMA.Translation: translate!
+using EMMoMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
 
 function make_fixture()
     mesh = generate_sphere_mesh(0.5, 10, 20)

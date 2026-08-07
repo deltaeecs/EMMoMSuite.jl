@@ -1,7 +1,7 @@
 using Test
-using EMSuite
-using EMSuite.Visualization
-using EMSuite.Geometry
+using EMMoMSuite
+using EMMoMSuite.Visualization
+using EMMoMSuite.Geometry
 using StaticArrays
 
 @testset "Visualization" begin

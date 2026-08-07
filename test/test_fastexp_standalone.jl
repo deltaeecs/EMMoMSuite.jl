@@ -2,7 +2,7 @@
 """
 test_fastexp_standalone.jl
 
-Standalone test for FastExp module without loading full EMSuite.
+Standalone test for FastExp module without loading full EMMoMSuite.
 """
 
 # Activate environment for dependencies

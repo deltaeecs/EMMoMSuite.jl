@@ -8,10 +8,10 @@ test_pmchw.jl — Phase 22 PMCHWT 均匀介质体 SIE 测试
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using StaticArrays
-using EMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
+using EMMoMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
 
 # ────────────────────────────────────────────────────────
 # 工具：小型球面网格（用于单元测试，与大 Mie 验证分离）

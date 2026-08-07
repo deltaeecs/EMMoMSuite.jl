@@ -1,17 +1,17 @@
 """
     完整精度效率基准测试
-    运行方式: julia --project=EMSuite -t4 benchmark/run_full_benchmark.jl
+    运行方式: julia --project=EMMoMSuite -t4 benchmark/run_full_benchmark.jl
     从 MoM/ 根目录运行
 """
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Printf
 using Statistics
 
-const BASE_DIR = joinpath(@__DIR__, "..")      # EMSuite/
+const BASE_DIR = joinpath(@__DIR__, "..")      # EMMoMSuite/
 const MOM_DIR = joinpath(BASE_DIR, "..")       # MoM/
-const MOM_ALLINONE_DIR = joinpath(MOM_DIR, "MoM_AllinOne")
-const MOM_BASICS_DIR = joinpath(MOM_DIR, "MoM_Basics")
+const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne")
+const MOM_BASICS_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "Basics")
 const LEGACY_BASELINE_DIR = joinpath(BASE_DIR, "test_results", "legacy_baseline")
 
 # LU preconditioner wrapper (needed for IterativeSolvers ldiv! interface)
@@ -30,7 +30,7 @@ catch
 end
 
 println("=" ^ 80)
-println("EMSuite 精度效率基准测试")
+println("EMMoMSuite 精度效率基准测试")
 println("Julia $(VERSION), Threads: $(Threads.nthreads())")
 println("=" ^ 80)
 
@@ -98,7 +98,7 @@ function test_sefie_direct()
         for (i, th) in enumerate(θs)
             td = round(th * 180 / π, digits=1)
             if td in [-180.0, -90.0, 0.0, 90.0, 180.0]
-                @printf("  θ=%+7.1f° | EMSuite=%+8.2f | Legacy=%+8.2f | Diff=%+6.2f dB\n",
+                @printf("  θ=%+7.1f° | EMMoMSuite=%+8.2f | Legacy=%+8.2f | Diff=%+6.2f dB\n",
                     td, RCS_dBsm[i,1], df.RCS_Phi0_dBsm[i], d0[i])
             end
         end

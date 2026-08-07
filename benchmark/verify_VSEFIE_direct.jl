@@ -1,37 +1,37 @@
-# E1: SCFIE (VSEFIE) Direct — EMSuite vs Legacy on TriTetra.nas
-# Note: Legacy uses EFIE for surface → set alpha=1.0 in EMSuite SCFIE
+# E1: SCFIE (VSEFIE) Direct — EMMoMSuite vs Legacy on TriTetra.nas
+# Note: Legacy uses EFIE for surface → set alpha=1.0 in EMMoMSuite SCFIE
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.CoreModule.Sources
 using LinearAlgebra
 using Printf
 using Statistics: mean
 
-using EMSuite.PostProcessing.RadiationIntegral: radiation_integral_rwg, radiation_integral_swg,
+using EMMoMSuite.PostProcessing.RadiationIntegral: radiation_integral_rwg, radiation_integral_swg,
     r̂θϕInfo, ∠Info
-using EMSuite.Utilities.Parameters: get_k0, get_eta0
+using EMMoMSuite.Utilities.Parameters: get_k0, get_eta0
 
 function verify_vsefie_direct()
     println("==================================================")
-    println("   E1: VSEFIE Direct — EMSuite SCFIE vs Legacy    ")
+    println("   E1: VSEFIE Direct — EMMoMSuite SCFIE vs Legacy    ")
     println("==================================================")
 
     # 1. Parameters (match Legacy)
     freq = 2e9
     c0 = 299792458.0
     lambda = c0 / freq
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
     println("f = $(freq/1e9) GHz, λ = $(round(lambda*1e3, digits=2)) mm")
 
     # 2. Mesh
-    mesh_file = joinpath(@__DIR__, "../../MoM_Basics/meshfiles/TriTetra.nas")
+    mesh_file = joinpath(@__DIR__, "../deps/fixtures/Basics/meshfiles/TriTetra.nas")
     @assert isfile(mesh_file) "Mesh not found: $mesh_file"
     println("Loading mesh: TriTetra.nas")
     surf_mesh, vol_mesh = read_mixed_nas_mesh(mesh_file; scale=0.001) # mm → m
@@ -64,7 +64,7 @@ function verify_vsefie_direct()
 
     # 7. Excitation (plane wave from -z toward +z, x-pol — match Legacy convention)
     # Legacy PlaneWave(π, 0, 0, 1) has k̂=[0,0,+1] (wave from -z toward +z)
-    # EMSuite PlaneWave(freq, 0, 0, pol) has k_dir=[0,0,+1] matching Legacy
+    # EMMoMSuite PlaneWave(freq, 0, 0, pol) has k_dir=[0,0,+1] matching Legacy
     println("Computing excitation...")
     source = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])
     V = excitation_vector(source, surf_basis, vol_basis)
@@ -195,7 +195,7 @@ function verify_vsefie_direct()
     diff = emsuite_e_rcs[1:n_match] .- legacy_e_rcs[1:n_match]
 
     println("\n==================================================")
-    println("   Comparison: EMSuite vs Legacy (E-plane)        ")
+    println("   Comparison: EMMoMSuite vs Legacy (E-plane)        ")
     println("==================================================")
     println("  Points: $n_match")
     println("  Mean Diff: $(round(mean(diff), digits=4)) dB")
@@ -207,7 +207,7 @@ function verify_vsefie_direct()
     println("  RMSE (de-meaned): $(round(sqrt(mean(diff_dm.^2)), digits=4)) dB")
 
     println("\n=== Key Angle Comparison ===")
-    @printf("  %5s  %12s  %12s  %10s\n", "θ(°)", "EMSuite", "Legacy", "Diff(dB)")
+    @printf("  %5s  %12s  %12s  %10s\n", "θ(°)", "EMMoMSuite", "Legacy", "Diff(dB)")
     for deg in [0, 30, 60, 90, 120, 150, 180]
         idx = deg + 1
         if idx <= n_match

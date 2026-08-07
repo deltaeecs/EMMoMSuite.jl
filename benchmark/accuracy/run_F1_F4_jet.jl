@@ -17,7 +17,7 @@ run_F1_F4_jet.jl — Phase 14 精度基准：Jet 散射 F1-F4
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra, Printf, Statistics, Dates
 
 struct LUPreconditioner
@@ -28,8 +28,8 @@ LinearAlgebra.ldiv!(P::LUPreconditioner, x) = (x .= P.F \ x)
 
 # ─── 路径 ─────────────────────────────────────────────────────────────────────
 const ROOT_DIR  = joinpath(@__DIR__, "..", "..")
-const MESH_DIR  = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles")
-const FEKO_DIR  = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "deps", "compare_feko")
+const MESH_DIR  = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "meshfiles")
+const FEKO_DIR  = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "deps", "compare_feko")
 const RESULT_DIR = joinpath(ROOT_DIR, "test_results", "accuracy")
 mkpath(RESULT_DIR)
 

@@ -1,5 +1,5 @@
 using Test
-using EMSuite
+using EMMoMSuite
 using TOML
 
 @testset "Workflow Integration" begin

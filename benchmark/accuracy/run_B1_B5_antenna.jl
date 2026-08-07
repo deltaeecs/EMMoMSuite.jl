@@ -22,10 +22,10 @@ run_B1_B5_antenna.jl — Phase 15 精度基准：介质天线输入阻抗 B1-B5
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."))
 
-using EMSuite
+using EMMoMSuite
 using IterativeSolvers
 using LinearAlgebra, Printf, Statistics, Dates, CSV, DataFrames
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 struct LUPreconditioner
     F
@@ -36,7 +36,7 @@ LinearAlgebra.ldiv!(P::LUPreconditioner, x) = (x .= P.F \ x)
 
 # ─── 路径 ─────────────────────────────────────────────────────────────────────
 const ROOT_DIR   = joinpath(@__DIR__, "..", "..")
-const MESH_DIR   = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles")
+const MESH_DIR   = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "meshfiles")
 const RESULT_DIR = joinpath(ROOT_DIR, "test_results", "accuracy")
 mkpath(RESULT_DIR)
 
@@ -252,9 +252,9 @@ results_all = NamedTuple[]
 const TRITRETRA_FILE = let
     found = ""
     for candidate in [
-        joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles", "TriTetra.nas"),
-        joinpath(ROOT_DIR, "..", "MoM_Basics",   "meshfiles", "TriTetra.nas"),
-        joinpath(ROOT_DIR, "..", "MoM_Kernels",  "meshfiles", "TriTetra.nas"),
+        joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "meshfiles", "TriTetra.nas"),
+        joinpath(ROOT_DIR, "..", "deps", "fixtures", "Basics",   "meshfiles", "TriTetra.nas"),
+        joinpath(ROOT_DIR, "..", "deps", "fixtures", "Kernels",  "meshfiles", "TriTetra.nas"),
     ]
         if isfile(candidate)
             found = candidate

@@ -1,12 +1,12 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
 using LinearAlgebra
 
 # Load Mesh
-mesh_file = "f:/OneDrive/MoM/MoM_AllinOne/meshfiles/jet_100MHz.nas"
+mesh_file = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles", "jet_100MHz.nas")
 if !isfile(mesh_file)
     error("Mesh file not found: $mesh_file")
 end

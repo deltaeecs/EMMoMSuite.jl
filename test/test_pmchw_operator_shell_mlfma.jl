@@ -1,8 +1,8 @@
 using Test
-using EMSuite
+using EMMoMSuite
 using IterativeSolvers
 using LinearAlgebra
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: PMCHWMLFMAOperator
 
 function make_pmchw_shell_mlfma_fixture(; freq = 300e6, eps_r = 4.0, radius = 0.1, n_theta = 4, n_phi = 6)
     mesh = generate_sphere_mesh(radius, n_theta, n_phi)

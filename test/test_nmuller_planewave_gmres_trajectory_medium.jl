@@ -14,7 +14,7 @@ test_nmuller_planewave_gmres_trajectory_medium.jl — Phase 15 PMCHW vs N-Muller
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using IterativeSolvers
 

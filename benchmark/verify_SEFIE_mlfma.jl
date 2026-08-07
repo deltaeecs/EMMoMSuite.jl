@@ -1,4 +1,4 @@
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using DataFrames, CSV
 using Printf
@@ -87,7 +87,7 @@ function verify_SEFIE_mlfma()
         # Calculate difference
         diff = RCS_emsuite_phi0_dB .- RCS_legacy_phi0_dB
         mean_diff = sum(diff) / length(diff)
-        println("Mean Difference (EMSuite MLFMA - Legacy Direct): $(mean_diff) dB")
+        println("Mean Difference (EMMoMSuite MLFMA - Legacy Direct): $(mean_diff) dB")
         
         rmse = sqrt(sum((diff .- mean_diff).^2) / length(diff))
         println("RMSE (after removing mean offset): $(rmse) dB")
@@ -95,7 +95,7 @@ function verify_SEFIE_mlfma()
         # Save results
         df_out = DataFrame(
             Theta_Rad = θs_obs,
-            RCS_EMSuite_MLFMA_Phi0_dB = RCS_emsuite_phi0_dB,
+            RCS_EMMoMSuite_MLFMA_Phi0_dB = RCS_emsuite_phi0_dB,
             RCS_Legacy_Direct_Phi0_dB = RCS_legacy_phi0_dB,
             Diff_dB = diff
         )
