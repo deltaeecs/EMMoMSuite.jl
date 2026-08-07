@@ -1,20 +1,20 @@
 
 using Pkg
 Pkg.activate(joinpath(@__DIR__, "../../"))
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.CoreModule.Sources
-using EMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.CoreModule.Sources
+using EMMoMSuite.FastAlgorithms.MLFMA
 using LinearAlgebra
 using SparseArrays
 using StaticArrays
 using Printf
 
-using EMSuite.PostProcessing.RadiationIntegral: r̂θϕInfo, radiation_integral_rwg, radiation_integral_swg, ∠Info
+using EMMoMSuite.PostProcessing.RadiationIntegral: r̂θϕInfo, radiation_integral_rwg, radiation_integral_swg, ∠Info
 
 function verify_scfie_mlfma()
     println("==================================================")
@@ -23,11 +23,11 @@ function verify_scfie_mlfma()
 
     # 1. Parameters
     freq = 12e8 # 1.2 GHz
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
     lambda = 299792458.0 / freq
     
     # 2. Mesh
-    mesh_file = joinpath(@__DIR__, "../../../MoM_AllinOne/meshfiles/plate_and_metal_1dot2GHz.nas")
+    mesh_file = joinpath(@__DIR__, "../../../deps/fixtures/AllinOne/meshfiles/plate_and_metal_1dot2GHz.nas")
     if !isfile(mesh_file)
         println("Error: Mesh file not found: $mesh_file")
         return

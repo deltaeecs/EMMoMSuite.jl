@@ -1,6 +1,6 @@
 using Test
-using EMSuite
-using EMSuite.Geometry
+using EMMoMSuite
+using EMMoMSuite.Geometry
 using LinearAlgebra
 using StaticArrays
 
@@ -113,7 +113,7 @@ CTRIA3, 1, 100, 1, 2, 3
     end
 
     @testset "GaussQuadrature - Hexahedron and Quadrangle" begin
-        using EMSuite.Geometry: GaussQuadratureInfo, gaussQuadratureHexa1D
+        using EMMoMSuite.Geometry: GaussQuadratureInfo, gaussQuadratureHexa1D
 
         # Test Hexahedron GQ (8 = 2³ points)
         gq_hexa = GaussQuadratureInfo(:Hexahedron, 8)
@@ -150,7 +150,7 @@ CTRIA3, 1, 100, 1, 2, 3
     end
 
     @testset "GaussQuadrature - MeshTypes" begin
-        using EMSuite.Geometry: TriangleMesh, TetrahedraMesh
+        using EMMoMSuite.Geometry: TriangleMesh, TetrahedraMesh
         # TetrahedraMesh construction
         nodes_tet = [0.0 1.0 0.0 0.0;
                      0.0 0.0 1.0 0.0;
@@ -247,7 +247,7 @@ CTETRA, 1, 200, 1, 2, 3, 4
     end
 
     @testset "NAS - parse_nastran_float and GRID* format" begin
-        using EMSuite.Geometry: parse_nastran_float
+        using EMMoMSuite.Geometry: parse_nastran_float
 
         # Normal floats
         @test parse_nastran_float("1.5", Float64) ≈ 1.5
@@ -701,7 +701,7 @@ end
 # Phase 16.5 — MeshRepair
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "MeshRepair" begin
-    using EMSuite.Geometry: remove_duplicate_nodes, fix_element_orientation, detect_degenerates
+    using EMMoMSuite.Geometry: remove_duplicate_nodes, fix_element_orientation, detect_degenerates
 
     # ─── remove_duplicate_nodes ───────────────────────────────────────────────
     @testset "remove_duplicate_nodes TriangleMesh" begin
@@ -813,7 +813,7 @@ end
 # Phase 16.6 — STL & NAS I/O
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "STLIO" begin
-    using EMSuite.Geometry: read_stl_mesh, write_stl_mesh
+    using EMMoMSuite.Geometry: read_stl_mesh, write_stl_mesh
 
     # Simple triangle: one facet
     nodes  = [0.0 1.0 0.0; 0.0 0.0 1.0; 0.0 0.0 0.0]
@@ -893,7 +893,7 @@ end
 # Phase 18.1 — GeomKernel: CSG / B-Rep 数据结构
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "GeomKernel" begin
-    using EMSuite.Geometry: BRepFace, BRepSolid, CSGNode,
+    using EMMoMSuite.Geometry: BRepFace, BRepSolid, CSGNode,
                              box_solid, solid_volume, solid_surface_area,
                              check_manifold, convert_to_triangle_mesh
     using StaticArrays, LinearAlgebra
@@ -970,7 +970,7 @@ end
     using StaticArrays
 
     # Phase 18.2: 凸多面体布尔操作
-    using EMSuite: intersect_solids, union_solids, subtract_solid, csg_volume
+    using EMMoMSuite: intersect_solids, union_solids, subtract_solid, csg_volume
 
     # ── 1. 相交：两个单位立方体，沿 x 偏移 0.5 ─────────────────────────────
     boxA = box_solid(1.0, 1.0, 1.0)                      # [0,1]³
@@ -1173,7 +1173,7 @@ end  # @testset "SurfaceMeshing"
 # 非 Gmsh 测试无需 gate；Gmsh 相关测试仍用 EMSUITE_TEST_GMSH=1
 # ─────────────────────────────────────────────────────────────────────────────
 @testset "LabelPropagation" begin
-    using EMSuite.Geometry: BRepSolid, BRepFace
+    using EMMoMSuite.Geometry: BRepSolid, BRepFace
     using StaticArrays, LinearAlgebra
 
     # ── 辅助：手工构造带 tags 的 TriangleMesh（不调 Gmsh）──────────────────

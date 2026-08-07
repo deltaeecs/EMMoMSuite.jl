@@ -369,7 +369,7 @@ function calc_self_interaction!(
             # Ztemp += singularF21(...) - F1
             # Ztri[mi, ni] = Ztemp * lm * ln * factor
 
-            # In EMSuite, we are adding to Z_local which is accumulating the integral.
+            # In EMMoMSuite, we are adding to Z_local which is accumulating the integral.
             # The smooth part is accumulating val * wi * wj.
             # wi = w_pts[i] * tri.area.
             # So smooth part is scaled by Area^2.
@@ -395,7 +395,7 @@ function calc_self_interaction!(
             # It does NOT multiply by Area^2 after this.
             # It implies singularF21 and F1 return the FULL integral value.
 
-            # However, in EMSuite `calc_self_interaction!`:
+            # However, in EMMoMSuite `calc_self_interaction!`:
             # Z_local[m, n] += val_singular * area2
             # I added `* area2` because I thought they were normalized.
             # If Legacy doesn't multiply, maybe I shouldn't either.
@@ -492,7 +492,7 @@ function calc_near_interaction!(
     #   Ztemp * weight[gi] / tris.area  (divides by A_src in loop)
     #   Ztemp *= lm * ln * JKηdiv16π   (no further area division)
     #
-    # EMSuite: wi = w[i] * A_test, so accumulated = A_test * Σ w_i * val
+    # EMMoMSuite: wi = w[i] * A_test, so accumulated = A_test * Σ w_i * val
     # Need to divide by A_test (cancel quadrature Jacobian) AND by A_src
     # (source basis normalization, matching Legacy's / tris.area)
     inv_areas = 1.0 / (tri_test.area * tri_source.area)

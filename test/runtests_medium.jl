@@ -13,7 +13,7 @@ runtests_medium.jl
 
 using Test
 
-@testset "EMSuite Medium Tests" begin
+@testset "EMMoMSuite Medium Tests" begin
     @testset "Solvers" begin
         include("test_solvers.jl")
         include("test_solvers_verification.jl")

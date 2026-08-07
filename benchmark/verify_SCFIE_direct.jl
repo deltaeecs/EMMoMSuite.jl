@@ -1,11 +1,11 @@
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using DataFrames, CSV
 using Printf
 using Statistics
 
 # Paths
-const MOM_ALLINONE_DIR = "f:/OneDrive/MoM/MoM_AllinOne"
+const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne")
 const LEGACY_BASELINE_DIR = joinpath(@__DIR__, "../test_results/legacy_baseline")
 const OUTPUT_DIR = joinpath(@__DIR__, "../test_results/emsuite_verification")
 
@@ -82,7 +82,7 @@ function verify_SCFIE_direct()
         # Interpolate or match indices?
         # Assuming same theta grid
         println("Comparing with SEFIE Direct...")
-        diff = df_out.RCS_Phi0_dB .- df_sefie.RCS_EMSuite_Phi0_dB
+        diff = df_out.RCS_Phi0_dB .- df_sefie.RCS_EMMoMSuite_Phi0_dB
         println("Mean Difference (CFIE - EFIE): $(mean(diff)) dB")
     end
 end

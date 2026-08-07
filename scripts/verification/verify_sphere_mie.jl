@@ -1,11 +1,11 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.Utilities.Parameters
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.Utilities.Parameters
+using EMMoMSuite.CoreModule.Sources
 using StaticArrays
 using LinearAlgebra
 using SpecialFunctions
@@ -74,7 +74,7 @@ function verify_mie()
     theta_range = collect(0:0.01:π) 
     phi_range = [0.0] 
     
-    _, rcs_direct, rcs_direct_db_matrix = EMSuite.PostProcessing.radarCrossSection(theta_range, phi_range, x, basis)
+    _, rcs_direct, rcs_direct_db_matrix = EMMoMSuite.PostProcessing.radarCrossSection(theta_range, phi_range, x, basis)
     rcs_direct_db = vec(rcs_direct_db_matrix)
 
     # 9. Mie Series Calculation

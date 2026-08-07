@@ -13,7 +13,7 @@ TDD RED 阶段：测试先于实现，初次运行时预期全部失败。
 
 using Test
 using LinearAlgebra
-using EMSuite   # 通过主模块导入 Ports 相关类型
+using EMMoMSuite   # 通过主模块导入 Ports 相关类型
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 辅助函数

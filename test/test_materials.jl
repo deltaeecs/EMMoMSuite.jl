@@ -1,7 +1,7 @@
 using Test
-using EMSuite
-using EMSuite.CoreModule.Materials
-using EMSuite.CoreModule.Constants
+using EMMoMSuite
+using EMMoMSuite.CoreModule.Materials
+using EMMoMSuite.CoreModule.Constants
 
 @testset "Materials" begin
     @testset "PEC" begin

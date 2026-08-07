@@ -1,5 +1,5 @@
 using MPI
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Printf
 using CSV
@@ -26,7 +26,7 @@ function run_parallel_benchmark()
         println("==================================================")
     end
     
-    # Initialize Parallel module in EMSuite
+    # Initialize Parallel module in EMMoMSuite
     init_parallel!()
     
     # 1. Parameters

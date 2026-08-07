@@ -8,12 +8,12 @@ C1: S-CFIE Direct Sphere 验证脚本。
 用法: julia --project=. benchmark/verify_SCFIE_direct_sphere.jl
 """
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using Printf
 using Statistics
 
-const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "..", "MoM_AllinOne")
+const MOM_ALLINONE_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne")
 const LEGACY_BASELINE_DIR = joinpath(@__DIR__, "..", "test_results", "legacy_baseline")
 const OUTPUT_DIR = joinpath(@__DIR__, "..", "test_results", "emsuite_verification")
 
@@ -114,7 +114,7 @@ function verify_SCFIE_direct_sphere()
         legacy_phi90[i] = parse(Float64, fields[4])
     end
 
-    @assert length(legacy_theta) == length(θ_deg) "采样点数不匹配: Legacy=$(length(legacy_theta)), EMSuite=$(length(θ_deg))"
+    @assert length(legacy_theta) == length(θ_deg) "采样点数不匹配: Legacy=$(length(legacy_theta)), EMMoMSuite=$(length(θ_deg))"
 
     # 逐切面统计
     for (label, leg, ems) in [("Phi=0", legacy_phi0, RCS_Phi0_dB),
@@ -131,7 +131,7 @@ function verify_SCFIE_direct_sphere()
 
         # 找最大误差点
         idx = argmax(abs_diff)
-        @printf("           最大误差: theta=%.1f deg, Legacy=%.2f, EMSuite=%.2f dB\n",
+        @printf("           最大误差: theta=%.1f deg, Legacy=%.2f, EMMoMSuite=%.2f dB\n",
                 legacy_theta[idx], leg[idx], ems[idx])
     end
 

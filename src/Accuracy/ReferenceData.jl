@@ -2,8 +2,8 @@
     ReferenceData — Phase 14 精度对比参考数据
 
 提供以下解析参考：
-1. Mie PEC 球 RCS（调用 EMSuite 内置 MieSeries）
-2. Mie 均匀介质球 RCS（调用 EMSuite 内置 calculate_mie_rcs_dielectric_sphere）
+1. Mie PEC 球 RCS（调用 EMMoMSuite 内置 MieSeries）
+2. Mie 均匀介质球 RCS（调用 EMMoMSuite 内置 calculate_mie_rcs_dielectric_sphere）
 3. 半波偶极子解析输入阻抗（Balanis §8.1）
 4. 谐振偶极子（0.47λ）解析阻抗
 5. 半波偶极子远场方向图
@@ -13,10 +13,10 @@ module ReferenceData
 using LinearAlgebra
 using Statistics: mean
 
-# 使用 EMSuite Utilities 中已有的 Mie 级数
+# 使用 EMMoMSuite Utilities 中已有的 Mie 级数
 import ..Accuracy  # 使用父包的 Utilities
 import ...Geometry: read_nas_mesh
-# 直接调用 EMSuite 模块级导出（在运行时可访问）
+# 直接调用 EMMoMSuite 模块级导出（在运行时可访问）
 
 export mie_pec_rcs_dBsm, mie_pec_bistatic_rcs_dBsm,
        mie_dielectric_rcs_dBsm, mie_dielectric_bistatic_rcs_dBsm,
@@ -81,8 +81,8 @@ end
 - `theta_rad_vec`: 散射角（弧度），0=前向，π=后向
 """
 function mie_pec_rcs_dBsm(radius_m::Real, freq_hz::Real, theta_rad_vec::AbstractVector)
-    # 动态调用 EMSuite 顶层导出函数（运行时加载，避免循环依赖）
-    # calculate_mie_rcs_pec_sphere 定义在 EMSuite.Utilities.MieSeries
+    # 动态调用 EMMoMSuite 顶层导出函数（运行时加载，避免循环依赖）
+    # calculate_mie_rcs_pec_sphere 定义在 EMMoMSuite.Utilities.MieSeries
     rcs_sqm = _call_mie_pec(radius_m, freq_hz, theta_rad_vec)
     return 10.0 .* log10.(max.(rcs_sqm, 1e-100))
 end
@@ -101,7 +101,7 @@ end
     mie_pec_bistatic_rcs_dBsm(radius_m, freq_hz, theta_obs, phi_obs, theta_inc, phi_inc, polarization)
         -> rcs_dBsm
 
-将 EMSuite 使用的全局观测角 `(theta_obs, phi_obs)` 映射为相对入射方向的散射角，
+将 EMMoMSuite 使用的全局观测角 `(theta_obs, phi_obs)` 映射为相对入射方向的散射角，
 并使用 PEC 球 Mie 全极化解重建总双站 RCS。
 
 # 参数
@@ -174,7 +174,7 @@ end
     mie_dielectric_bistatic_rcs_dBsm(radius_m, freq_hz, eps_r, mu_r, theta_obs, phi_obs, theta_inc, phi_inc, polarization)
         -> rcs_dBsm
 
-将 EMSuite 使用的全局观测角 `(theta_obs, phi_obs)` 映射为相对入射方向的散射角，
+将 EMMoMSuite 使用的全局观测角 `(theta_obs, phi_obs)` 映射为相对入射方向的散射角，
 并使用均匀介质球 Mie 全极化解重建总双站 RCS。
 """
 function mie_dielectric_bistatic_rcs_dBsm(
@@ -202,10 +202,10 @@ function mie_dielectric_bistatic_rcs_dBsm(
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 内部辅助：延迟调用 EMSuite 顶层 Mie 函数
+# 内部辅助：延迟调用 EMMoMSuite 顶层 Mie 函数
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 运行时通过顶层 EMSuite 模块调用，避免循环引用
+# 运行时通过顶层 EMMoMSuite 模块调用，避免循环引用
 function _call_mie_pec(radius, freq, theta_vec)
     f = getfield(_emsuite_module(), :calculate_mie_rcs_pec_sphere)
     return f(radius, freq, theta_vec)

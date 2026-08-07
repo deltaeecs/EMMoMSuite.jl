@@ -1,11 +1,11 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.Utilities.Parameters
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.Utilities.Parameters
+using EMMoMSuite.CoreModule.Sources
 using StaticArrays
 using LinearAlgebra
 using Printf
@@ -18,10 +18,10 @@ function verify_vefie_legacy()
 
     # 1. Parameters
     freq = 300e6
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
     
     # 2. Mesh
-    mesh_file = joinpath(@__DIR__, "../../../MoM_AllinOne/meshfiles/Tetra.nas")
+    mesh_file = joinpath(@__DIR__, "../../../deps/fixtures/AllinOne/meshfiles/Tetra.nas")
     # Legacy uses meshUnit=:mm, which scales by 1e-3.
     mesh = read_nas_mesh(mesh_file, scale=1e-3)
     
@@ -47,7 +47,7 @@ function verify_vefie_legacy()
     # To match Legacy, we apply this factor.
     # Z .*= (1.0 / (16π))
     
-    println("EMSuite Z norm: ", norm(Z))
+    println("EMMoMSuite Z norm: ", norm(Z))
     max_val, max_idx = findmax(abs.(Z))
     println("Max Z element: ", max_val, " at ", max_idx)
     println("Z[max_idx]: ", Z[max_idx])
@@ -55,10 +55,10 @@ function verify_vefie_legacy()
     # 7. Excitation
     println("Excitation...")
     # Legacy: PlaneWave(pi, 0, 0, 1) -> Incident from +z, x-pol.
-    # EMSuite: PlaneWave(freq, pi, 0, [1,0,0]) -> Incident from +z, x-pol.
+    # EMMoMSuite: PlaneWave(freq, pi, 0, [1,0,0]) -> Incident from +z, x-pol.
     source = PlaneWave(freq, π, 0.0, [1.0, 0.0, 0.0])
     V = excitation_vector(vefie, source, basis, permittivities)
-    println("EMSuite V norm: ", norm(V))
+    println("EMMoMSuite V norm: ", norm(V))
 
     # 8. Solve
     println("Solving...")
@@ -79,7 +79,7 @@ function verify_vefie_legacy()
         legacy_rcs = legacy_data[:, 2]
         
         println("\nComparison:")
-        println("Theta | EMSuite | Legacy | Diff")
+        println("Theta | EMMoMSuite | Legacy | Diff")
         for i in 1:10:181
             t = legacy_theta[i]
             ems = rcs_db_matrix[i, 1]

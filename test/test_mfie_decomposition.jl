@@ -11,14 +11,14 @@ Phase 10 / B1: 验证 S-MFIE 算子正确性
 using Test
 
 @testset "S-MFIE CFIE Decomposition" begin
-    using EMSuite
+    using EMMoMSuite
     using LinearAlgebra
 
     # 使用 AllinOne 的小网格
     mesh_file = ""
     for candidate in [
-        joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles", "Tri.nas"),
-        joinpath(@__DIR__, "..", "..", "MoM_Basics", "meshfiles", "Tri.nas"),
+        joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles", "Tri.nas"),
+        joinpath(@__DIR__, "..", "deps", "fixtures", "Basics", "meshfiles", "Tri.nas"),
     ]
         if isfile(candidate)
             mesh_file = candidate
@@ -72,14 +72,14 @@ using Test
 
     @testset "MFIE 矩阵基本性质" begin
         # MFIE 矩阵不应为对称 (EFIE 对称, MFIE 含 K 算子不对称)
-        asymmetry = norm(Z_mfie - Z_mfie') / norm(Z_mfie)
+        asymmetry = norm(Z_mfie - transpose(Z_mfie)) / norm(Z_mfie)
         @test asymmetry > 1e-3  # 明显不对称
         println("  MFIE Z 不对称度: $asymmetry")
 
         # EFIE 远场部分使用 symmetric=true 装配，
         # 但近奇异项 (calc_near_interaction!) 采用半解析公式，不严格对称。
         # 这里只检查大体对称性（相对误差 < 30%）
-        symmetry_efie = norm(Z_efie - Z_efie') / norm(Z_efie)
+        symmetry_efie = norm(Z_efie - transpose(Z_efie)) / norm(Z_efie)
         @test symmetry_efie < 0.3
         println("  EFIE Z 对称度偏差: $symmetry_efie")
     end

@@ -1,7 +1,7 @@
 """
     performance_baseline.jl
 
-Phase 8.0: 性能基线测量 (EMSuite 侧)
+Phase 8.0: 性能基线测量 (EMMoMSuite 侧)
 
 对 6 个用例分阶段计时:
 1. PEC Plate 300MHz — EFIE Direct (N≈2640)
@@ -22,14 +22,14 @@ Phase 8.0: 性能基线测量 (EMSuite 侧)
   julia --project=. --threads=4 benchmark/performance_baseline.jl 1 2    # 仅用例 1,2
 """
 
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using SparseArrays
 using Printf
 using Statistics
 using Dates
 
-const MESH_DIR = joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles")
+const MESH_DIR = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles")
 const REPORT_FILE = joinpath(@__DIR__, "..", "test_results", "PERFORMANCE_BASELINE.md")
 const REPORT_DIR = joinpath(@__DIR__, "..", "test_results", "reports")
 const REPORT_CSV_FILE = joinpath(REPORT_DIR, "PERFORMANCE_BASELINE.csv")
@@ -215,7 +215,7 @@ function bench_3_jet_efie_mlfma()
     source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
     V = excitation_vector(efie, source, basis)
     
-    lambda = EMSuite.Constants.c0 / freq
+    lambda = EMMoMSuite.Constants.c0 / freq
     leaf_size = 0.35 * lambda
     
     # MLFMA 构建 (octree + near-field Z + translation)
@@ -275,7 +275,7 @@ function bench_4_sphere_cfie_mlfma()
     source = PlaneWave(freq, π/2, π, [0.0, 0.0, 1.0])
     V = excitation_vector(cfie, source, basis)
     
-    lambda = EMSuite.Constants.c0 / freq
+    lambda = EMMoMSuite.Constants.c0 / freq
     leaf_size = 0.35 * lambda
     
     r.t_assembly = @elapsed begin
@@ -328,7 +328,7 @@ function bench_5_plate_vefie_direct()
     r.N = num_basis(basis)
     println("  N = $(r.N)")
     
-    n_tet = EMSuite.CoreModule.num_elements(mesh)
+    n_tet = EMMoMSuite.CoreModule.num_elements(mesh)
     εr = ComplexF64(2.0 * (1 - 0.0002im))
     perms = fill(εr, n_tet)
     
@@ -382,7 +382,7 @@ function bench_6_plate_scfie_direct()
     r.N = n_surf + n_vol
     println("  N = $(r.N) (RWG=$n_surf, SWG=$n_vol)")
     
-    n_tet = EMSuite.CoreModule.num_elements(vol_mesh)
+    n_tet = EMMoMSuite.CoreModule.num_elements(vol_mesh)
     εr = ComplexF64(2.0 * (1 - 0.0002im))
     perms = fill(εr, n_tet)
     
@@ -421,7 +421,7 @@ function generate_report()
     mkpath(REPORT_DIR)
     
     open(REPORT_FILE, "w") do io
-        println(io, "# EMSuite 性能基线报告")
+        println(io, "# EMMoMSuite 性能基线报告")
         println(io, "")
         println(io, "> 生成时间: $(Dates.format(Dates.now(), "yyyy-mm-dd HH:MM"))")
         println(io, "> Julia 版本: $(VERSION)")
@@ -462,7 +462,7 @@ function generate_report()
         println(io, "")
         println(io, "## 与 Legacy 对比 (待补充)")
         println(io, "")
-        println(io, "| 用例 | Legacy (s) | EMSuite (s) | Ratio | 状态 |")
+        println(io, "| 用例 | Legacy (s) | EMMoMSuite (s) | Ratio | 状态 |")
         println(io, "|------|-----------|-------------|-------|------|")
         for r in RESULTS
             println(io, "| $(r.case_name) | TBD | $(round(r.t_total, digits=2)) | TBD | — |")
@@ -488,7 +488,7 @@ end
 # =================================================================
 function main()
     println("="^60)
-    println("  EMSuite 性能基线测量 (Phase 8.0)")
+    println("  EMMoMSuite 性能基线测量 (Phase 8.0)")
     println("  线程: $(Threads.nthreads()), Julia: $(VERSION)")
     println("="^60)
     

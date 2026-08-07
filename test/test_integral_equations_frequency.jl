@@ -8,306 +8,205 @@ Phase 21.3 数值验证：频率扫描测试
 """
 
 using Test
-using EMSuite
-using EMSuite.Core
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.PostProcessing
+using EMMoMSuite
+using EMMoMSuite.CoreModule
+using EMMoMSuite.CoreModule.Constants: c0
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.PostProcessing
 using LinearAlgebra
 
 @testset "Integral Equations Frequency Sweep" begin
-    
+
+    # 固定几何：0.3m × 0.3m 板（2×2 细分），电尺寸随频率变化
+    function build_small_plate_mesh()
+        return generate_rectangle_mesh(0.3, 0.3, 2, 2)
+    end
+
     # ────────────────────────────────────────────────────────────
     # EFIE 频率扫描：100 MHz - 1 GHz
     # ────────────────────────────────────────────────────────────
     @testset "EFIE Frequency Sweep: 100MHz-1GHz" begin
         println("  Testing EFIE across multiple frequencies...")
-        
-        # 固定几何（小板，电尺寸随频率变化）
-        vertices = [
-            [0.0, 0.0, 0.0],
-            [0.3, 0.0, 0.0],
-            [0.3, 0.3, 0.0],
-            [0.0, 0.3, 0.0]
-        ]
-        triangles = [
-            [1, 2, 3],
-            [1, 3, 4]
-        ]
-        
-        mesh = TriMesh(vertices, triangles)
-        
-        # 频率扫描
+
+        mesh = build_small_plate_mesh()
         frequencies = [100e6, 300e6, 600e6, 1e9]
         rcs_forward = Float64[]
-        current_norms = Float64[]
-        
+
         for freq in frequencies
             set_frequency!(freq)
-            
             basis = RWGBasis(mesh)
-            efie = EFIE(basis)
-            
-            Z = assemble_impedance_matrix(efie)
-            
-            # 平面波激励（固定）
-            θ_inc = 0.0
-            ϕ_inc = 0.0
-            E_inc = [1.0, 0.0, 0.0]
-            excitation = PlaneWave(θ_inc, ϕ_inc, E_inc)
-            
-            V = compute_excitation_vector(efie, excitation)
+            efie = EFIE(freq)
+
+            Z = assemble_impedance_matrix(efie, basis)
+            source = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])
+            V = excitation_vector(efie, source, basis)
             I = Z \ V
-            
+
             @test !any(isnan.(I))
             @test norm(I) > 0
-            
-            # 计算前向 RCS
-            rcs = compute_rcs(basis, I, freq, [0.0], 0.0)[1]
-            
+
+            _, _, rcs_dB = radarCrossSection([0.0], [0.0], I, basis)
+            rcs = rcs_dB[1, 1]
             push!(rcs_forward, rcs)
-            push!(current_norms, norm(I))
-            
+
             println("    f = $(freq/1e9) GHz: |I| = $(round(norm(I), sigdigits=3)), RCS = $(round(rcs, digits=1)) dBsm")
         end
-        
-        # 验证：所有频率点都有有效结果
+
         @test length(rcs_forward) == 4
         @test !any(isnan.(rcs_forward))
         @test !any(isinf.(rcs_forward))
-        
-        # 检查 RCS 单调性：对于小目标，RCS 应随频率增加
-        # （Rayleigh 区域：RCS ∝ f^4 对 electrically small targets）
-        # 这里只检查趋势，不严格要求 f^4
-        @test rcs_forward[4] > rcs_forward[1]  # 1 GHz > 100 MHz
-        
+
+        # Rayleigh 区域趋势：电小目标 RCS ∝ f⁴，1 GHz 应显著大于 100 MHz
+        @test rcs_forward[4] > rcs_forward[1]
+
         println("    ✓ RCS trend: $(round(rcs_forward[1], digits=1)) → $(round(rcs_forward[4], digits=1)) dBsm (100 MHz → 1 GHz)")
     end
-    
+
     # ────────────────────────────────────────────────────────────
     # MFIE 频率扫描
     # ────────────────────────────────────────────────────────────
     @testset "MFIE Frequency Sweep: 100MHz-1GHz" begin
         println("  Testing MFIE across multiple frequencies...")
-        
-        vertices = [
-            [0.0, 0.0, 0.0],
-            [0.3, 0.0, 0.0],
-            [0.3, 0.3, 0.0],
-            [0.0, 0.3, 0.0]
-        ]
-        triangles = [
-            [1, 2, 3],
-            [1, 3, 4]
-        ]
-        
-        mesh = TriMesh(vertices, triangles)
-        
+
+        mesh = build_small_plate_mesh()
         frequencies = [100e6, 300e6, 600e6, 1e9]
         rcs_forward = Float64[]
-        
+
         for freq in frequencies
             set_frequency!(freq)
-            
             basis = RWGBasis(mesh)
-            mfie = MFIE(basis)
-            
-            Z = assemble_impedance_matrix(mfie)
-            
-            θ_inc = 0.0
-            ϕ_inc = 0.0
-            E_inc = [1.0, 0.0, 0.0]
-            excitation = PlaneWave(θ_inc, ϕ_inc, E_inc)
-            
-            V = compute_excitation_vector(mfie, excitation)
+            mfie = MFIE(freq)
+
+            Z = assemble_impedance_matrix(mfie, basis)
+            source = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])
+            V = excitation_vector(mfie, source, basis)
             I = Z \ V
-            
+
             @test !any(isnan.(I))
-            
-            rcs = compute_rcs(basis, I, freq, [0.0], 0.0)[1]
+
+            _, _, rcs_dB = radarCrossSection([0.0], [0.0], I, basis)
+            rcs = rcs_dB[1, 1]
             push!(rcs_forward, rcs)
-            
+
             println("    f = $(freq/1e9) GHz: RCS = $(round(rcs, digits=1)) dBsm")
         end
-        
+
         @test !any(isnan.(rcs_forward))
         @test rcs_forward[4] > rcs_forward[1]  # 趋势检查
     end
-    
+
     # ────────────────────────────────────────────────────────────
     # CFIE 频率稳定性
     # ────────────────────────────────────────────────────────────
     @testset "CFIE Frequency Stability" begin
         println("  Testing CFIE stability across frequencies...")
-        
-        vertices = [
-            [0.0, 0.0, 0.0],
-            [0.3, 0.0, 0.0],
-            [0.3, 0.3, 0.0],
-            [0.0, 0.3, 0.0]
-        ]
-        triangles = [
-            [1, 2, 3],
-            [1, 3, 4]
-        ]
-        
-        mesh = TriMesh(vertices, triangles)
-        
+
+        mesh = build_small_plate_mesh()
         frequencies = [100e6, 300e6, 600e6, 1e9]
-        α = 0.5  # CFIE 组合参数
-        
+        α = 0.5
         cond_numbers = Float64[]
-        
+
         for freq in frequencies
             set_frequency!(freq)
-            
             basis = RWGBasis(mesh)
-            cfie = CFIE(basis, α)
-            
-            Z = assemble_impedance_matrix(cfie)
-            
-            # 条件数检查
+            cfie = CFIE(freq, α)
+
+            Z = assemble_impedance_matrix(cfie, basis)
             cond_Z = cond(Z)
             push!(cond_numbers, cond_Z)
-            
+
             @test !isnan(cond_Z)
             @test !isinf(cond_Z)
-            @test cond_Z < 1e8  # 条件数不应太大
-            
+            @test cond_Z < 1e8
+
             println("    f = $(freq/1e9) GHz: cond(Z) = $(round(cond_Z, sigdigits=3))")
         end
-        
-        # 条件数应在合理范围内
+
         @test maximum(cond_numbers) < 1e8
         @test minimum(cond_numbers) > 1.0
-        
+
         println("    ✓ CFIE stable: cond(Z) ∈ [$(round(minimum(cond_numbers), sigdigits=2)), $(round(maximum(cond_numbers), sigdigits=2))]")
     end
-    
+
     # ────────────────────────────────────────────────────────────
     # EFIE vs MFIE 频率一致性
     # ────────────────────────────────────────────────────────────
     @testset "EFIE vs MFIE Frequency Consistency" begin
         println("  Comparing EFIE and MFIE at multiple frequencies...")
-        
-        vertices = [
-            [0.0, 0.0, 0.0],
-            [0.3, 0.0, 0.0],
-            [0.3, 0.3, 0.0],
-            [0.0, 0.3, 0.0]
-        ]
-        triangles = [
-            [1, 2, 3],
-            [1, 3, 4]
-        ]
-        
-        mesh = TriMesh(vertices, triangles)
-        
+
+        mesh = build_small_plate_mesh()
         frequencies = [100e6, 300e6, 600e6, 1e9]
-        
+
         for freq in frequencies
             set_frequency!(freq)
-            
             basis = RWGBasis(mesh)
-            
-            # EFIE
-            efie = EFIE(basis)
-            Z_efie = assemble_impedance_matrix(efie)
-            
-            θ_inc = 0.0
-            ϕ_inc = 0.0
-            E_inc = [1.0, 0.0, 0.0]
-            excitation = PlaneWave(θ_inc, ϕ_inc, E_inc)
-            
-            V_efie = compute_excitation_vector(efie, excitation)
+            source = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])
+
+            efie = EFIE(freq)
+            Z_efie = assemble_impedance_matrix(efie, basis)
+            V_efie = excitation_vector(efie, source, basis)
             I_efie = Z_efie \ V_efie
-            
-            # MFIE
-            mfie = MFIE(basis)
-            Z_mfie = assemble_impedance_matrix(mfie)
-            V_mfie = compute_excitation_vector(mfie, excitation)
+
+            mfie = MFIE(freq)
+            Z_mfie = assemble_impedance_matrix(mfie, basis)
+            V_mfie = excitation_vector(mfie, source, basis)
             I_mfie = Z_mfie \ V_mfie
-            
-            # RCS 对比
-            rcs_efie = compute_rcs(basis, I_efie, freq, [0.0], 0.0)[1]
-            rcs_mfie = compute_rcs(basis, I_mfie, freq, [0.0], 0.0)[1]
-            
-            Δrcs = abs(rcs_efie - rcs_mfie)
-            
+
+            _, _, rcs_efie_dB = radarCrossSection([0.0], [0.0], I_efie, basis)
+            _, _, rcs_mfie_dB = radarCrossSection([0.0], [0.0], I_mfie, basis)
+            Δrcs = abs(rcs_efie_dB[1, 1] - rcs_mfie_dB[1, 1])
+
             println("    f = $(freq/1e9) GHz: ΔRCS(EFIE-MFIE) = $(round(Δrcs, digits=1)) dB")
-            
-            # EFIE 和 MFIE 应给出相似的 RCS（对于良好网格）
-            # 这里放宽到 15 dB，因为 toy mesh 可能有数值误差
+
+            # 粗略网格允许数值误差，放宽到 15 dB
             @test Δrcs < 15.0
         end
-        
+
         println("    ✓ EFIE and MFIE consistent across frequencies")
     end
-    
+
     # ────────────────────────────────────────────────────────────
     # 波长缩放验证
     # ────────────────────────────────────────────────────────────
     @testset "Wavelength Scaling Validation" begin
         println("  Validating wavelength scaling...")
-        
-        # 使用固定电尺寸（几何随频率缩放）
-        using EMSuite.Core.Constants: c0
-        
-        freq_ref = 300e6  # 参考频率
-        λ_ref = c0 / freq_ref
-        
-        # 设计一个 λ/10 × λ/10 的板（在 300 MHz）
-        size_ref = λ_ref / 10
-        
+
         frequencies = [300e6, 600e6, 1.2e9]
         rcs_values = Float64[]
-        
+
         for freq in frequencies
             λ = c0 / freq
             size = λ / 10  # 保持 λ/10 电尺寸
-            
-            vertices = [
-                [0.0, 0.0, 0.0],
-                [size, 0.0, 0.0],
-                [size, size, 0.0],
-                [0.0, size, 0.0]
-            ]
-            triangles = [
-                [1, 2, 3],
-                [1, 3, 4]
-            ]
-            
-            mesh = TriMesh(vertices, triangles)
+
+            mesh = generate_rectangle_mesh(size, size, 2, 2)
             set_frequency!(freq)
-            
+
             basis = RWGBasis(mesh)
-            efie = EFIE(basis)
-            
-            Z = assemble_impedance_matrix(efie)
-            
-            θ_inc = 0.0
-            ϕ_inc = 0.0
-            E_inc = [1.0, 0.0, 0.0]
-            excitation = PlaneWave(θ_inc, ϕ_inc, E_inc)
-            
-            V = compute_excitation_vector(efie, excitation)
+            efie = EFIE(freq)
+
+            Z = assemble_impedance_matrix(efie, basis)
+            source = PlaneWave(freq, 0.0, 0.0, [1.0, 0.0, 0.0])
+            V = excitation_vector(efie, source, basis)
             I = Z \ V
-            
-            rcs = compute_rcs(basis, I, freq, [0.0], 0.0)[1]
+
+            _, _, rcs_dB = radarCrossSection([0.0], [0.0], I, basis)
+            rcs = rcs_dB[1, 1]
             push!(rcs_values, rcs)
-            
+
             println("    f = $(freq/1e9) GHz (size = $(round(size*1000, digits=1)) mm): RCS = $(round(rcs, digits=1)) dBsm")
         end
-        
-        # 对于固定电尺寸，RCS 应相对稳定（< 5 dB 变化）
+
+        # 物理模型：平板法向入射 RCS σ = 4πA²/λ²。电尺寸固定（A ∝ λ²）时
+        # σ ∝ 1/f²，即每个倍频程下降约 6 dB。300MHz→1.2GHz 为 2 个倍频程，
+        # 预期 RCS 范围约 12 dB。
         rcs_range = maximum(rcs_values) - minimum(rcs_values)
-        
-        @test rcs_range < 5.0  # 电尺寸相同，RCS 应接近
-        
-        println("    ✓ Wavelength scaling: RCS range = $(round(rcs_range, digits=1)) dB (constant electrical size)")
+        @test 8.0 < rcs_range < 16.0
+
+        println("    ✓ Wavelength scaling: RCS range = $(round(rcs_range, digits=1)) dB (≈6 dB/octave, constant electrical size)")
     end
-    
+
 end  # @testset "Integral Equations Frequency Sweep"
 
 println("✅ Frequency sweep tests completed")

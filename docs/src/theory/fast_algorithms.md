@@ -1,26 +1,17 @@
-# 快速算法 (Fast Algorithms)
+# 快速算法
 
-为了突破传统矩量法 $O(N^2)$ 的内存和计算瓶颈，必须引入快速算法。
+传统矩量法在矩阵显式装配和矩阵向量乘阶段通常需要 $O(N^2)$ 的时间与存储成本。对电大尺寸问题，必须引入快速算法来降低复杂度。
 
-## 1. 多层快速多极子算法 (MLFMA)
+## 1. 多层快速多极子算法
 
-MLFMA 适用于电大尺寸问题，将复杂度降低至 $O(N \log N)$。
+MLFMA 通过八叉树分层、方向图聚合、远场转移和解聚过程，把远场相互作用的复杂度降低到接近 $O(N \log N)$。
 
-> 实现状态说明：本页描述的是 MLFMA 的理论流程。当前仓库中的通用 surface MLFMA 实现，已确认 `nLevels >= 3` 时的主要偏差集中在 upward/downward pass 的插值与相移链路，属于仍在排查的实现问题，而不是文档未刷新导致的假象。
+### 1.1 基本思想
 
-### 1.1 加法定理
-利用格林函数的加法定理，将源点和场点分离：
-$$
-\frac{e^{-jk|\mathbf{r}_{obs} - \mathbf{r}_{src}|}}{|\mathbf{r}_{obs} - \mathbf{r}_{src}|} \approx \int_{S^2} e^{-j\mathbf{k} \cdot (\mathbf{r}_{obs} - \mathbf{r}_{c,obs})} T_L(\mathbf{k}, \mathbf{D}) e^{j\mathbf{k} \cdot (\mathbf{r}_{src} - \mathbf{r}_{c,src})} d^2\hat{k}
-$$
+核心出发点是利用格林函数的加法定理，把源点与观测点依赖拆开，改写为“源盒辐射方向图 + 盒间转移 + 观测盒接收方向图”的组合。
 
-### 1.2 算法流程
-1.  **八叉树分组**：建立层级结构。
-2.  **聚合 (Aggregation)**：计算最底层的辐射方向图，并向上传递。
-3.  **转移 (Translation)**：在同层间转移辐射方向图。
-4.  **解聚合 (Disaggregation)**：向下传递接收场。
+一个典型的远场链路可抽象写成
 
-更贴近 EMSuite 当前实现的写法，可以把远场 MVP 链路记成
 $$
 \mathbf{y}_{far} = \mathcal{D}_{leaf}
 \left(
@@ -34,93 +25,110 @@ $$
 \right)
 \mathcal{A}_{leaf}(\mathbf{x}).
 $$
+
 其中：
 
-*   $\mathcal{A}_{leaf}$：叶层把物理基函数电流投影成辐射方向图；
-*   $\mathcal{A}_{\ell+1 \to \ell}$：child-to-parent upward pass；
-*   $\mathcal{T}_{\ell}$：同层 far-neighbor translation；
-*   $\mathcal{D}_{\ell \to \ell+1}$：parent-to-child downward pass；
-*   $\mathcal{D}_{leaf}$：叶层把接收场再测试回基函数空间。
+- $\mathcal{A}_{leaf}$ 表示叶层聚合，把物理基函数系数投影成方向图。
+- $\mathcal{A}_{\ell+1 \to \ell}$ 表示 upward pass 中的子盒到父盒传递。
+- $\mathcal{T}_{\ell}$ 表示同层远邻盒间的转移。
+- $\mathcal{D}_{\ell \to \ell+1}$ 表示 downward pass 中的父盒到子盒传递。
+- $\mathcal{D}_{leaf}$ 表示叶层测试，把接收方向图投回物理基函数空间。
 
-### 1.3 叶层聚合与测试的离散形式
+### 1.2 算法流程
 
-对 RWG 基函数，EMSuite 当前叶层聚合使用的是“对每个支撑三角形做固定阶高斯积分，再在球面极化基上投影”的形式。若继续使用上一章的统一符号记号，则叶层辐射方向图可写成
+1. 八叉树划分：按层级把几何对象组织进空间盒结构。
+2. 聚合：在叶层计算方向图，并逐层向上传递。
+3. 转移：在同层远邻盒之间应用平移算子。
+4. 解聚：把远场贡献逐层向下传回叶盒。
+5. 叶层测试：把接收场重新积分回离散基函数系数。
+
+### 1.3 与 EMMoMSuite 实现相关的叶层形式
+
+对 RWG 基函数，EMMoMSuite 当前的叶层聚合采用“支撑三角形高斯积分 + 球面极化投影”的实现路线。若沿用统一符号记号，则一个极化分量的叶层方向图可写为
+
 $$
-S_{n,p}(\hat{k})=
-\sum_{i=1}^2
+S_{n,p}(\hat{k}) =
+\sum_{i=1}^{2}
 \int_{T_{n,i}}
 \hat{e}_p(\hat{k}) \cdot
 \left[
 \frac{\tilde l_{n,i}}{2}
-\left( \mathbf{r} - \mathbf{v}_{n,i}^{\mathrm{opp}} \right)
-e^{jk\hat{k}\cdot(\mathbf{r} - \mathbf{r}_c)}
-\right]
-\, dS,
+\left(\mathbf{r} - \mathbf{v}_{n,i}^{\mathrm{opp}}\right)
+e^{j k \hat{k} \cdot (\mathbf{r} - \mathbf{r}_c)}
+\right] dS,
 \qquad p \in \{\theta, \phi\}.
 $$
 
-叶层测试则是与之对偶的回投影：把叶层接收到的 $\theta/\phi$ 极化场在每个 RWG 支撑三角形上做积分，累加到对应基函数系数。当前实现中这一步与叶层聚合共享同一组支撑三角形几何与高斯点结构。
+叶层测试则是上述过程的对偶回投影，即把接收的极化场在同一组支撑三角形上重新积分并累加回离散自由度。
 
-### 1.4 upward / downward pass 的实现约定
+### 1.4 upward / downward pass
 
-在当前仓库中：
+在实现层面，upward pass 和 downward pass 可以理解为插值、相移与反插值的串联。
 
-*   upward pass 先在叶层得到 `aggS`，然后逐层做 child-to-parent 插值与相移；
-*   translation 在每层对 far-neighbor 盒子使用预计算的 $\alpha_{trans}(\hat{k}, \mathbf{D})$ 逐极化相乘；
-*   downward pass 先做相移，再做 anterpolation，把父层接收场累加回子层 `disaggG`。
-
-理论上可记为
 $$
 \mathbf{S}_{\ell}^{parent}(\hat{k}) = \sum_{c \in \mathrm{kids}(parent)}
-e^{jk\hat{k}\cdot(\mathbf{r}_c - \mathbf{r}_{parent})}
+e^{j k \hat{k} \cdot (\mathbf{r}_c - \mathbf{r}_{parent})}
 \, \mathcal{I}_{c \to parent}
 \mathbf{S}_{\ell+1}^{c}(\hat{k}),
 $$
+
 $$
 \mathbf{G}_{\ell}^{obs}(\hat{k}) = \sum_{src \in \mathrm{far}(obs)}
 \alpha_{trans}(\hat{k}, \mathbf{D}_{obs,src})
 \, \mathbf{S}_{\ell}^{src}(\hat{k}),
 $$
+
 $$
 \mathbf{G}_{\ell+1}^{child}(\hat{k}) = \mathcal{I}^{-1}_{parent \to child}
 \left[
-e^{jk\hat{k}\cdot(\mathbf{r}_{child} - \mathbf{r}_{parent})}
+e^{j k \hat{k} \cdot (\mathbf{r}_{child} - \mathbf{r}_{parent})}
 \mathbf{G}_{\ell}^{parent}(\hat{k})
 \right].
 $$
 
-这里 $\mathcal{I}$ / $\mathcal{I}^{-1}$ 分别表示 interpolation / anterpolation。`nLevels >= 3` 的当前开放问题，正是集中在这条插值与相移链是否与 Legacy 完全对齐。
+当前仓库中，`nLevels >= 3` 时已知主要风险集中在 upward/downward pass 的插值与相移链路，而不是整体接口层面的命名或调用方式。
 
-### 1.5 一个容易误用的实现细节：向量顺序
+### 1.5 一个容易误用的接口细节
 
-MLFMA 八叉树内部会维护 `sorted_ids`，以便按盒子内连续区间遍历基函数；但这只是内部数据局部性优化。EMSuite 当前 `MLFMAOperator` 的外部接口约定仍是：
+MLFMA 八叉树内部通常会维护按盒排序的 `sorted_ids` 以优化局部访问，但 EMMoMSuite 对外暴露的 `MLFMAOperator` 仍然使用物理基函数的原始自由度顺序作为输入和输出。
 
-*   输入向量 $\mathbf{x}$ 采用物理 basis 的原始顺序；
-*   输出向量 $\mathbf{y}$ 也回到物理 basis 的原始顺序；
-*   `sorted_ids` 只在 leaf aggregation / leaf disaggregation 内部把“盒子区间索引”映射回原始 basis id。
+因此：
 
-因此，benchmark 或回归测试不能在调用 `mul!` 前自行把 RHS 改成 `sorted_ids` 顺序，也不能在结果返回后再做一轮反排。此前某些 MLFMA 偏差曾被这类顺序误用放大为伪失败。
+- 调用 `mul!` 或 Krylov 求解器前，不应自行把向量改写成 `sorted_ids` 顺序。
+- 结果返回后，也不应再做一次“反排序”处理。
+
+否则会把内部数据局部性实现误当成外部接口约定，导致伪回归差异。
 
 ### 1.6 误差控制
-截断项数 $L \approx kd + 1.8 (d_0)^{2/3} (kd)^{1/3}$，其中 $d$ 为盒子尺寸。
 
-## 2. 低频 MLFMA (Low-Frequency MLFMA)
+MLFMA 的精度通常受截断项数、插值阶数、盒尺寸和层级深度共同控制。工程上需要通过 benchmark 和 Legacy 对齐来校验这些参数组合，而不是依靠经验常数补偿偏差。
 
-标准 MLFMA 在低频（盒子尺寸远小于波长）时会出现数值崩溃（Low-frequency breakdown），因为汉克尔函数发散。
-**解决方案**：采用基于多极子展开（Multipole Expansion）而非平面波展开的形式，或者使用归一化的平面波展开 (N-MLFMA)。
+## 2. 低频 MLFMA
 
-## 3. 自适应交叉近似 (ACA)
+标准平面波形式的 MLFMA 在低频下会出现 low-frequency breakdown，因为展开形式随盒尺寸和波数缩小而变得病态。
 
-ACA (Adaptive Cross Approximation) 是一种纯代数压缩方法，不依赖于格林函数的解析形式。
+常见解决路线包括：
 
-### 3.1 原理
-对于远场相互作用矩阵块 $\mathbf{Z}_{block}$，其数值秩远小于维数。
-ACA 通过自适应地选取行和列，将矩阵分解为低秩形式：
+- 使用基于多极子展开的低频稳定形式。
+- 使用归一化平面波展开或其他低频重标定技术。
+- 在极低频段切换到其他更适合的压缩策略。
+
+## 3. 自适应交叉近似
+
+ACA 是一种核无关的代数压缩方法，适用于远场块具有低数值秩的场景。
+
+### 3.1 基本形式
+
+对远场块矩阵 $\mathbf{Z}_{block}$，ACA 尝试构造
+
 $$
-\mathbf{Z}_{block} \approx \mathbf{U} \mathbf{V}^T
+\mathbf{Z}_{block} \approx \mathbf{U} \mathbf{V}^{T},
 $$
-其中 $\mathbf{U} \in \mathbb{C}^{M \times r}, \mathbf{V} \in \mathbb{C}^{N \times r}$，且 $r \ll M, N$。
 
-### 3.2 优势
-*   **核无关 (Kernel-Independent)**：适用于多层介质格林函数或其他复杂核。
-*   **易于实现**：无需复杂的解析展开。
+其中 $\mathbf{U} \in \mathbb{C}^{M \times r}$，$\mathbf{V} \in \mathbb{C}^{N \times r}$，并且 $r \ll M, N$。
+
+### 3.2 特点
+
+- 不依赖核函数的解析加法定理。
+- 对复杂介质核或非标准格林函数更灵活。
+- 通常更容易接入已有稀疏或分块框架，但常数因子和稳定性需要单独评估。

@@ -1,5 +1,5 @@
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 
 function make_pmchw_shell_fixture(; freq = 150e6, eps_r = 4.0, radius = 0.1, n_theta = 4, n_phi = 6)

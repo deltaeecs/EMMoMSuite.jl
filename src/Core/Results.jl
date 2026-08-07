@@ -10,11 +10,11 @@ export SimulationResult
 Container for simulation results.
 """
 struct SimulationResult
-    config::EMSuiteConfig
+    config::EMMoMSuiteConfig
     currents::Vector{Complex{Float64}}
     metrics::Dict{String,Any}
 
-    function SimulationResult(config::EMSuiteConfig, currents::Vector{Complex{Float64}})
+    function SimulationResult(config::EMMoMSuiteConfig, currents::Vector{Complex{Float64}})
         new(config, currents, Dict{String,Any}())
     end
 end

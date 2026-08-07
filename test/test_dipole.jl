@@ -1,10 +1,10 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.CoreModule
-using EMSuite.PostProcessing
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.CoreModule
+using EMMoMSuite.PostProcessing
 using LinearAlgebra
 using StaticArrays
 using Test

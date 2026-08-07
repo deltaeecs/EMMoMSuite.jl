@@ -1,11 +1,11 @@
-using EMSuite
-using EMSuite.FastAlgorithms.Lebedev
+using EMMoMSuite
+using EMMoMSuite.FastAlgorithms.Lebedev
 using Test
 using StaticArrays
 
 @testset "Lebedev" begin
     # Debug info
-    dict = EMSuite.FastAlgorithms.Lebedev.LebedevSortedPoints.lbnP2FILEDict
+    dict = EMMoMSuite.FastAlgorithms.Lebedev.LebedevSortedPoints.lbnP2FILEDict
     println("Test Dict keys: ", sort(collect(keys(dict))))
     println("Test Dict[3]: ", get(dict, 3, "missing"))
 
@@ -42,7 +42,7 @@ using StaticArrays
         # If d=1.0 (wavelengths?), L might be small enough.
 
         # We need to import levelIntegralInfoCal
-        using EMSuite.FastAlgorithms.MLFMA.Interpolation: levelIntegralInfoCal
+        using EMMoMSuite.FastAlgorithms.MLFMA.Interpolation: levelIntegralInfoCal
 
         # Call it
         # Note: It might fail if dependencies are missing or paths are wrong.

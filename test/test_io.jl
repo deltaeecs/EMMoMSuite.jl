@@ -1,8 +1,8 @@
 using Test
-using EMSuite
-using EMSuite.IO
-using EMSuite.Geometry
-using EMSuite.Utilities: save_sparse_matrix, load_sparse_matrix
+using EMMoMSuite
+using EMMoMSuite.IO
+using EMMoMSuite.Geometry
+using EMMoMSuite.Utilities: save_sparse_matrix, load_sparse_matrix
 using HDF5
 using SparseArrays
 using StaticArrays

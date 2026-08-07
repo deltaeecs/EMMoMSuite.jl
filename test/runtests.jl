@@ -1,6 +1,6 @@
 using Test
 
-@testset "EMSuite" begin
+@testset "EMMoMSuite" begin
     include("test_materials.jl")
     include("test_geometry.jl")
     include("test_basis_functions.jl")

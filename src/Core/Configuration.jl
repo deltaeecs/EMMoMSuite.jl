@@ -2,7 +2,7 @@ module Configuration
 
 using TOML
 
-export EMSuiteConfig, load_config
+export EMMoMSuiteConfig, load_config
 export SimulationConfig, GeometryConfig, BasisConfig, ExcitationConfig, SolverConfig, OutputConfig
 
 # --- Configuration Structs ---
@@ -76,11 +76,11 @@ Base.@kwdef struct OutputConfig
 end
 
 """
-    EMSuiteConfig
+    EMMoMSuiteConfig
 
 Top-level configuration struct.
 """
-Base.@kwdef struct EMSuiteConfig
+Base.@kwdef struct EMMoMSuiteConfig
     simulation::SimulationConfig
     geometry::GeometryConfig
     basis::BasisConfig
@@ -156,7 +156,7 @@ function load_config(path::String)
         format = get(out_data, "format", "h5"),
     )
 
-    return EMSuiteConfig(simulation, geometry, basis, excitation, solver, output)
+    return EMMoMSuiteConfig(simulation, geometry, basis, excitation, solver, output)
 end
 
 end

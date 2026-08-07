@@ -4,7 +4,7 @@
 Phase 16.7 — Gmsh API integration for programmatic mesh generation.
 
 Uses **lazy loading**: Gmsh.jl is loaded only when a GmshAPI function is first
-called, keeping the EMSuite load time unaffected when Gmsh is not used.
+called, keeping the EMMoMSuite load time unaffected when Gmsh is not used.
 
 Requires `Gmsh.jl` to be a project dependency (`Pkg.add("Gmsh")`).
 

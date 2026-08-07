@@ -1,12 +1,12 @@
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 
-using EMSuite
+using EMMoMSuite
 using Printf
 
 const ROOT_DIR = joinpath(@__DIR__, "..")
-const MESH_DIR = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "meshfiles")
-const FEKO_DIR = joinpath(ROOT_DIR, "..", "MoM_AllinOne", "deps", "compare_feko")
+const MESH_DIR = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "meshfiles")
+const FEKO_DIR = joinpath(ROOT_DIR, "..", "deps", "fixtures", "AllinOne", "deps", "compare_feko")
 
 freq = 6.0e8
 alpha = 0.6

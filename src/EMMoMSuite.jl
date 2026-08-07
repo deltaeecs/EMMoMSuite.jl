@@ -1,10 +1,10 @@
 """
-    EMSuite
+    EMMoMSuite
 
 A comprehensive Computational Electromagnetics (CEM) library in Julia.
 
 # Overview
-EMSuite provides a modular framework for solving electromagnetic scattering and radiation problems using the Method of Moments (MoM). It supports surface and volume integral equations, fast algorithms (MLFMA), and parallel computing.
+EMMoMSuite provides a modular framework for solving electromagnetic scattering and radiation problems using the Method of Moments (MoM). It supports surface and volume integral equations, fast algorithms (MLFMA), and parallel computing.
 
 # Key Modules
 - **Geometry**: Mesh handling (Triangle, Tetrahedra) and geometric queries.
@@ -17,7 +17,7 @@ EMSuite provides a modular framework for solving electromagnetic scattering and 
 
 # Quick Start
 ```julia
-using EMSuite
+using EMMoMSuite
 
 # 1. 设置频率（更新全局 k0/η0）
 freq = 300e6
@@ -42,7 +42,7 @@ I = solve!(LUSolver(), Z, V)
 _, _, rcs_db = radarCrossSection(θ, [0.0], I, basis)
 ```
 """
-module EMSuite
+module EMMoMSuite
 
 using LinearAlgebra
 using SparseArrays
@@ -71,7 +71,7 @@ export AbstractBasisFunction, num_basis, support, evaluate
 export AbstractIntegralOperator, kernel, impedance_element
 export AbstractSolver, solve!
 export AbstractSource, incident_field, excitation_vector, PlaneWave, DeltaGapSource
-export EMSuiteConfig, load_config
+export EMMoMSuiteConfig, load_config
 export SimulationConfig, GeometryConfig, BasisConfig, ExcitationConfig, SolverConfig, OutputConfig
 export SimulationResult
 

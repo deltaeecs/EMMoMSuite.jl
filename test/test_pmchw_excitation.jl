@@ -9,7 +9,7 @@ test_pmchw_excitation.jl — Phase 15 步骤 15.1 / 15.3
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 
 @testset "15.1/15.2/15.3 PMCHW DeltaGap 激励 + input_impedance" begin

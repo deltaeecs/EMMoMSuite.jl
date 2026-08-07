@@ -13,13 +13,13 @@ test_accuracy_metrics.jl — Phase 14 TDD: AccuracyMetrics 单元测试
 """
 
 using Test
-using EMSuite
-using EMSuite.Accuracy: AccuracyResult, AntennaAccuracyResult,
+using EMMoMSuite
+using EMMoMSuite.Accuracy: AccuracyResult, AntennaAccuracyResult,
                         compute_rcs_accuracy, compute_antenna_accuracy,
                         print_accuracy_report, extract_sphere_radius as extract_sphere_radius_public,
                         mie_dielectric_bistatic_rcs_dBsm
-using EMSuite: calculate_mie_rcs_dielectric_sphere
-using EMSuite.Accuracy.ReferenceData: extract_sphere_radius,
+using EMMoMSuite: calculate_mie_rcs_dielectric_sphere
+using EMMoMSuite.Accuracy.ReferenceData: extract_sphere_radius,
                                       mie_pec_bistatic_rcs_dBsm,
                                       mie_pec_rcs_dBsm
 
@@ -104,7 +104,7 @@ using EMSuite.Accuracy.ReferenceData: extract_sphere_radius,
 
         r = compute_antenna_accuracy(
             Zin_emsuite, Zin_analytic,
-            D_max, pattern, pattern,  # EMSuite = Analytic
+            D_max, pattern, pattern,  # EMMoMSuite = Analytic
             collect(theta_r), "ideal_dipole";
             Zin_threshold    = 0.05,
             D_max_threshold  = 1.0,
@@ -165,7 +165,7 @@ using EMSuite.Accuracy.ReferenceData: extract_sphere_radius,
     # 14.1i  extract_sphere_radius — Nastran 球面网格半径提取
     # ──────────────────────────────────────────────────────────────────────────
     @testset "14.1i 球半径提取" begin
-        mesh_file = joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles", "sphere_600MHz.nas")
+        mesh_file = joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles", "sphere_600MHz.nas")
         if isfile(mesh_file)
             r = extract_sphere_radius(mesh_file)
             @test 0.8 < r < 1.2
@@ -230,7 +230,7 @@ using EMSuite.Accuracy.ReferenceData: extract_sphere_radius,
     end
 
     # ──────────────────────────────────────────────────────────────────────────
-    # 14.1m  lossy dielectric Mie — EMSuite 的 e^{-jωt} 负虚部损耗约定
+    # 14.1m  lossy dielectric Mie — EMMoMSuite 的 e^{-jωt} 负虚部损耗约定
     #         应映射到 B&H 原始实现所需的共轭材料参数
     # ──────────────────────────────────────────────────────────────────────────
     @testset "14.1m 介质球 Mie 有损符号约定" begin
@@ -242,7 +242,7 @@ using EMSuite.Accuracy.ReferenceData: extract_sphere_radius,
 
         rcs_e_public, rcs_h_public, rcs_u_public = calculate_mie_rcs_dielectric_sphere(
             radius, freq, theta_obs, eps_r, mu_r)
-        rcs_e_bh, rcs_h_bh, rcs_u_bh = EMSuite.Utilities.MieSeries._calculate_mie_rcs_dielectric_sphere_bh(
+        rcs_e_bh, rcs_h_bh, rcs_u_bh = EMMoMSuite.Utilities.MieSeries._calculate_mie_rcs_dielectric_sphere_bh(
             radius, freq, theta_obs, conj(eps_r), conj(mu_r))
 
         @test rcs_e_public ≈ rcs_e_bh atol = 1e-12 rtol = 1e-12

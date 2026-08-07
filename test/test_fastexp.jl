@@ -6,12 +6,12 @@ Test FastExp lookup table correctness and performance.
 可被 runtests.jl include，也可独立运行。
 """
 
-if !isdefined(Main, :EMSuite)
+if !isdefined(Main, :EMMoMSuite)
     using Pkg
     Pkg.activate(joinpath(@__DIR__, ".."))
-    using EMSuite
+    using EMMoMSuite
 end
-using EMSuite.IntegralEquations.VEFIEModule: FastExpModule
+using EMMoMSuite.IntegralEquations.VEFIEModule: FastExpModule
 using Printf
 using Statistics
 using Test

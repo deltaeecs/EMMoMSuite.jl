@@ -1,11 +1,11 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.Utilities.Parameters
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.Utilities.Parameters
+using EMMoMSuite.CoreModule.Sources
 using StaticArrays
 using LinearAlgebra
 using SpecialFunctions
@@ -25,11 +25,11 @@ function verify_vefie_mie()
     k = 2 * π / lambda
     
     # Set global parameters
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
     
     # 2. Mesh
     # Use the same Tetra.nas mesh as in verify_VEFIE_direct.jl
-    mesh_file = joinpath(@__DIR__, "../../../MoM_AllinOne/meshfiles/Tetra.nas")
+    mesh_file = joinpath(@__DIR__, "../../../deps/fixtures/AllinOne/meshfiles/Tetra.nas")
     if !isfile(mesh_file)
         println("Error: Mesh file not found: $mesh_file")
         return

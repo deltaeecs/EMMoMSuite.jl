@@ -130,7 +130,7 @@ function assemble_impedance_matrix(scfie::SCFIE, surf_basis::RWGBasis, vol_basis
     # But we need to construct a CFIE object.
 
     # Construct temporary CFIE object
-    # Note: CFIE in EMSuite might not be fully ready or we want to be explicit.
+    # Note: CFIE in EMMoMSuite might not be fully ready or we want to be explicit.
     # Let's assume we can use the existing CFIE implementation.
     # But wait, CFIE.jl exists.
 
@@ -481,12 +481,12 @@ function scfie_coupling_interaction(
     # which is equivalent to: jωμ₀ × f·f × G₄π + 1/(jωε₀) × div·div × G₄π
 
     # Z_SV coefficients (with κ)
-    c1_sv = im * omega * mu0 * κ_vol
-    c2_sv = 1.0 / (im * omega * eps0) * κ_vol
+    c1_sv = im * omega * Constants.mu0 * κ_vol
+    c2_sv = 1.0 / (im * omega * Constants.eps0) * κ_vol
 
     # Z_VS coefficients (without κ)
-    c1_vs = im * omega * mu0
-    c2_vs = 1.0 / (im * omega * eps0)
+    c1_vs = im * omega * Constants.mu0
+    c2_vs = 1.0 / (im * omega * Constants.eps0)
 
     vol_factor = tri.area * tet.volume
 

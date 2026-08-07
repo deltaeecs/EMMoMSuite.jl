@@ -16,17 +16,17 @@ TDD RED 测试：PMCHWMLFMAOperator 结构、构造函数与 mul!
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 using SparseArrays
 using Random
 using IterativeSolvers
-using EMSuite.FastAlgorithms.MLFMA: build_octree, aggregate!, aggregate_leaf!, disaggregate_leaf!
-using EMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: aggregate_leaf_pmchw!, disaggregate_leaf_pmchw_j!, disaggregate_leaf_pmchw_m!
-using EMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
-using EMSuite.FastAlgorithms.MLFMA.Aggregation: aggregate_upward!
-using EMSuite.FastAlgorithms.MLFMA.Disaggregation: disaggregate_downward!
-using EMSuite.FastAlgorithms.MLFMA.Translation: translate!
+using EMMoMSuite.FastAlgorithms.MLFMA: build_octree, aggregate!, aggregate_leaf!, disaggregate_leaf!
+using EMMoMSuite.FastAlgorithms.MLFMA.PMCHWMLFMAOperatorModule: aggregate_leaf_pmchw!, disaggregate_leaf_pmchw_j!, disaggregate_leaf_pmchw_m!
+using EMMoMSuite.IntegralEquations.PMCHWModule: assemble_K_pmchw_offdiag
+using EMMoMSuite.FastAlgorithms.MLFMA.Aggregation: aggregate_upward!
+using EMMoMSuite.FastAlgorithms.MLFMA.Disaggregation: disaggregate_downward!
+using EMMoMSuite.FastAlgorithms.MLFMA.Translation: translate!
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 公用测试夹具

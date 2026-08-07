@@ -9,7 +9,7 @@ test_scfie_delta_gap.jl — Phase 15 步骤 15.4 / 15.5
 """
 
 using Test
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 
 @testset "15.4/15.5 SCFIE DeltaGap 激励" begin
@@ -17,9 +17,9 @@ using LinearAlgebra
     # ── 查找 TriTetra.nas（混合表面+体积网格） ─────────────────────────
     mesh_file = ""
     for candidate in [
-        joinpath(@__DIR__, "..", "..", "MoM_AllinOne", "meshfiles", "TriTetra.nas"),
-        joinpath(@__DIR__, "..", "..", "MoM_Basics",   "meshfiles", "TriTetra.nas"),
-        joinpath(@__DIR__, "..", "..", "MoM_Kernels",  "meshfiles", "TriTetra.nas"),
+        joinpath(@__DIR__, "..", "deps", "fixtures", "AllinOne", "meshfiles", "TriTetra.nas"),
+        joinpath(@__DIR__, "..", "deps", "fixtures", "Basics",   "meshfiles", "TriTetra.nas"),
+        joinpath(@__DIR__, "..", "deps", "fixtures", "Kernels",  "meshfiles", "TriTetra.nas"),
     ]
         if isfile(candidate)
             mesh_file = candidate

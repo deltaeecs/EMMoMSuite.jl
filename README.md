@@ -1,6 +1,6 @@
-# EMSuite.jl
+# EMMoMSuite.jl
 
-EMSuite.jl 是一个面向工程验证与重构交付的 Julia 计算电磁学框架，核心聚焦矩量法求解链，包括表面积分、体积分、混合积分方程、MLFMA、MPI 并行、端口建模、后处理与发布验证流程。
+EMMoMSuite.jl 是一个面向工程验证与重构交付的 Julia 计算电磁学框架，核心聚焦矩量法求解链，包括表面积分、体积分、混合积分方程、MLFMA、MPI 并行、端口建模、后处理与发布验证流程。
 
 当前仓库状态已经不再是“单一求解器包”这么简单，而是分成两条清晰链路：
 
@@ -12,12 +12,30 @@ EMSuite.jl 是一个面向工程验证与重构交付的 Julia 计算电磁学�
 | 项目 | 状态 |
 |------|------|
 | Julia 版本 | `1.10+` |
-| 主包入口 | `using EMSuite` |
+| 主包入口 | `using EMMoMSuite` |
 | 发布工作流 | `benchmark/run_release_workflow.jl` |
 | 统一报告入口 | `benchmark/run_release_validation_report.jl` |
 | 图表环境 | `benchmark/Project.toml` 隔离 `Plots` |
 | 最近验证 run | `test_results/runs/20260311_084333/` |
 | 当前发布结论 | 18/20 精度曲线阈值内，2 项已登记 known exception，无新增 blocker |
+
+## 安装
+
+最新发布版本：`v0.1.0`（已注册到 Julia General Registry）。
+
+```julia
+using Pkg
+Pkg.add("EMMoMSuite")
+```
+
+本地开发 / 修改源码时使用 dev 模式：
+
+```julia
+using Pkg
+Pkg.develop(path = "本仓库路径")
+```
+
+旧包名 `EMSuite.jl` 已废弃，请勿再使用 `Pkg.add("EMSuite")`。
 
 ## 架构总览
 
@@ -121,7 +139,7 @@ Pkg.instantiate()
 ### 3. 主包装载检查
 
 ```bash
-julia --project=. -e "using Pkg; Pkg.resolve(); using EMSuite"
+julia --project=. -e "using Pkg; Pkg.resolve(); using EMMoMSuite"
 ```
 
 ### 4. 统一发布链 smoke run
@@ -146,7 +164,7 @@ julia --project=benchmark benchmark/run_release_validation_report.jl
 下面是当前仍有效的最小 PEC 球散射示例，接口与仓库内 benchmark / test 使用方式保持一致。
 
 ```julia
-using EMSuite
+using EMMoMSuite
 using LinearAlgebra
 
 freq = 300e6
@@ -191,7 +209,7 @@ julia --project=benchmark benchmark/run_release_validation_report.jl
 
 ```text
 src/
-├── EMSuite.jl
+├── EMMoMSuite.jl
 ├── Core/                 # 抽象接口、配置与基础类型
 ├── Utilities/            # 常数、日志、轻量支持工具、Mie 参考
 ├── Geometry/             # 网格 I/O、生成器、CSG、Gmsh 接口、标签传播
@@ -321,7 +339,12 @@ julia --project=. test/test_benchmark_report_data.jl
 
 ```bash
 # 载入主包
-julia --project=. -e "using EMSuite"
+julia --project=. -e "using EMMoMSuite"
+
+### 改名说明
+
+- 本仓库当前主包名为 `EMMoMSuite.jl`
+- 旧包名 `EMSuite.jl` 已废弃，仓库内现行命令与示例均以 `EMMoMSuite` 为准
 
 # 全量主测试
 julia --project=. test/runtests.jl
@@ -348,6 +371,24 @@ julia --project=docs docs/make.jl
 - Phase 17 计划：[.github/plans/phase_17_release_workflow_normalization_plan.md](.github/plans/phase_17_release_workflow_normalization_plan.md)
 
 README 只保留面向使用者的稳定信息，不再重复维护一份容易过时的 phase 列表。
+
+## 旧包迁移说明（Legacy packages）
+
+本仓库是原分散 MoM 包体系的整合与延续（`EMMoMSuite.jl` 为最新版本）。以下旧仓库已归档（read-only），
+不再单独维护，对应功能已并入本包：
+
+| 旧仓库 | 状态 | 并入模块 |
+|--------|------|----------|
+| `MoM_Basics.jl` | 已归档 | `Geometry` / `BasisFunctions` / `CoreModule`（Sources、Parameters） |
+| `MoM_Kernels.jl` | 已归档 | `IntegralEquations` / `FastAlgorithms.MLFMA` / `Solvers` / `PostProcessing` |
+| `MoM_AllinOne.jl` | 已归档 | `Driver` / 统一求解链 |
+| `MoM_MPI.jl` | 已归档 | `Parallel`（MPI） |
+| `MoM_Lebedev.jl` | 已归档 | `FastAlgorithms.Lebedev` |
+| `MoM_Visualizing.jl` | 已归档 | benchmark / scripts 可视化工具链 |
+| `MPIArray4MoMs.jl` | 已归档 | `Parallel.MPI.MPIArray` |
+
+新代码统一使用 `using EMMoMSuite`。归档仓库的网格与 FEKO 基线数据已收编到本仓库
+`deps/fixtures/`，测试与 benchmark 不再依赖旧仓库路径。
 
 ## 许可证
 

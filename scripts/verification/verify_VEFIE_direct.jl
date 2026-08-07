@@ -1,10 +1,10 @@
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.CoreModule.Sources
 using LinearAlgebra
 using Printf
 
@@ -19,11 +19,11 @@ function verify_vefie_direct()
     lambda = c0 / freq
     
     # Set global parameters
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
-    println("Global parameters set: k0=$(EMSuite.Utilities.Parameters.get_k0())")
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
+    println("Global parameters set: k0=$(EMMoMSuite.Utilities.Parameters.get_k0())")
     
     # 2. Mesh
-    mesh_file = joinpath(@__DIR__, "../../../MoM_AllinOne/meshfiles/Tetra.nas")
+    mesh_file = joinpath(@__DIR__, "../../../deps/fixtures/AllinOne/meshfiles/Tetra.nas")
     if !isfile(mesh_file)
         println("Error: Mesh file not found: $mesh_file")
         return

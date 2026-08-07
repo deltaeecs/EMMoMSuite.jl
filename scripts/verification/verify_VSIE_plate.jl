@@ -1,15 +1,15 @@
 
-using EMSuite
-using EMSuite.Geometry
-using EMSuite.BasisFunctions
-using EMSuite.IntegralEquations
-using EMSuite.Solvers
-using EMSuite.PostProcessing
-using EMSuite.CoreModule.Sources
+using EMMoMSuite
+using EMMoMSuite.Geometry
+using EMMoMSuite.BasisFunctions
+using EMMoMSuite.IntegralEquations
+using EMMoMSuite.Solvers
+using EMMoMSuite.PostProcessing
+using EMMoMSuite.CoreModule.Sources
 using LinearAlgebra
 using Printf
 
-using EMSuite.PostProcessing.RadiationIntegral: r̂θϕInfo, radiation_integral_rwg, radiation_integral_swg, ∠Info
+using EMMoMSuite.PostProcessing.RadiationIntegral: r̂θϕInfo, radiation_integral_rwg, radiation_integral_swg, ∠Info
 
 function verify_vsie_plate()
     println("==================================================")
@@ -18,10 +18,10 @@ function verify_vsie_plate()
 
     # 1. Parameters
     freq = 12e8 # 1.2 GHz
-    EMSuite.Utilities.Parameters.set_frequency!(freq)
+    EMMoMSuite.Utilities.Parameters.set_frequency!(freq)
     
     # 2. Mesh
-    mesh_file = joinpath(@__DIR__, "../../../MoM_AllinOne/meshfiles/plate_and_metal_1dot2GHz.nas")
+    mesh_file = joinpath(@__DIR__, "../../../deps/fixtures/AllinOne/meshfiles/plate_and_metal_1dot2GHz.nas")
     if !isfile(mesh_file)
         println("Error: Mesh file not found: $mesh_file")
         return
@@ -118,8 +118,8 @@ function verify_vsie_plate()
     
     # We can use radiation_integral_rwg and radiation_integral_swg from RadiationIntegral module.
     
-    k0 = EMSuite.Utilities.Parameters.get_k0()
-    eta0 = EMSuite.Utilities.Parameters.get_eta0()
+    k0 = EMMoMSuite.Utilities.Parameters.get_k0()
+    eta0 = EMMoMSuite.Utilities.Parameters.get_eta0()
     factor = (k0 * eta0)^2 / (4 * pi)
     
     r_info = r̂θϕInfo(∠Info(0.0), ∠Info(0.0)) # Theta=0, Phi=0
