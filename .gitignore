@@ -18,7 +18,7 @@ Thumbs.db
 
 # Runtime artifacts (simulation/test run outputs)
 /results/
-/test_results/runs/
+/test_results/
 /.worktrees/
 
 # Regenerable interpolation-weight cache (no active callers; recomputed on demand)

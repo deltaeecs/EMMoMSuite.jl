@@ -246,7 +246,7 @@ benchmark/
 
 ## 性能基准
 
-下表来自当前稳定报告使用的 [test_results/reports/PERFORMANCE_BASELINE.csv](test_results/reports/PERFORMANCE_BASELINE.csv)。这些数字是当前验证机器上的基线，不应直接当作跨机器承诺值。
+下表来自当前稳定报告（由 `benchmark/run_release_workflow.jl` 生成，输出到 `test_results/reports/PERFORMANCE_BASELINE.csv`）。这些数字是当前验证机器上的基线，不应直接当作跨机器承诺值。
 
 | 用例 | 方程 | 求解策略 | N | Assembly / Setup (s) | Solve (s) | Total (s) |
 |------|------|----------|---|----------------------|-----------|-----------|
@@ -266,7 +266,7 @@ julia -t auto --project=. benchmark/performance_baseline.jl
 
 ## 精度验证
 
-当前统一报告的执行摘要来自 [test_results/reports/RELEASE_VALIDATION_REPORT.md](test_results/reports/RELEASE_VALIDATION_REPORT.md)。截至最近一次验证：
+当前统一报告的执行摘要来自 release 流程生成的 `test_results/reports/RELEASE_VALIDATION_REPORT.md`（入口：`benchmark/run_release_validation_report.jl`）。截至最近一次验证：
 
 - Accuracy curves within threshold: `18 / 20`
 - Known exceptions accepted: `2`
