@@ -20,3 +20,11 @@ Thumbs.db
 /results/
 /test_results/runs/
 /.worktrees/
+
+# Regenerable interpolation-weight cache (no active callers; recomputed on demand)
+/deps/InterpolationWeights/
+
+# Generated test artifacts
+/test/test_results/
+/test_results/TestPlate.log
+/test_results/TestPlate_result.h5

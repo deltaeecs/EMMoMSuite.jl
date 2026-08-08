@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **License**: 项目许可证从 MIT 切换为 GPL-3.0-only，与原 MoM 系列包（`MoM_Basics` / `MoM_Kernels` / `MoM_AllinOne` / `MoM_MPI` / `MoM_Lebedev` / `MoM_Visualizing`）保持一致；MIT LICENSE 已从 git 历史中移除。
 - **README**: 新增 CI 与 `master` 分支覆盖率 badge，新增英文版 [README.en.md](README.en.md)；许可证说明更新为“学术研究免费使用、不推荐商业环境”。
 - **CI**: fast tests 开启 `--code-coverage=user` 并上传真实覆盖率报告，修复 Codecov 报告显示 0% 的问题。
+- **Repo hygiene**: 从 git 历史移除非必要二进制文件——`deps/InterpolationWeights/`（约 265 MB HDF5 插值权重缓存，无调用者且可按需重新生成）、历史遗留的 `sphere_mesh_data.jld2`，以及生成的测试产物（`test/test_results/`、`test_results/TestPlate.*`）。
 
 ### Added
 
