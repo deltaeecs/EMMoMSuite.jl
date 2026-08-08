@@ -40,7 +40,7 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       
       - name: Run fast tests
-        run: julia --project=. --color=yes test/runtests_fast.jl
+        run: julia --project=. --color=yes --code-coverage=user test/runtests_fast.jl
         env:
           JULIA_NUM_THREADS: 2
       
