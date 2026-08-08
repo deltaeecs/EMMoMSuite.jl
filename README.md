@@ -1,5 +1,10 @@
 # EMMoMSuite.jl
 
+[![CI](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml)
+[![Coverage (master)](https://img.shields.io/codecov/c/github/deltaeecs/EMMoMSuite.jl/branch/master?label=coverage%20%28master%29)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl)
+
+> 中文 | [English](README.en.md)
+
 EMMoMSuite.jl 是一个面向工程验证与重构交付的 Julia 计算电磁学框架，核心聚焦矩量法求解链，包括表面积分、体积分、混合积分方程、MLFMA、MPI 并行、端口建模、后处理与发布验证流程。
 
 当前仓库状态已经不再是“单一求解器包”这么简单，而是分成两条清晰链路：
@@ -392,4 +397,8 @@ README 只保留面向使用者的稳定信息，不再重复维护一份容易�
 
 ## 许可证
 
-本项目采用 [MIT 许可证](LICENSE)。
+本项目采用 [GNU GPL v3 许可证](LICENSE)（GPL-3.0-only），与原 MoM 系列包（`MoM_Basics` / `MoM_Kernels` / `MoM_AllinOne` / `MoM_MPI` / `MoM_Lebedev` / `MoM_Visualizing`）保持一致。
+
+- 本软件免费提供给学术研究人员使用；
+- GPL v3 为 copyleft 协议：任何基于本软件进一步开发的程序同样需要开源；
+- 不推荐商业环境使用；如有商业或合作需求，请联系作者确认适用条件。
