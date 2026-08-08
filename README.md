@@ -5,6 +5,14 @@
 
 > 中文 | [English](README.en.md)
 
+## 版权与联系方式
+
+本程序版权属于 **北京大学电子学院电磁场与微波技术实验室 夏明耀教授课题组**。有合作需求请联系：
+
+- 夏明耀教授：[myxia@pku.edu.cn](mailto:myxia@pku.edu.cn)
+- 贺晓阳：[1801111302@pku.edu.cn](mailto:1801111302@pku.edu.cn)
+- 张文炜：[2201111526@stu.pku.edu.cn](mailto:2201111526@stu.pku.edu.cn)
+
 EMMoMSuite.jl 是一个面向工程验证与重构交付的 Julia 计算电磁学框架，核心聚焦矩量法求解链，包括表面积分、体积分、混合积分方程、MLFMA、MPI 并行、端口建模、后处理与发布验证流程。
 
 当前仓库状态已经不再是“单一求解器包”这么简单，而是分成两条清晰链路：

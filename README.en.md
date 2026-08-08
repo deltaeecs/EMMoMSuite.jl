@@ -5,6 +5,14 @@
 
 > English | [中文](README.md)
 
+## Copyright & contact
+
+The copyright of this program belongs to the research group of Prof. Xia Mingyao, Laboratory of Electromagnetic Fields and Microwave Technology, School of Electronics, Peking University. For collaboration inquiries, please contact:
+
+- Prof. Xia Mingyao: [myxia@pku.edu.cn](mailto:myxia@pku.edu.cn)
+- He Xiaoyang: [1801111302@pku.edu.cn](mailto:1801111302@pku.edu.cn)
+- Zhang Wenwei: [2201111526@stu.pku.edu.cn](mailto:2201111526@stu.pku.edu.cn)
+
 EMMoMSuite.jl is a Julia computational electromagnetics framework oriented toward engineering validation and refactoring delivery. Its core focus is the Method of Moments (MoM) solving chain, including surface integrals, volume integrals, hybrid integral equations, MLFMA, MPI parallelism, port modeling, post-processing, and release-validation workflows.
 
 This repository is no longer a single "solver package"; it is organized into two clearly separated chains:
