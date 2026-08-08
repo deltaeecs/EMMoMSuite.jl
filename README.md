@@ -1,7 +1,7 @@
 # EMMoMSuite.jl
 
 [![CI](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml)
-[![Coverage (master)](https://img.shields.io/codecov/c/github/deltaeecs/EMMoMSuite.jl/branch/master?label=coverage%20%28master%29)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl)
+[![Coverage (master)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl)
 
 > 中文 | [English](README.en.md)
 
