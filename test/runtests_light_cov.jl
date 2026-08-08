@@ -23,10 +23,10 @@ using Test
     include("test_basis_functions.jl")
     include("test_integral_equations.jl")
     include("test_fastexp.jl")
-    include("test_mfie_decomposition.jl")
+    # SKIP: test_mfie_decomposition.jl (密集 CFIE 分解验证, ~1330 RWG 装配, 覆盖率插桩下过慢)
     include("test_solvers.jl")
     include("test_solvers_verification.jl")
-    include("test_preconditioners.jl")
+    # SKIP: test_preconditioners.jl (BlockJacobi 立方块 LU + MLFMA 栈加载, 覆盖率插桩下过慢)
     # SKIP: test_mlfma.jl
     # SKIP: test_parallel.jl
     include("test_mpiarray.jl")
