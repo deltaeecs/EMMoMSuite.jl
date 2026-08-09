@@ -375,16 +375,6 @@ julia --project=benchmark benchmark/run_release_validation_report.jl
 julia --project=docs docs/make.jl
 ```
 
-## 路线图与进度
-
-当前开发进度以仓库内文档为准：
-
-- 路线图：[.github/REFACTORING_ROADMAP.md](.github/REFACTORING_ROADMAP.md)
-- 进度记录：[.github/REFACTORING_PROGRESS.md](.github/REFACTORING_PROGRESS.md)
-- Phase 17 计划：[.github/plans/phase_17_release_workflow_normalization_plan.md](.github/plans/phase_17_release_workflow_normalization_plan.md)
-
-README 只保留面向使用者的稳定信息，不再重复维护一份容易过时的 phase 列表。
-
 ## 旧包迁移说明（Legacy packages）
 
 本仓库是原分散 MoM 包体系的整合与延续（`EMMoMSuite.jl` 为最新版本）。以下旧仓库已归档（read-only），
