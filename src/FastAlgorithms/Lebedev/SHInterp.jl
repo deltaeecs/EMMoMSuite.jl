@@ -703,8 +703,9 @@ function interp_weights_local_orbit(
     m >= nt && error("Lloc=$(Lloc) 需要 m=$(m) >= 粗层点数 $(nt)，请用 interp_weights_exact")
     reps, rots, rep2nodes, _ = _orbit_reps(pnodes)
     cdict = Dict{Tuple{Float64,Float64,Float64},Int}()
+    r8(x) = x == 0.0 ? 0.0 : round(x, digits = 8)
     for j in 1:nt
-        cdict[(round(tnodes[1, j], digits = 8), round(tnodes[2, j], digits = 8), round(tnodes[3, j], digits = 8))] = j
+        cdict[(r8(tnodes[1, j]), r8(tnodes[2, j]), r8(tnodes[3, j]))] = j
     end
     W = spzeros(FT, nf, nt)
     θ = Float64(cap_rad)
@@ -723,9 +724,9 @@ function interp_weights_local_orbit(
             M = rots[j]
             cols = [
                 cdict[(
-                    round(M[1,1] * tnodes[1,s] + M[1,2] * tnodes[2,s] + M[1,3] * tnodes[3,s], digits = 8),
-                    round(M[2,1] * tnodes[1,s] + M[2,2] * tnodes[2,s] + M[2,3] * tnodes[3,s], digits = 8),
-                    round(M[3,1] * tnodes[1,s] + M[3,2] * tnodes[2,s] + M[3,3] * tnodes[3,s], digits = 8),
+                    r8(M[1,1] * tnodes[1,s] + M[1,2] * tnodes[2,s] + M[1,3] * tnodes[3,s]),
+                    r8(M[2,1] * tnodes[1,s] + M[2,2] * tnodes[2,s] + M[2,3] * tnodes[3,s]),
+                    r8(M[3,1] * tnodes[1,s] + M[3,2] * tnodes[2,s] + M[3,3] * tnodes[3,s]),
                 )] for s in S
             ]
             W[j, cols] = w[:]
