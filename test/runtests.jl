@@ -19,6 +19,7 @@ using Test
     include("test_volume_assembly_mpi.jl")
     include("test_mpi_array_utils.jl")
     include("test_lebedev.jl")
+    include("test_lebedev_interp.jl")
     include("test_postprocessing.jl")
     include("test_antenna_feeds.jl")
     include("test_io.jl")
