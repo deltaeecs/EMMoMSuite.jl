@@ -6,6 +6,9 @@
 *.jl_temp
 *.jl.orig
 /Manifest.toml
+/benchmark/Manifest.toml
+/docs/Manifest.toml
+/benchmark/results/
 /docs/build/
 /docs/site/
 
