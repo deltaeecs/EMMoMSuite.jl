@@ -375,16 +375,6 @@ julia --project=benchmark benchmark/run_release_validation_report.jl
 julia --project=docs docs/make.jl
 ```
 
-## Roadmap and progress
-
-Current development progress is maintained in repository documents:
-
-- Roadmap: [.github/REFACTORING_ROADMAP.md](.github/REFACTORING_ROADMAP.md)
-- Progress log: [.github/REFACTORING_PROGRESS.md](.github/REFACTORING_PROGRESS.md)
-- Phase 17 plan: [.github/plans/phase_17_release_workflow_normalization_plan.md](.github/plans/phase_17_release_workflow_normalization_plan.md)
-
-The README keeps only stable user-facing information and no longer maintains a phase list that quickly goes stale.
-
 ## Legacy package migration notes
 
 This repository is the consolidation and continuation of the original distributed MoM package system (`EMMoMSuite.jl` is the latest version). The following legacy repositories are archived (read-only), no longer maintained separately, and their functionality has been merged into this package:
