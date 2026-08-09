@@ -1,0 +1,16 @@
+# Codecov 配置：benchmark 脚本与测试目录不计入覆盖率；
+# 项目覆盖率允许 ±2% 漂移（新增/重构代码），patch 允许 ±10% 相对目标漂移。
+ignore:
+  - "scripts/**"
+  - "test/**"
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        target: auto
+        threshold: 10%
