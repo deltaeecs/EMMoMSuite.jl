@@ -10,6 +10,7 @@ export AbstractPolesInfo, AbstractInterpInfo
 export GLPolesInfo, LagrangeInterpInfo
 export levelIntegralInfoCal, interpolationCSCMatCal, truncation_kernel
 export interpolate, anterpolate, interpolate!, anterpolate!
+export interp_type
 
 abstract type AbstractPolesInfo{FT<:AbstractFloat} end
 abstract type AbstractInterpInfo{IT<:Integer,FT<:Real} end
@@ -32,6 +33,14 @@ struct GLPolesInfo{FT<:Real} <: AbstractPolesInfo{FT}
     Wθϕs::Vector{FT}
     r̂sθsϕs::Vector{r̂θϕInfo{FT}}
 end
+
+"""
+    interp_type(::AbstractPolesInfo) -> Type
+
+采样信息类型 -> 对应插值矩阵类型。GL 网格用两段 Lagrange；Lebedev（LbPolesInfo）
+在 Lebedev/LVI.jl 中扩展为一步训练/球谐插值（LbTrainedInterp1tepInfo）。
+"""
+interp_type(::GLPolesInfo{FT}) where {FT} = LagrangeInterpInfo{Int,FT}
 
 """
     LagrangeInterpInfo{IT, FT}
