@@ -174,14 +174,18 @@ function MLFMAOperator(
     operator::AbstractIntegralOperator,
     basis::AbstractBasisFunction,
     leafCubeEdgel::Float64,
+    interp_method::Val = Val(:Lagrange2Step),
+    near_range::Int = 4,
 )
-    return MLFMAOperator(operator, [basis], leafCubeEdgel)
+    return MLFMAOperator(operator, [basis], leafCubeEdgel, interp_method, near_range)
 end
 
 function MLFMAOperator(
     operator::AbstractIntegralOperator,
     bases::Vector{<:AbstractBasisFunction},
     leafCubeEdgel::Float64,
+    interp_method::Val = Val(:Lagrange2Step),
+    near_range::Int = 4,
 )
     # 1. Build Octree
     # Concatenate centers from all bases
@@ -189,7 +193,13 @@ function MLFMAOperator(
     bf_centers = reduce(hcat, bf_centers_list)
 
     lambda = Constants.c0 / operator.freq
-    octree, sorted_ids = build_octree(bf_centers, leafCubeEdgel; λ = lambda)
+    octree, sorted_ids = build_octree(
+        bf_centers,
+        leafCubeEdgel;
+        λ = lambda,
+        interp_method = interp_method,
+        near_range = near_range,
+    )
 
     # Inverse permutation
     N = length(sorted_ids)

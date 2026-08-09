@@ -319,8 +319,6 @@ function aggregate_upward!(parentLevel::LevelInfo, childLevel::LevelInfo)
     childAggS = childLevel.aggS
 
     interp = childLevel.interpWθϕ
-    θCSC = interp.θCSC
-    ϕCSC = interp.ϕCSC
 
     phaseShift = parentLevel.phaseShiftFromKids
 
@@ -333,8 +331,14 @@ function aggregate_upward!(parentLevel::LevelInfo, childLevel::LevelInfo)
 
             aggChild = view(childAggS, :, :, childID)
 
-            aggInterpPhi = ϕCSC * aggChild
-            aggInterp = θCSC * aggInterpPhi
+            aggInterp = if hasfield(typeof(interp), :θϕCSC)
+                # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
+                reshape(interp.θϕCSC * vec(aggChild), nPolesParent, 2)
+            else
+                # 传统两段式：先 ϕ 后 θ
+                aggInterpPhi = interp.ϕCSC * aggChild
+                interp.θCSC * aggInterpPhi
+            end
 
             shift = view(phaseShift, :, childIn8)
 

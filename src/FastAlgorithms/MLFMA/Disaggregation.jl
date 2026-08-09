@@ -59,8 +59,6 @@ function disaggregate_downward!(parentLevel::LevelInfo, childLevel::LevelInfo)
     childDisaggG = childLevel.disaggG
 
     interp = childLevel.interpWθϕ
-    θCSCT = interp.θCSCT
-    ϕCSCT = interp.ϕCSCT
 
     phaseShift = parentLevel.phaseShift2Kids
 
@@ -79,8 +77,13 @@ function disaggregate_downward!(parentLevel::LevelInfo, childLevel::LevelInfo)
                 @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
             end
 
-            temp = θCSCT * shiftedParent
-            childVal = ϕCSCT * temp
+            childVal = if hasfield(typeof(interp), :θϕCSC)
+                # Lebedev 一步反插值：θϕCSCT 为插值矩阵的转置（伴随算子）
+                reshape(interp.θϕCSCT * vec(shiftedParent), nPolesChild, 2)
+            else
+                temp = interp.θCSCT * shiftedParent
+                interp.ϕCSCT * temp
+            end
 
             @views childDisaggG[:, :, childID] .+= childVal
         end
