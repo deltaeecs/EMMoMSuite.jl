@@ -5,8 +5,12 @@ using LinearAlgebra
 using HDF5
 using ....Geometry
 using ...MLFMA.Interpolation
-using ..LebedevSortedPoints: getlbSortedData, nodes2Poles, p2nDict, n2pDict
+using ...MLFMA.Interpolation: interp_type
+using ..LebedevSortedPoints: getlbSortedData, nodes2Poles, p2nDict, high_order_nodes
 using ..pinv2interpW: runpinvCal
+using ..SHInterp:
+    vectorize, interp_weights_exact, interp_weights_local, interp_weights_local_orbit,
+    interp_weights_auto, interp_weights_hybrid
 using ....Utilities: load_sparse_matrix
 
 export LbPolesInfo, LbTrainedInterp1tepInfo
@@ -19,6 +23,7 @@ rHatsθsϕs  ::Vector{r̂θϕInfo{FT}}， 球面采样信息向量
 struct LbPolesInfo{FT<:Real} <: AbstractPolesInfo{FT}
     Wθϕs::Vector{FT}
     r̂sθsϕs::Vector{r̂θϕInfo{FT}}
+    p::Int   # 多项式阶数（2τ+1），Lebedev 或高阶 Fibonacci 节点
 end
 
 """
@@ -35,22 +40,29 @@ function Interpolation.levelIntegralInfoCal(
     λ = 1.0,
 ) where {FT<:Real}
     ## 计算截断项
-    # Assuming truncation_kernel takes ka = k * a = 2pi/lambda * a
-    L = truncation_kernel(levelCubeEdgel * 2π / λ)
+    # truncation_kernel 的输入是盒子边长（以 λ 计）a/λ
+    L = truncation_kernel(levelCubeEdgel / λ)
     truncL = ceil(Int, L)
 
-    if 2truncL + 1 < maximum(keys(p2nDict))
+    p = 2truncL + 1
+    if p <= maximum(keys(p2nDict))
         # 读取 球 t 采样点信息并返回更新的 truncL
-        nodes, weights = getlbSortedData(2truncL + 1)
+        nodes, weights = getlbSortedData(p)
 
         # 创建Poles实例保存
         r̂sθsϕs = nodes2Poles(nodes)
-        poles = LbPolesInfo{FT}(weights, r̂sθsϕs)
+        poles = LbPolesInfo{FT}(weights, r̂sθsϕs, p)
 
         return truncL, poles
     else
-        @warn "本层大小超出 Lebedev 求积极限，换回球面高斯求积。"
-        return levelIntegralInfoCal(levelCubeEdgel, Val(:Lagrange2Step); λ = λ)
+        # 高阶无 Lebedev 数据集：Fibonacci 准均匀格点 + 等权重（无 GL 回退）
+        nodes = high_order_nodes(p)
+        n = size(nodes, 2)
+        weights = fill(FT(4π / n), n)
+        r̂sθsϕs = nodes2Poles(nodes)
+        poles = LbPolesInfo{FT}(weights, r̂sθsϕs, p)
+        @warn "本层 p=$p 超出 Lebedev 数据集上限（$(maximum(keys(p2nDict)))），改用 Fibonacci 格点（n=$n）。"
+        return truncL, poles
     end
 end
 
@@ -79,15 +91,36 @@ function LbTrainedInterp1tepInfo(
     pk::Int,
     pt::Int;
     FT = Float64,
+    method::Symbol = :sh_auto,
+    Lloc::Int = 0,
+    cap_rad::Float64 = 1.0,
     depath = joinpath(@__DIR__, "../../../deps/InterpolationWeights/"),
 )
 
-    fn = joinpath(depath, "$(pk)to$(pt).h5")
-    if !isfile(fn)
-        runpinvCal(pk, pt; FT = FT)
-    end
-    w = h5open(fn, "r") do file
-        load_sparse_matrix(file, "data")
+    w = if method == :sh_exact
+        # 球谐精确一步插值：确定性、机器精度、无需训练数据
+        vectorize(interp_weights_exact(pk, pt; FT = FT))
+    elseif method == :sh_auto
+        # 默认修复路径：小规模用精确稠密 W，大规模用局部约束稀疏 W
+        interp_weights_auto(pk, pt; FT = FT)
+    elseif method == :sh_hybrid
+        # 混合权重：数据拟合 + 笛卡尔标量 SH 精确性约束（确定性、稀疏、构造快）
+        interp_weights_hybrid(pk, pt; Lloc = 3, support_scale = 1.5, FT = FT)
+    elseif method == :sh_local
+        Lloc > 0 || error(":sh_local 需要 Lloc > 0")
+        vectorize(interp_weights_local(pk, pt; Lloc = Lloc, cap_rad = cap_rad, FT = FT))
+    elseif method == :sh_local_orbit
+        Lloc > 0 || error(":sh_local_orbit 需要 Lloc > 0")
+        vectorize(interp_weights_local_orbit(pk, pt; Lloc = Lloc, cap_rad = cap_rad, FT = FT))
+    else
+        # 原训练式权重（IDW + 逐行 pinv）：h5 缓存不存在时现场训练
+        fn = joinpath(depath, "$(pk)to$(pt).h5")
+        if !isfile(fn)
+            runpinvCal(pk, pt; FT = FT)
+        end
+        h5open(fn, "r") do file
+            load_sparse_matrix(file, "data")
+        end
     end
     θϕCSC = convert(SparseMatrixCSC{FT,Int}, w)
     θϕCSCT = sparse(transpose(θϕCSC))
@@ -149,15 +182,14 @@ function Interpolation.interpolationCSCMatCal(
     kLevelPoles::LbPolesInfo{FT},
     ::IT = 8,
 ) where {IT<:Integer,FT<:Real}
-    # 多极子数
-    nt = length(tLevelPoles.Wθϕs)
-    nk = length(kLevelPoles.Wθϕs)
-    # 多项式阶数
-    pk = n2pDict[nk]
-    pt = n2pDict[nt]
+    # 多项式阶数（显式携带，支持高阶 Fibonacci 节点）
+    pk = kLevelPoles.p
+    pt = tLevelPoles.p
     # 插值矩阵
-    LbTrainedInterp1tepInfo(pk, pt; FT = FT)
+    LbTrainedInterp1tepInfo(pk, pt; FT = FT, method = :sh_auto)
 end
+
+Interpolation.interp_type(::LbPolesInfo{FT}) where {FT} = LbTrainedInterp1tepInfo{Int,FT}
 
 
 function Interpolation.interpolationCSCMatCal(
@@ -165,13 +197,11 @@ function Interpolation.interpolationCSCMatCal(
     kLevelPoles::LbPolesInfo{FT},
     ::IT = 8,
 ) where {IT<:Integer,FT<:Real}
-    # 多极子数
-    nk = length(kLevelPoles.Wθϕs)
-    # 多项式阶数
-    pk = n2pDict[nk]
+    # 多项式阶数（Lebedev/Fibonacci 层显式携带）
+    pk = kLevelPoles.p
     pt = 2(length(tLevelPoles.Xθs) - 1) + 1
     # 插值矩阵
-    LbTrainedInterp1tepInfo(pk, pt; FT = FT)
+    LbTrainedInterp1tepInfo(pk, pt; FT = FT, method = :sh_auto)
 end
 
 end # module

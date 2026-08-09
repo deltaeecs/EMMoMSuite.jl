@@ -6,6 +6,7 @@ using ....Geometry
 using ...MLFMA.Interpolation: octreeXWNCal
 
 export getlbSortedData, get_t_nodes, nodes2Poles, p2nDict, n2pDict
+export fibonacci_grid, high_order_nodes
 
 const TargetDir = joinpath(@__DIR__, "../../../deps/sphere_lebedev/nodesSorted/")
 
@@ -35,6 +36,38 @@ function lbnt2fnDictConstruct(filedirs::String = TargetDir)
 end
 
 const lbnP2FILEDict, p2nDict, n2pDict = lbnt2fnDictConstruct()
+
+"""
+    fibonacci_grid(n) -> nodes (3, n)
+
+Fibonacci 格点：准均匀、任意点数、无需数据集。黄金角 φ_i = i*π(3-√5)，
+z_i = 1 - 2(i-0.5)/n。用于高阶（p > 131，无 Lebedev 数据集）的节点提供。
+"""
+function fibonacci_grid(n::Int)
+    nodes = zeros(Float64, 3, n)
+    ga = π * (3 - sqrt(5))
+    for i in 1:n
+        z = 1 - 2 * (i - 0.5) / n
+        r = sqrt(1 - z * z)
+        φ = ga * i
+        nodes[1, i] = r * cos(φ)
+        nodes[2, i] = r * sin(φ)
+        nodes[3, i] = z
+    end
+    return nodes
+end
+
+"""
+    high_order_nodes(p) -> nodes (3, n)
+
+多项式阶数 p（奇数，>131，Lebedev 数据集不存在）的节点：
+Fibonacci 格点，点数 n ≈ (4/3)*τ^2（τ=(p-1)/2，与 Lebedev 同效率）。
+"""
+function high_order_nodes(p::Int)
+    τ = (p - 1) ÷ 2
+    n = round(Int, 4 / 3 * τ^2)
+    return fibonacci_grid(n)
+end
 
 function modiTgetFileName(p::Int, T2FILEDict::Dict)
     if isempty(T2FILEDict)
@@ -80,13 +113,8 @@ function get_t_nodes(t; FT = Float64)
     nodes = if p <= maximum(keys(p2nDict))
         getlbSortedData(p; FT = FT)[1]
     else
-        # θ direction
-        Xcosθs, Wθs = octreeXWNCal(one(FT), -one(FT), t, :glq)
-        Xθs = acos.(Xcosθs)
-        # ϕ direction
-        Xϕs, Wϕs = octreeXWNCal(zero(FT), convert(FT, 2π), t, :uni)
-
-        reduce(hcat, [r̂θϕInfo(θ, ϕ).r̂ for ϕ in Xϕs for θ in Xθs])
+        # 高阶（无 Lebedev 数据集）：Fibonacci 准均匀格点（任意点数）
+        high_order_nodes(p)
     end
     return nodes
 end
