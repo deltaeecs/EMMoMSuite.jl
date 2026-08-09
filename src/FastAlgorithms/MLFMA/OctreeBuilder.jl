@@ -53,6 +53,7 @@ function build_octree(
     λ = 1.0,
     L_min::Int = 0,
     near_range::Int = 4,
+    interp_method::Val = Val(:Lagrange2Step),
 ) where {FT<:Real}
     @info "Building Octree..."
 
@@ -76,10 +77,11 @@ function build_octree(
         λ = λ,
         L_min = L_min,
         near_range = near_range,
+        interp_method = interp_method,
     )
 
     # Initialize levels dictionary
-    levels = Dict{Int,LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}}(nLevels => leafLevel)
+    levels = Dict{Int,AbstractLevel}(nLevels => leafLevel)
 
     # Track sorted IDs
     levelsCubeIDSorted = Dict{Int,Vector{Int}}()
@@ -96,6 +98,7 @@ function build_octree(
             λ = λ,
             L_min = L_min,
             near_range = near_range,
+            interp_method = interp_method,
         )
         levels[ilevel] = level
         levelsCubeIDSorted[ilevel+1] = levelIDSorted
@@ -154,6 +157,7 @@ function setLevelInfo!(
     λ = 1.0,
     L_min::Int = 0,
     near_range::Int = 4,
+    interp_method::Val = Val(:Lagrange2Step),
 ) where {FT<:Real}
     nleaves = size(leafnodes, 2)
     nodesInCubeID3D = zeros(Int, nleaves, 4)
@@ -200,9 +204,13 @@ function setLevelInfo!(
         )
     end
 
-    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
+    L, poles = if interp_method == Val(:LbTrained1Step)
+        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
+    else
+        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
+    end
 
-    level = LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}()
+    level = LevelInfo{Int,FT,interp_type(poles)}()
     level.ID = nLevels
     level.isleaf = true
     level.L = L
@@ -222,6 +230,7 @@ function setLevelInfo!(
     λ = 1.0,
     L_min::Int = 0,
     near_range::Int = 4,
+    interp_method::Val = Val(:Lagrange2Step),
 ) where {FT<:Real}
     nkidCubes = length(kidLevel.cubes)
     kidCubesInCubeID3D = zeros(Int, nkidCubes, 4)
@@ -266,9 +275,13 @@ function setLevelInfo!(
         )
     end
 
-    L, poles = levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
+    L, poles = if interp_method == Val(:LbTrained1Step)
+        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
+    else
+        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
+    end
 
-    level = LevelInfo{Int,FT,LagrangeInterpInfo{Int,FT}}()
+    level = LevelInfo{Int,FT,interp_type(poles)}()
     level.ID = levelID
     level.isleaf = false
     level.L = L
