@@ -184,9 +184,11 @@ function runpinvCal(pk::T, pt::T; nInterp = pk < 20 ? 9 : 8, FT = Float64) where
     tArray, pArray = generate_dataset_on_pkpt(pk, pt, rel_l; FT = FT)
 
     # 划分数据集
+    # 注意：复数约束必须用 hcat(real, imag)（2n x 2N），使实部+虚部同时参与逐行拟合；
+    # 原 vcat(real, imag)（4n x N）只索引到前 2n 行，等于只用实部，是权重矩阵失效的根因之一。
     flag = trunc(Int, 0.8 * size(tArray, 2))
-    @views xx2D = vcat(real(tArray[:, 1:flag]), imag(tArray[:, 1:flag]))
-    @views yy2D = vcat(real(pArray[:, 1:flag]), imag(pArray[:, 1:flag]))
+    @views xx2D = hcat(real(tArray[:, 1:flag]), imag(tArray[:, 1:flag]))
+    @views yy2D = hcat(real(pArray[:, 1:flag]), imag(pArray[:, 1:flag]))
     @views xx2Dte = tArray[:, (flag+1):end]
     @views yy2Dte = pArray[:, (flag+1):end]
 
