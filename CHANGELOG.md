@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.1.1] - 2026-08-09
+
+### Fixed
+
+- **Lebedev 插值权重矩阵**：定位并修复权重矩阵全部失效的根本原因——数据集生成时粗/细层
+  各自重新随机生成源几何（两层数据对应不同辐射函数，插值在拟合噪声）；改为每样本生成
+  一次几何并供两层共用。同时修复 `vcat(real,imag)` 只使用实部约束（改 `hcat` 全复约束）、
+  源几何与层盒子失配、LVI `truncation_kernel` 参数（`ka`→`a/λ`）与 `2L+1<max` off-by-one、
+  高阶回退调用不存在方法等问题。
+- **论文对齐**：修复后论文 Fig.2 插值误差可复现（8 个插值点 εi≈2.5e-4~1e-3，随点数递减）。
+
+### Added
+
+- **FastAlgorithms.Lebedev.SHInterp**：球谐精确、局部约束、八面体群轨道压缩、笛卡尔标量 SH
+  矢量插值（机器精度）、自旋加权球谐（VSH）与"数据拟合 + 精确性约束"混合权重
+  （`interp_weights_*` 系列）。`LbTrainedInterp1tepInfo` 默认 `method=:sh_auto`。
+- **高阶节点**：`fibonacci_grid` / `high_order_nodes`，p>131（无 Lebedev 数据集）时自动使用
+  Fibonacci 准均匀格点；`LbPolesInfo` 显式携带多项式阶数，插值链路支持任意点数。
+- **MLFMA 一步插值路径**：`build_octree(; interp_method=Val(:LbTrained1Step))`、
+  Aggregation/Disaggregation 一步插值分支、`MLFMAOperator` 透传 `interp_method`/`near_range`。
+
+### Performance
+
+- 4λ PEC 球基准（N=3312，5 层）：Lebedev 路径极点数较 GL 少 31.5%、单次 MVM 快约 18~2.9×
+  （随规模增长），εq 与 GL 完全一致。
+
 ## [Unreleased]
 
 ### Changed
