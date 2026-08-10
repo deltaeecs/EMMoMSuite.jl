@@ -2,8 +2,18 @@
 
 [![CI](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml)
 [![Coverage (master)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl)
+[![Docs](https://img.shields.io/badge/docs-documentation-9558B2.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src)
+[![Theory](https://img.shields.io/badge/theory-reference-blueviolet.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/theory)
+[![API](https://img.shields.io/badge/API-reference-important.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/api)
 
 > English | [中文](README.md)
+
+## Documentation
+
+- 📖 [User Guide](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/guide)
+- 📚 [Theory](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/theory)
+- 🧮 [API Reference](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/api)
+- 🏠 [Docs Home](https://github.com/deltaeecs/EMMoMSuite.jl/blob/master/docs/src/index.md)
 
 ## Copyright & contact
 
