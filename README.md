@@ -2,18 +2,18 @@
 
 [![CI](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml)
 [![Coverage (master)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl)
-[![文档](https://img.shields.io/badge/docs-%E6%96%87%E6%A1%A3-9558B2.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src)
-[![理论](https://img.shields.io/badge/theory-%E7%90%86%E8%AE%BA-blueviolet.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/theory)
-[![API](https://img.shields.io/badge/API-%E5%8F%82%E8%80%83-important.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/api)
+[![文档](https://img.shields.io/badge/docs-%E6%96%87%E6%A1%A3-9558B2.svg)](https://deltaeecs.github.io/EMMoMSuite.jl/)
+[![理论](https://img.shields.io/badge/theory-%E7%90%86%E8%AE%BA-blueviolet.svg)](https://deltaeecs.github.io/EMMoMSuite.jl/theory/overview.html)
+[![API](https://img.shields.io/badge/API-%E5%8F%82%E8%80%83-important.svg)](https://deltaeecs.github.io/EMMoMSuite.jl/api/public_api.html)
 
 > 中文 | [English](README.en.md)
 
 ## 文档入口
 
-- 📖 [用户指南](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/guide)
-- 📚 [理论文档](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/theory)
-- 🧮 [API 参考](https://github.com/deltaeecs/EMMoMSuite.jl/tree/master/docs/src/api)
-- 🏠 [文档首页](https://github.com/deltaeecs/EMMoMSuite.jl/blob/master/docs/src/index.md)
+- 📖 [用户指南](https://deltaeecs.github.io/EMMoMSuite.jl/guide/quick_start.html)
+- 📚 [理论文档](https://deltaeecs.github.io/EMMoMSuite.jl/theory/overview.html)
+- 🧮 [API 参考](https://deltaeecs.github.io/EMMoMSuite.jl/api/public_api.html)
+- 🏠 [文档首页](https://deltaeecs.github.io/EMMoMSuite.jl/)
 
 ## 版权与联系方式
 
