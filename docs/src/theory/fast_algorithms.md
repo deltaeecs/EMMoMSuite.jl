@@ -190,7 +190,7 @@ $$
 
 随机生成 $\bm{\hat{\rho}}$ 与尺度在盒子大小的 $\bm{r}_b - \bm{r}'$，在同一辐射源
 的两层采样点上批量计算（实部、虚部分别作为数据列，数据集翻倍），得到
-$\bm{\mathbbm{F}}(\hat{\bm{k}}^{l-1})$ 与 $\bm{\mathbbm{F}}(\hat{\bm{k}}^{l})$。
+$\mathbb{F}(\hat{\bm{k}}^{l-1})$ 与 $\mathbb{F}(\hat{\bm{k}}^{l})$。
 
 **矩阵初始化（稀疏模式）**。对每个父层待插值点，选距离最近的 $N_k$ 个子层
 采样点作为插值点（4 个子块同步标记），其余位置为零，保证矩阵高度稀疏。
@@ -201,14 +201,14 @@ $\bm{\mathbbm{F}}(\hat{\bm{k}}^{l-1})$ 与 $\bm{\mathbbm{F}}(\hat{\bm{k}}^{l})$�
 
 ![Lebedev 求积层间采样点分布与层间插值矩阵示意图：(a) 截断项 5 与 7 的采样点分布；(b) 不同插值点数下的稀疏模式，图中更稀疏的行对应 14 个层间共享点（论文图 4-11）](figures/lebedev_k2f_pattern.png)
 
-**伪逆法（逐行）**。完整求解 $\bm{\Gamma}^{l-1,l} = \bm{\mathbbm{F}}(\hat{\bm{k}}^{l-1})\bm{\mathbbm{F}}^{\dagger}(\hat{\bm{k}}^{l})$
+**伪逆法（逐行）**。完整求解 $\bm{\Gamma}^{l-1,l} = \mathbb{F}(\hat{\bm{k}}^{l-1})\mathbb{F}^{\dagger}(\hat{\bm{k}}^{l})$
 得到的是稠密矩阵。论文改为逐行计算
 （论文式 (4-24)~(4-26)）：对第 $p$ 行，提取非零元 $\bm{\gamma}_p$ 与列索引
 集合 $C_p$（$2N_k$ 个，两个子矩阵的行），求解
 
 $$
-\bm{\gamma}_p = \bm{\mathbbm{F}}_p(\hat{\bm{k}}^{l-1})\,
-\bm{\mathbbm{F}}_{C_p}^{\dagger}(\hat{\bm{k}}^{l})
+\bm{\gamma}_p = \mathbb{F}_p(\hat{\bm{k}}^{l-1})\,
+\mathbb{F}_{C_p}^{\dagger}(\hat{\bm{k}}^{l})
 $$
 
 行满秩条件由 $N_d > 2N_{pl}$ 降为 $N_d > 2N_k$，数据集规模只需匹配插值点数。
