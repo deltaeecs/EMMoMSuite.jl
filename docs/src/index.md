@@ -12,12 +12,12 @@ EMMoMSuite is a Julia-based computational electromagnetics toolkit centered on M
 
 ## Documentation Map
 
-- [Installation](guide/installation.md)
-- [Quick Start](guide/quick_start.md)
-- [Advanced Guide](guide/advanced.md)
-- [Examples](guide/examples.md)
-- [Theory Overview](theory/overview.md)
-- [API Reference](api/public_api.md)
+- 🚀 [Installation](guide/installation.md)
+- ⚡ [Quick Start](guide/quick_start.md)
+- 🧠 [Advanced Guide](guide/advanced.md)
+- 💡 [Examples](guide/examples.md)
+- 📚 [Theory Overview](theory/overview.md)
+- 🔌 [API Reference](api/public_api.md)
 
 ## Local Development Install
 
