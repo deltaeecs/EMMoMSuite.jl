@@ -108,8 +108,8 @@ $$
 
 $$
 \begin{bmatrix}
-\mathcal{L}_1 + \mathcal{L}_2 & \mathcal{K}_1 + \mathcal{K}_2 \\
--\mathcal{K}_1 - \mathcal{K}_2 & \frac{1}{\eta_1}\mathcal{L}_1 + \frac{1}{\eta_2}\mathcal{L}_2
+\eta_1\mathcal{L}_1 + \eta_2\mathcal{L}_2 & \mathcal{K}_1 + \mathcal{K}_2 \\
+-(\mathcal{K}_1 + \mathcal{K}_2) & \frac{1}{\eta_1}\mathcal{L}_1 + \frac{1}{\eta_2}\mathcal{L}_2
 \end{bmatrix}
 \begin{bmatrix} \bm{J} \\ \bm{M} \end{bmatrix}
 =
