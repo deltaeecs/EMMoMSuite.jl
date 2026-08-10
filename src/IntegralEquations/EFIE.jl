@@ -241,6 +241,27 @@ end
 
 
 
+"""
+    calc_self_interaction!(Z_local, efie, tri)
+
+EFIE 自项（测试/源三角形重合）：光滑部分数值积分 + 奇异部分解析提取
+（论文式 (2-39) 与第 2.5.3 节奇异值提取方案）。
+
+自项矩阵元（未乘全局因子前）为
+
+```math
+\\int_T \\int_T \\left[\\bm{\\rho}_m \\cdot \\bm{\\rho}_n - \\frac{4}{k^2}\\right]
+G(R)\\, dS' dS
+```
+
+把格林函数拆为奇异部分 `1/R` 与光滑部分 `G_* = (e^{-jkR} − 1)/R`：
+- 光滑部分用 7 点高斯规则数值积分（`greenfunc_star`）；
+- 奇异部分按解析公式 `singularF1`（`∫∫ 1/R`）、`singularF21/F22`
+  （`∫∫ ρ_m·ρ_n / R`）计算，其中 `F1 = 4/k² · singularF1` 对应标量势项。
+
+最后统一乘 `l_m l_n / A²` 与全局因子 `efie.factor = jkη/(16π)`，
+与论文式 (2-39) 的 `l_m^t l_n^s/(4A_m^t A_n^s)` 结构一致。
+"""
 function calc_self_interaction!(
     Z_local::AbstractMatrix{CT},
     efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
@@ -432,6 +453,23 @@ function is_adjacent(t1::TriangleInfo, t2::TriangleInfo)
     return false
 end
 
+"""
+    calc_near_interaction!(Z_local, efie, tri_test, tri_source)
+
+EFIE 近邻项（共享边/顶点的三角形对）：外环高斯积分 + 内层解析奇异提取。
+
+对测试三角形上每个高斯点 `r_i`，源三角形采用论文式 (2-50)~(2-58) 的
+面奇异递推公式（`faceSingularityIgIvecg`）解析计算
+
+```math
+\\mathcal{I}_G = \\int_S G(R)\\, dS', \\qquad
+\\overline{\\bm{\\mathcal{I}}}_G = \\int_S \\frac{\\bm{R}}{R} G(R)\\, dS'
+```
+
+并累加 `(ρ_m·ρ_n − 4/k²)·I_G − ρ_m·Ī_vec`（对应论文式 (2-39) 的
+矢量势与标量势项）。Legacy parity 约束要求按 `triID` 规范化调用顺序
+（`test < source`），结果转置写回以保证对称性。
+"""
 function calc_near_interaction!(
     Z_local::AbstractMatrix{CT},
     efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},
@@ -507,6 +545,22 @@ function calc_near_interaction!(
     return nothing
 end
 
+"""
+    calc_interaction!(Z_local, efie, tri_test, tri_source, r_test, r_src)
+
+EFIE 远场项（非重合、非近邻三角形对）：光滑双面积分。
+
+按论文式 (2-39) 计算
+
+```math
+\\int_{T_m} \\int_{T_n} \\left[\\bm{\\rho}_m(\\bm{r}) \\cdot \\bm{\\rho}_n(\\bm{r}') -
+\\frac{4}{k^2}\\right] \\frac{e^{-{\\rm j}kR}}{R}\\, dS' dS
+```
+
+外层测试三角形 4 点、内层源三角形 4 点高斯循环，完全展开 3×3 (m,n) 累加，
+最后乘 `l_m l_n / (A_m A_n)`。该路径不涉及奇异处理
+（`R = 0` 不会出现）。
+"""
 function calc_interaction!(
     Z_local::AbstractMatrix{CT},
     efie::EFIE{FT,CT,KT,ET,DT,N_FAR,N_NEAR},

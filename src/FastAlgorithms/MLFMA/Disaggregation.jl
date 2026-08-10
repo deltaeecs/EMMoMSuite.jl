@@ -42,7 +42,20 @@ end
 """
     disaggregate_downward!(parentLevel::LevelInfo, childLevel::LevelInfo)
 
-Disaggregate from parent level to child level (Phase Shift + Anterpolation).
+父层向子层解聚：相移 + 反插值（论文式 (4-8)~(4-13)）。
+
+反插值不是下采样，而是由"同层两种采样率下转移结果相等"推导出的伴随关系：
+在父层采样点上完成转移并乘以求积权重后，左乘子层到父层插值矩阵的转置
+即得子层采样点上的结果：
+
+```math
+\\mathcal{T}(\\hat{k}^{l}) = \\left(\\bm{\\Gamma}^{l-1,l}\\right)^{T}\\, \\mathcal{T}(\\hat{k}^{l-1})
+```
+
+代码流程：对父层每个盒子，先把接收方向图乘以子盒相移
+`phaseShift = e^{jk k̂·(r_child − r_parent)}`，再对 Lebedev 一步插值用
+`θϕCSCT`（插值矩阵转置）作用在展平的分量上；对传统两段式用
+`θCSCT`、`ϕCSCT` 依次反插值，累加到 `childLevel.disaggG`。
 """
 function disaggregate_downward!(parentLevel::LevelInfo, childLevel::LevelInfo)
     FT = eltype(parentLevel.cubeEdgel)

@@ -59,6 +59,19 @@ end
     evaluate_poles!(rHatsθsϕs, tArray, geom; k)
 
 用给定几何（同一辐射源）在采样点集 rHatsθsϕs 上求 θ/ϕ 分量并写入 tArray。
+
+对应论文式 (4-21) 的通用辐射函数：
+
+```math
+\\bm{\\mathcal{F}}(\\hat{k}) = C_f \\left(\\overline{I} - \\hat{k}\\hat{k}\\right) \\cdot
+\\bm{\\hat{\\rho}}\\, e^{-{\\rm j}k \\hat{k} \\cdot (r_b - r')}
+```
+
+实现用 RWG 型源对（`rvecp`/`rvecm`）与 5 点求积权重 `ws` 离散：
+对每个采样点 `ĥ` 累加 `θ̂/φ̂ · ρ̂ e^{jk ĥ·r}` 的加权差（实部虚部分别写入
+`tArray[iPole, 1]` 与 `[iPole, 2]`）。**同一个几何必须同时用于粗层与细层**
+采样，否则两层数据对应不同辐射函数，拟合出的插值矩阵将退化为噪声
+（原实现权重矩阵全部失效的根因）。
 """
 function evaluate_poles!(rHatsθsϕs, tArray, geom; k = 2π, FT = Float64)
     # 常数
@@ -136,7 +149,20 @@ end
 """
     generate_dataset_on_pkpt(pk, pt, rel_l; FT = Precision.FT)
 
-TBW
+在多项式阶数为 `pk`（细层）与 `pt`（粗层）的两套 Lebedev（或 Fibonacci）
+采样点上生成辐射函数数据集，用于求解层间插值矩阵（论文 4.3.1 节）。
+
+对 `Nρ` 个随机 `ρ̂` 与 `Nr` 个随机盒内位置 `r_b − r'` 的组合，在细层/粗层
+采样点上分别计算 `F(ĥ)` 的 θ/φ 分量，实部与虚部作为独立数据列（论文：
+"实部虚部拆分后数据集翻倍"）。返回数组尺寸
+`(N_p^{细}, 2, Nρ, Nr)`，后续由 `pinv2interpW` 按 80/20 划分训练/测试集。
+
+# Arguments
+- `pk`, `pt`: 细层、粗层多项式阶数（`p = 2τ+1`，奇数）。
+- `rel_l`: 层盒子边长与波长之比（决定截断项，见
+  [`Interpolation.truncation_kernel`](@ref)）。
+- `k`: 波数（默认 `2π`，与 λ=1 匹配）。
+- `λ`: 波长（默认 1）。
 """
 function generate_dataset_on_pkpt(
     pk::T,

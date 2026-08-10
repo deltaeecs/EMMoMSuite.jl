@@ -1,216 +1,162 @@
 # 矩量法实现
 
-本章聚焦矩量法在代码中的离散实现，包括伽辽金离散、矩阵元素计算、数值积分以及奇异和近奇异积分处理。
+本章聚焦矩量法（MoM）的数学原理与代码离散实现：伽辽金离散、各类积分方程的
+矩阵元推导、高斯数值积分以及论文提出的"奇异值提取 + 递推公式"整体奇异性
+处理方案。公式均来自论文第 2 章。
 
-## 1. 伽辽金离散
+## 1. 伽辽金离散 (Galerkin Discretization)
 
-设连续积分方程写成
-
-$$
-L(\mathbf{J}) = \mathbf{E}^{inc}.
-$$
-
-将未知电流展开为
+设连续算子方程为（论文式 (2-16)）：
 
 $$
-\mathbf{J} = \sum_{n=1}^{N} I_n \mathbf{f}_n,
+L(\bm{f}) = \bm{g}
 $$
 
-并取测试函数 $\mathbf{t}_m = \mathbf{f}_m$，则得到
+将未知函数展开为基函数线性组合 $\bm{f} \approx \sum_{n=1}^{N} a_n \bm{f}_n$，
+并用测试函数 $\bm{w}_m$ 取内积，得到线性代数系统（论文式 (2-17)~(2-19)）：
 
 $$
-\sum_{n=1}^{N} I_n \langle \mathbf{f}_m, L(\mathbf{f}_n) \rangle
-=
-\langle \mathbf{f}_m, \mathbf{E}^{inc} \rangle.
+\sum_{n=1}^{N} \langle \bm{w}_m, L(\bm{f}_n) \rangle\, a_n = \langle \bm{w}_m, \bm{g} \rangle
 $$
 
-这对应离散线性系统
+即 $\bm{Z}\bm{I} = \bm{V}$，其中：
 
 $$
-\mathbf{Z} \mathbf{I} = \mathbf{V}.
+Z_{mn} = \int \bm{w}_m \cdot L(\bm{f}_n)\, d\Omega, \qquad
+V_m = \int \bm{w}_m \cdot \bm{g}\, d\Omega
 $$
+
+伽辽金法取 $\bm{w}_m = \bm{f}_m$，矩阵对称性最好。
 
 ## 2. 矩阵元素计算
 
-### 2.1 EFIE 矩阵
+### 2.1 EFIE 矩阵（RWG-RWG）
 
-对表面 EFIE，典型阻抗矩阵元为
-
-$$
-Z_{mn}^{EFIE} =
-j \omega \mu
-\int_{S_m} \int_{S_n}
-\mathbf{f}_m(\mathbf{r}) \cdot \mathbf{f}_n(\mathbf{r}') G(R)
-\, dS' dS
-+
-\frac{1}{j \omega \epsilon}
-\int_{S_m} \int_{S_n}
-(\nabla \cdot \mathbf{f}_m)
-(\nabla' \cdot \mathbf{f}_n)
-G(R)
-\, dS' dS.
-$$
-
-对 RWG-RWG 配对，实现中通常会先拆成四个支撑子三角形配对：
+表面 EFIE 的阻抗矩阵元（论文式 (2-39)）：
 
 $$
-Z_{mn}^{EFIE} = \sum_{i=1}^{2} \sum_{j=1}^{2}
-\left(Z_{mn,L}^{(i,j)} + Z_{mn,\phi}^{(i,j)}\right).
+Z^{SS}_{mn} = {\rm j}k\eta \sum_{t,s \in \{+,-\}}
+\frac{l_m^t l_n^s}{4A_m^t A_n^s}
+\int_{S_m^t} \int_{S_n^s}
+\left[ \bm{\rho}_m(\bm{r}) \cdot \bm{\rho}_n(\bm{r}') - \frac{4}{k^2} \right] G(R)\, dS' dS
 $$
 
-若沿用带符号边长记号，则每个局部子项可统一写成
-
-$$
-Z_{mn,L}^{(i,j)} =
-j \omega \mu
-\frac{\tilde l_{m,i} \tilde l_{n,j}}{4 A_{m,i} A_{n,j}}
-\int_{T_{m,i}} \int_{T_{n,j}}
-\left(\mathbf{r} - \mathbf{v}_{m,i}^{\mathrm{opp}}\right)
-\cdot
-\left(\mathbf{r}' - \mathbf{v}_{n,j}^{\mathrm{opp}}\right)
-G(R)
-\, dS' dS,
-$$
-
-$$
-Z_{mn,\phi}^{(i,j)} =
-\frac{1}{j \omega \epsilon}
-\frac{\tilde l_{m,i}}{A_{m,i}}
-\frac{\tilde l_{n,j}}{A_{n,j}}
-\int_{T_{m,i}} \int_{T_{n,j}} G(R) \, dS' dS.
-$$
-
-这种写法与 EMMoMSuite 当前的局部几何加局部符号分解最接近。
+代码实现中（`calc_interaction!` / `calc_self_interaction!` /
+`calc_near_interaction!`）把双面积分展开为 4 个支撑子三角形配对，先累加
+$(\bm{\rho}_m \cdot \bm{\rho}_n - 4/k^2) G$ 的加权和，最后统一乘
+$l_m l_n / (A_m A_n)$ 与全局因子 ${\rm j}k\eta/(16\pi)$。
 
 ### 2.2 MFIE 矩阵
 
-MFIE 的离散形式包含主值积分与恒等项：
+MFIE 离散形式包含质量矩阵项与 $\mathcal{K}$ 算子主值项：
 
 $$
-Z_{mn}^{MFIE} =
-\frac{1}{2} \int_{S_m} \mathbf{f}_m \cdot \mathbf{f}_n \, dS
--
-\int_{S_m}
-\mathbf{f}_m \cdot
-\left(
-\hat{\mathbf{n}} \times \int_{S_n} \mathbf{f}_n \times \nabla' G \, dS'
-\right) dS.
+Z^{SS}_{mn} = \eta \left[
+\frac{1}{2}\int_{S_m} \bm{f}_m \cdot \bm{f}_n\, dS
+- \int_{S_m} \bm{f}_m \cdot \left( \hat{\bm{n}} \times \int_{S_n}
+\bm{f}_n \times \nabla' G\, dS' \right) dS
+\right]
 $$
 
-在 RWG-RWG 离散下，同样需要拆到局部支撑配对层面处理。局部法向、叉乘方向和正负支撑符号都应在统一的几何模板里表达，而不是再额外维护两套公式。
+其中 $\frac{1}{2}$ 项来自 $\mathcal{K}$ 算子在光滑表面上的主值跳跃项。
+代码中 `calc_self_term!` 计算质量项（$\eta/(8A)$ 缩放），`calc_k_term_fast!`
+计算 $\mathcal{K}$ 项，其核为 $(\bm{\rho}_m\cdot\bm{R})(\hat{\bm{n}}_t\cdot\bm{\rho}_n) - (\hat{\bm{n}}_t\cdot\bm{R})(\bm{\rho}_m\cdot\bm{\rho}_n)$
+乘 $({\rm j}k + 1/R) e^{-{\rm j}kR}/R^2$。
 
-### 2.3 VIE 矩阵
+### 2.3 VIE 矩阵（SWG/RBF 与 PWC）
 
-对非磁介质，体积分方程常写为
-
-$$
-\mathbf{D}(\mathbf{r})
-- \epsilon_0 (\epsilon_r(\mathbf{r}) - 1)
-\int_V
-\overline{\mathbf{G}}_e(\mathbf{r}, \mathbf{r}')
-\cdot
-\frac{\mathbf{D}(\mathbf{r}')}{\epsilon_0 \epsilon_r(\mathbf{r}')}
-\, dV'
-=
-\epsilon_0 \mathbf{E}^{inc}(\mathbf{r}).
-$$
-
-若使用 SWG 基函数展开 $\mathbf{D} = \sum D_n \mathbf{f}_n$，则矩阵元涉及两个四面体上的体积分。实现时重点在于体格林函数核、散度项以及近邻四面体的积分精度控制。
-
-### 2.4 面体耦合系统
-
-对涂覆目标或导体和介质混合问题，常需联立面电流与体极化电流：
+- SWG/RBF 展开体等效电流：六项积分公式见 `basis_functions.md` 第 3 节
+  （论文式 (2-40)）。
+- PWC 展开：质量项 + 并矢格林函数积分（论文式 (2-42)）。
+- 面-体耦合项 $Z^{SV}$、$Z^{VS}$（RWG-SWG 见论文式 (2-43)~(2-44)，
+  RWG-PWC 见 (2-45)~(2-46)），配合 $\kappa_n = \varepsilon_n/\varepsilon_0$
+  的比例系数填入面体混合矩阵：
 
 $$
 \begin{bmatrix}
 Z_{SS} & Z_{SV} \\
 Z_{VS} & Z_{VV}
 \end{bmatrix}
-\begin{bmatrix}
-I_S \\
-I_V
-\end{bmatrix}
+\begin{bmatrix} I_S \\ I_V \end{bmatrix}
 =
-\begin{bmatrix}
-V_S \\
-V_V
-\end{bmatrix}.
+\begin{bmatrix} V_S \\ V_V \end{bmatrix}
 $$
 
-这里：
+### 2.4 数值积分
 
-- $Z_{SS}$ 对应表面未知量之间的耦合。
-- $Z_{VV}$ 对应体未知量之间的耦合。
-- $Z_{SV}$ 与 $Z_{VS}$ 对应面体交叉耦合项。
-
-混合维度积分往往比纯面或纯体积分更敏感，需要专门的近奇异处理策略。
-
-## 3. 数值积分
-
-### 3.1 高斯求积
-
-对非奇异积分，最常用的是三角形或四面体上的高斯求积：
+所有矩阵元内的积分使用高斯求积转换为加权求和（论文式 (2-47)）：
 
 $$
-\int_T g(\mathbf{r}) \, dS
-\approx
-A_T \sum_{i=1}^{N_{quad}} w_i g(\mathbf{r}_i).
+\int_\Omega \bm{f}(\bm{r})\, d\Omega = J_\Omega \sum_{i=1}^{N_G} w_i \bm{f}(\bm{r}_i)
 $$
 
-在实现中，常按 self、near、far 三类配对分别采用不同的积分核与积分阶数。对 RWG 表面路径，一个双面积分通常会展开为：
+其中 $J_\Omega$ 为网格单元雅可比（面积/体积），$N_G$ 为求积点数。
+EMMoMSuite 对三角形远场用 4 点规则、近邻/自项用 7 点规则；四面体默认 5 点；
+六面体 8 点。三角形/四面体/六面体的求积点与权重见
+`Geometry/GaussQuadrature.jl`。
 
-- 外层测试三角形高斯点循环。
-- 内层源三角形高斯点循环。
-- 针对近邻或奇异配对切换到专门的局部核或解析修正。
+## 3. 奇异性处理 (Singularity Treatment)
 
-### 3.2 工程实现原则
-
-为了与代码一一对应，推导文档最好先写支撑配对求和，再写每个局部配对的积分表达式。这样更容易与装配函数中的循环结构和数据访问方式对齐。
-
-## 4. 奇异性处理
-
-当源面元和观测面元重合或共享边顶点时，格林函数中的 $1 / R$ 项会导致奇异或近奇异行为。
-
-### 4.1 奇异性减除
-
-常见策略是把奇异核拆成“可解析项 + 光滑余项”：
+当二重积分的积分区域重合（$R = 0$）或非常接近时，格林函数奇异或剧烈变化，
+纯数值求积不准确。论文采用**奇异值提取法**（论文式 (2-48)~(2-57)），
+将 $G(R)$ 在 $R = 0$ 附近泰勒展开：
 
 $$
-\int_T F(\mathbf{r}') \frac{1}{R} dS'
-=
-\int_T
-\left(
-\frac{F(\mathbf{r}')}{R} - \frac{F(\mathbf{r})}{R}
-\right) dS'
-+
-F(\mathbf{r}) \int_T \frac{1}{R} dS'.
+G(R) = \sum_{n=0}^{\infty} \frac{(-{\rm j}k)^n}{4\pi\, n!} R^{n-1}
+= \sum_{n=0}^{\infty} C_G^n R^{n-1}
 $$
 
-第一项可数值积分，第二项交给解析公式。
-
-### 4.2 Wilton 解析积分
-
-对三角形上的静态奇异积分，Wilton 类公式能把结果写成对数项和反正切项的组合，是经典的 self 项处理工具。
-
-### 4.3 Duffy 变换
-
-Duffy 变换通过变量代换把三角形奇异积分映射到正方形参考域，并显式消去雅可比中的奇异因子。例如
+对面积分/体积分中出现的两种基本积分：
 
 $$
-\int_0^1 \int_0^{1-x} \frac{f(x,y)}{\sqrt{x^2+y^2}} \, dy \, dx
-\xrightarrow{x = u,\, y = u v}
-\int_0^1 \int_0^1
-\frac{f(u, u v)}{u \sqrt{1+v^2}} u \, dv \, du.
+\mathcal{I}_{G\Omega} = \int_\Omega G(R)\, d\Omega', \qquad
+\overline{\bm{\mathcal{I}}}_{G\Omega}^m = \int_\Omega \frac{\bm{R}}{R^m} G(R)\, d\Omega'
 $$
 
-变换后被积函数更平滑，可继续使用常规求积规则。
+交换求和与积分次序，并定义 $\mathcal{I}_{R\Omega}^n = \int_\Omega R^n d\Omega'$、
+$\overline{\bm{\mathcal{I}}}_{R\Omega}^n = \int_\Omega \bm{R} R^n d\Omega'$。
+对**面网格**，利用递推公式把面积分化到边界线上的线积分（论文式 (2-52)~(2-55)）：
 
-### 4.4 近奇异积分
+$$
+(n+2)\mathcal{I}_{RS,i}^n = n\, d^2 \mathcal{I}_{RS}^{n-2} + \sum_i P_{0i} \mathcal{I}_{Rl,i}^n
+$$
 
-当源和场很近但不重合时，积分虽然不真正发散，但会出现剧烈梯度变化。常见处理办法包括：
+$$
+(n+1)\mathcal{I}_{Rl,i}^n = l_i^+ R_{i+}^n - l_i^- R_{i-}^n + n R_{0i}^2 \mathcal{I}_{Rl,i}^{n-2}
+$$
 
-- 投影法：把源单元投影到观测点附近的局部坐标系中处理径向积分。
-- 自适应细分：按距离和单元尺度递归细分源单元。
-- 变量代换：对一维或准一维强变化核使用例如 sinh 变换来拉平积分核。
+$$
+\overline{\bm{\mathcal{I}}}_{RS}^n = -\frac{1}{n+2} \sum_i \bm{\hat{u}}_i \mathcal{I}_{Rl,i}^{n+2}
++ d\, \bm{\hat{n}}\, \mathcal{I}_{RS}^n
+$$
 
-这些技术的目标都是把高梯度积分变回平滑可积的数值问题。
+初值为（论文式 (2-56)）：
+
+$$
+\mathcal{I}_{Rl,i}^{-1} = \ln\frac{R_{i+} + l_{i+}}{R_{i-} + l_{i-}}, \qquad
+\mathcal{I}_{Rl,i}^{0} = l_i, \qquad
+\mathcal{I}_{RS,i}^{0} = A_S
+$$
+
+$$
+\mathcal{I}_{RS,i}^{-1} = \sum_j \left(P_{0i}\mathcal{I}_{Rl,i}^{-1} - |d_i| \beta_i\right), \qquad
+\mathcal{I}_{RS,i}^{-3} = \frac{1}{|d_i|} \sum_j \beta_i
+$$
+
+其中 $d$ 为场点到投影点的有向距离，$P_{0i}$ 为投影点到边的有向距离，
+$l_i^{\pm}$、$R_{i\pm}$、$R_{0i}$、$\beta_i$ 的几何含义见论文图 2-9。
+
+对**体网格**，利用 $\nabla' R^n = -n\bm{R}R^{n-2}$ 与
+$\nabla'\cdot(\bm{R}R^n) = -(n+3)R^n$，把体积分转换到包围体网格的面上的积分
+（论文式 (2-57)~(2-58)）：
+
+$$
+\mathcal{I}_{RV}^n = -\frac{1}{n+3} \sum_j d_j \mathcal{I}_{RS,j}^n, \qquad
+\overline{\bm{\mathcal{I}}}_{RV}^n = -\frac{1}{n+2} \sum_j \hat{\bm{n}}_j \mathcal{I}_{RS,j}^{n+2}
+$$
+
+该方案把体积分奇异性转换到面上、面上的奇异性转换到线上，计算线积分后
+用递推公式得到所有高阶项。论文采用 14 阶展开（展开阶数在 8 阶以上即可在
+0.2 波长内获得高于 $10^{-5}$ 的精度），并在 0.2 波长范围内只处理重合与相邻
+网格的奇异性。`Singularities.jl` 中的 `faceSingularityIgIvecg`、
+`volumeSingularityIgIvecg`、`singularF1/F21/F22` 即该方案的实现。

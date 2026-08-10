@@ -19,6 +19,11 @@ export LbPolesInfo, LbTrainedInterp1tepInfo
 多极子的极信息，即角谱空间采样信息，基于 Lebedev 采样点
 Wθϕs    ::Vector{FT}， 权重向量
 rHatsθsϕs  ::Vector{r̂θϕInfo{FT}}， 球面采样信息向量
+
+对应论文第 4 章的 Lebedev 求积：`p = 2τ+1` 为球面多项式阶数
+（`τ` 为转移函数截断项），`Wθϕs` 满足 `Σ_p W_p = 4π`
+（论文式 (2-43)）。`p > 131`（超出 Lebedev 数据集上限）时由
+`LebedevSortedPoints.high_order_nodes` 提供 Fibonacci 准均匀格点。
 """
 struct LbPolesInfo{FT<:Real} <: AbstractPolesInfo{FT}
     Wθϕs::Vector{FT}
@@ -33,6 +38,10 @@ levelCubeEdgel::FT,  层盒子边长, 一般叶层为0.25λ，其中 λ 为区�
 返回值
 L           ::IT， 层 截断项
 levelsPoles ::Vector{GLPolesInfo{FT}}，从叶层到第 “2” 层的角谱空间采样信息
+
+截断项由 [`Interpolation.truncation_kernel`](@ref)（论文式 (2-42)）给出；
+采样点优先从 Lebedev 数据集读取（`getlbSortedData(p)`，按 `x, y, z` 排序，
+论文 4.3.2 节），超出数据集上限时回退 Fibonacci 格点并发出警告。
 """
 function Interpolation.levelIntegralInfoCal(
     levelCubeEdgel::FT,
@@ -70,6 +79,20 @@ end
 保存整个方向的稀疏插值矩阵，存储形式定为稠密阵，因为稀疏矩阵元素密度较高时不如直接计算稠密阵乘积
 θϕCSC   ::AbstractMatrix{FT} 插值矩阵，用于左乘本层多极子矩阵插值
 θϕCSCT  ::AbstractMatrix{FT} 插值矩阵的转置，用于左乘本层多极子矩阵反插值
+
+对应论文式 (4-20) 的球面矢量插值：
+
+```math
+\\begin{bmatrix} \\mathcal{F}_\\theta(\\hat{k}^{l-1}) \\\\
+\\mathcal{F}_\\phi(\\hat{k}^{l-1}) \\end{bmatrix}
+= \\bm{\\Gamma}^{l-1,l}\\,
+\\begin{bmatrix} \\mathcal{F}_\\theta(\\hat{k}^{l}) \\\\
+\\mathcal{F}_\\phi(\\hat{k}^{l}) \\end{bmatrix}
+```
+
+`θϕCSC` 尺寸为 `2N_p^{l-1} × 2N_p^l`，四个子块分别对应
+`Γ_{θθ}, Γ_{θφ}, Γ_{φθ}, Γ_{φφ}`；反插值使用转置 `θϕCSCT`
+（论文式 (4-16) 的伴随关系）。
 """
 mutable struct LbTrainedInterp1tepInfo{IT,FT<:Real} <: AbstractInterpInfo{IT,FT}
     θϕCSC::SparseMatrixCSC{FT,IT}
@@ -86,6 +109,14 @@ LbTrainedInterp1tepInfo(θϕCSC::AbstractArray, θϕCSCT::AbstractArray) =
 
 """
 带参数的构造函数
+
+按 `method` 选择插值矩阵构造路径：
+- `:sh_exact` — 球谐精确一步插值（确定性、机器精度、无需训练数据）；
+- `:sh_auto` — 默认：小规模用精确稠密权重、大规模用局部约束稀疏权重；
+- `:sh_hybrid` — 数据拟合 + 笛卡尔标量球谐精确性约束（确定性、稀疏）；
+- `:sh_local` / `:sh_local_orbit` — 局部球谐约束（`Lloc` 控制阶数）；
+- 其它 — 原训练式权重（IDW 初始化 + 逐行伪逆，论文式 (4-24)~(4-26)），
+  h5 缓存缺失时调用 `runpinvCal` 现场训练。
 """
 function LbTrainedInterp1tepInfo(
     pk::Int,
@@ -131,6 +162,13 @@ end
 
 """
 Lebedev一步插值
+
+```math
+\\mathcal{F}(\\hat{k}^{l-1}) = \\bm{\\Gamma}^{l-1,l}\\, \\mathcal{F}(\\hat{k}^{l})
+```
+
+实现为 `mul!(target, θϕCSC, vec(data))` 后按 `(:, 2)` 重新整形
+（论文式 (4-20)）。
 """
 function Interpolation.interpolate(
     weights::LbTrainedInterp1tepInfo{IT,FT},
@@ -143,6 +181,13 @@ end
 
 """
 Lebedev一步反插值
+
+```math
+\\mathcal{T}(\\hat{k}^{l}) = \\left(\\bm{\\Gamma}^{l-1,l}\\right)^{T}\\,
+\\mathcal{T}(\\hat{k}^{l-1})
+```
+
+实现为 `mul!(target, θϕCSCT, vec(data))` 后按 `(:, 2)` 重新整形。
 """
 function Interpolation.anterpolate(
     weights::LbTrainedInterp1tepInfo{IT,FT},

@@ -1,57 +1,80 @@
 # 后处理 (Post-Processing)
 
-求解得到电流系数 $\mathbf{I}$ 后，可计算各类感兴趣的物理量。
+求解得到电流系数 $\bm{I}$ 后，可计算各类物理量。本章公式来自论文第 2 章
+"后处理"一节（远场、雷达散射截面）。
 
 ## 1. 远场计算 (Far-Field Calculation)
 
-当观测距离 $r \to \infty$ 时，格林函数近似为：
+远场条件下 $r \to \infty$，格林函数近似为（论文式 (2-69)）：
+
 $$
-G(\mathbf{r}, \mathbf{r}') \approx \frac{e^{-jkr}}{4\pi r} e^{jk \hat{r} \cdot \mathbf{r}'}
+G(R) \xrightarrow{r\to\infty}
+\frac{e^{-{\rm j}k\left(r - \hat{\bm{r}} \cdot \bm{r}'\right)}}{4\pi r}
+= \frac{e^{-{\rm j}kr}}{4\pi r}\, e^{{\rm j}k\hat{\bm{r}} \cdot \bm{r}'}
 $$
-散射电场远场近似为：
+
+对辐射远场做替换 $\nabla \to -{\rm j}k\hat{\bm{r}}$，代入
+$\bm{E} = -{\rm j}\omega\bm{A} + \nabla\nabla\cdot\bm{A}/({\rm j}\omega\mu\varepsilon)$，
+得到电场、磁场的远场形式（论文式 (2-70)~(2-71)）：
+
 $$
-\mathbf{E}^{far}(\mathbf{r}) = \frac{e^{-jkr}}{r} \mathbf{F}(\theta, \phi)
+\bm{E} = -{\rm j}k\eta\, \frac{e^{-{\rm j}kr}}{4\pi r}
+\left(\hat{\bm{\theta}}\hat{\bm{\theta}} + \hat{\bm{\phi}}\hat{\bm{\phi}}\right) \cdot
+\int_\Omega e^{{\rm j}k\hat{\bm{r}} \cdot \bm{r}'} \bm{J}(\bm{r}')\, d\Omega'
 $$
-其中辐射矢量 $\mathbf{F}(\theta, \phi)$ 为：
+
 $$
-\mathbf{F}(\theta, \phi) = -j\omega\mu \frac{1}{4\pi} (\overline{\mathbf{I}} - \hat{r}\hat{r}) \cdot \int_S \mathbf{J}(\mathbf{r}') e^{jk \hat{r} \cdot \mathbf{r}'} dS'
+\bm{H} = -{\rm j}k\, \frac{e^{-{\rm j}kr}}{4\pi r}
+\left(\hat{\bm{\phi}}\hat{\bm{\theta}} - \hat{\bm{\theta}}\hat{\bm{\phi}}\right) \cdot
+\int_\Omega e^{{\rm j}k\hat{\bm{r}} \cdot \bm{r}'} \bm{J}(\bm{r}')\, d\Omega'
 $$
-对于 RWG 基函数，积分转化为各个三角形上的傅里叶变换形式。
+
+投影算子 $\hat{\bm{\theta}}\hat{\bm{\theta}} + \hat{\bm{\phi}}\hat{\bm{\phi}}$ 等价于
+$\overline{\bm{I}} - \hat{\bm{r}}\hat{\bm{r}}$，即只保留 $\theta$、$\phi$ 分量。
+实际计算远场时一般忽略与距离有关的 $e^{-{\rm j}kr}/(4\pi r)$ 项。
+`FarField.farField` 即按此公式实现，返回 `[2, Nθ, Nφ]` 的
+$(E_\theta, E_\phi)$ 分量。
 
 ## 2. 雷达散射截面 (RCS)
 
-RCS 定义为：
+RCS 表征目标在雷达波照射下产生回波的能力，定义为（论文式 (2-72)）：
+
 $$
-\sigma(\theta, \phi) = \lim_{r \to \infty} 4\pi r^2 \frac{|\mathbf{E}^{scat}|^2}{|\mathbf{E}^{inc}|^2}
+\sigma = \lim_{r\to\infty} \left[ 4\pi r^2
+\frac{|\bm{E}^s|^2}{|\bm{E}^i|^2} \right]
 $$
-对于单位幅度的入射平面波：
+
+利用远场公式，单位幅度入射波下的单站/双站 RCS 可由辐射矢量
+$\bm{N}(\theta,\phi) = \int_S \bm{J}\, e^{{\rm j}k\hat{\bm{r}}\cdot\bm{r}'} dS'$
+计算：
+
 $$
-\sigma_{dBsm} = 10 \log_{10} (4\pi |\mathbf{F}(\theta, \phi)|^2)
+\sigma(\theta, \phi) = \frac{k^2\eta^2}{4\pi}
+\left(|N_\theta|^2 + |N_\phi|^2\right)
 $$
-通常计算双站 RCS (Bistatic RCS) 或单站 RCS (Monostatic RCS)。
+
+$$
+\sigma_{dBsm} = 10\log_{10}\sigma
+$$
+
+`RCS.radarCrossSection` 返回分量 RCS、总 RCS（线性，m²）与 dBsm 三种形式。
 
 ## 3. 近场计算 (Near-Field Calculation)
 
-在近区，必须使用精确的格林函数积分。
+近区必须使用精确的格林函数积分：
+
 $$
-\mathbf{E}(\mathbf{r}) = -j\omega \mathbf{A}(\mathbf{r}) - \nabla \Phi(\mathbf{r})
+\bm{E}(\bm{r}) = -{\rm j}\omega \bm{A}(\bm{r}) - \nabla \phi(\bm{r}), \qquad
+\bm{H}(\bm{r}) = \frac{1}{\mu}\nabla \times \bm{A}(\bm{r})
 $$
-$$
-\mathbf{H}(\mathbf{r}) = \frac{1}{\mu} \nabla \times \mathbf{A}(\mathbf{r})
-$$
-计算公式与阻抗矩阵元素计算类似，但观测点 $\mathbf{r}$ 不在源面上。
-**注意**：当观测点非常靠近源面时，需使用近奇异性处理技术（如自适应细分）。
+
+计算公式与阻抗矩阵元素类似，但观测点 $\bm{r}$ 不在源面上；观测点非常靠近
+源面时需使用近奇异性处理（如论文第 2 章的奇异值提取方案或自适应细分）。
+`NearField.jl` 与 `NearFieldAdvanced.jl` 提供相应实现。
 
 ## 4. 天线参数
 
-### 4.1 方向性系数 (Directivity)
-$$
-D(\theta, \phi) = \frac{4\pi U(\theta, \phi)}{P_{rad}}
-$$
-其中 $U$ 为辐射强度，$P_{rad}$ 为总辐射功率。
-
-### 4.2 增益 (Gain)
-$$
-G(\theta, \phi) = \eta_{eff} D(\theta, \phi)
-$$
-考虑了损耗效率。
+- 方向性系数：$D(\theta, \phi) = 4\pi U(\theta, \phi) / P_{rad}$，
+  $U$ 为辐射强度、$P_{rad}$ 为总辐射功率；
+- 增益：$G(\theta, \phi) = \eta_{eff} D(\theta, \phi)$，计入损耗效率；
+- 端口参数（S 参数、输入阻抗）见 `Ports` 模块与 `SParameterExtraction`。
