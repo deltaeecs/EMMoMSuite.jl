@@ -160,3 +160,7 @@ $$
 0.2 波长内获得高于 $10^{-5}$ 的精度），并在 0.2 波长范围内只处理重合与相邻
 网格的奇异性。`Singularities.jl` 中的 `faceSingularityIgIvecg`、
 `volumeSingularityIgIvecg`、`singularF1/F21/F22` 即该方案的实现。
+
+![格林函数在 0.1–0.2 波长范围内不同展开阶数下与精确值的误差（论文图 2-8）](figures/greenexpand.png)
+
+![三角网格的奇异性处理示意图：面积分化到边界线积分，再用递推公式计算各阶项（论文图 2-9）](figures/face_singularity.png)

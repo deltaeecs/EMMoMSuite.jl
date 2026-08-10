@@ -79,8 +79,8 @@ end
 （`2N_k` 个，来自 (θ, φ) 两个子矩阵的行），求解最小二乘问题：
 
 ```math
-\\bm{\\gamma}_p = \\bm{\\mathbbm{F}}_p(\\hat{k}^{l-1})\\,
-\\bm{\\mathbbm{F}}_{C_p}^{\\dagger}(\\hat{k}^{l})
+\\bm{\\gamma}_p = \\mathbb{F}_p(\\hat{k}^{l-1})\\,
+\\mathbb{F}_{C_p}^{\\dagger}(\\hat{k}^{l})
 ```
 
 其中 `F(ĥ)†` 为右伪逆（`pinv`）。行满秩条件由全矩阵的 `N_d > 2N_pl`
