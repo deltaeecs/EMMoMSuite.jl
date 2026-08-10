@@ -205,6 +205,37 @@ end
 Base.:\(P::ILUPreconditioner, x) = P.ilu_factor \ x
 
 # --- SPAI Preconditioner ---
+"""
+    SPAIPreconditioner(A::SparseMatrixCSC)
+
+稀疏近似逆预条件（论文式 (2-63)~(2-68)）：构造稀疏矩阵 `M ≈ A^{-1}`，
+逐列求解最小二乘问题
+
+```math
+\\min \\|\\bm{A} \\bm{M} - \\overline{\\bm{I}}\\|_F^2, \\qquad
+\\min_{\\bm{m}_k} \\|\\bm{A}\\, \\bm{m}_k - \\bm{e}_k\\|_2
+```
+
+实现按列独立构造：对第 `k` 列取 `A[:, k]` 的非零模式 `J`，收集相关行
+`I = {i : A[i, J] ≠ 0}`，组装稠密最小二乘系统 `A_hat * x = e_hat`
+并调用 `qr!` 求解（经典 QR 路线，论文式 (2-66)）。每列问题相互独立，
+天然可并行（`Threads.@threads` 按行循环，每线程独立工作区）。
+
+论文推荐改为 LU 分解路线（论文式 (2-67)~(2-68)）：
+
+```math
+\\bm{Z}_{near}^{(C_{in}, C_{inn})}\\bm{Z}_{near}^{(C_{in}, C_{inn})H} = \\bm{L}\\bm{U}, \\qquad
+(\\bm{P}_l^i)^H = (\\bm{L}\\bm{U})^{-1} \\bm{Z}_{near}^{(C_{in}, C_i)}
+```
+
+该路线分解矩阵规模更小且利用单位矩阵的稀疏性，可作为后续优化方向。
+
+# Arguments
+- `A`: 近场稀疏矩阵（一般取 `Z_near`）。
+
+# Returns
+- `SPAIPreconditioner`：应用时执行稀疏矩阵向量乘 `y = M * x`。
+"""
 struct SPAIPreconditioner{T} <: AbstractPreconditioner
     M::SparseMatrixCSC{T,Int}
     function SPAIPreconditioner{T}(M::SparseMatrixCSC{T,Int}) where {T}

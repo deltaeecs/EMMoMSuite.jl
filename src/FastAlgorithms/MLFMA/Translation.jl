@@ -12,7 +12,23 @@ export compute_translation_factors!, translate!
 """
     compute_translation_factors!(nLevels::Int, levels::Dict{Int, LevelInfo}, k::Real)
 
-Compute translation factors (alpha) for all levels.
+预计算各层远亲盒子间的转移函数（论文式 (2-41)）。
+
+```math
+T_\\tau(k, \\hat{k}, R_{ba}) = \\frac{-{\\rm j}k}{(4\\pi)^2}
+\\sum_{l=0}^{\\tau} (-{\\rm j})^l (2l+1)\\, h_l^{(2)}(kR_{ba})\\, P_l(\\hat{k} \\cdot \\hat{R}_{ba})
+```
+
+实现中对每个远亲相对坐标 `Δ = (Δx, Δy, Δz)`（`|Δ|∞ > near_range`）计算
+`R_{ba} = cubeEdgel * Δ`，再按采样点累加球汉克尔函数与勒让德多项式，
+最后乘 `-jk/(4π)` 与求积权重 `W_p`（`αTrans` 即含权重的 `W_p T_τ`，
+与论文式 (2-43) 的球面积分加权形式一致）。
+
+# Arguments
+- `nLevels`: 八叉树层数（从第 2 层到叶层计算）。
+- `levels`: 层信息字典，每个 `LevelInfo` 写入 `αTrans` 与 `αTransIndex`。
+- `k`: 波数。
+- `near_range`: 近邻判定半径（默认 4，远邻条件为任一维度 `|Δ| > near_range`）。
 """
 function compute_translation_factors!(
     nLevels::Int,

@@ -1,153 +1,133 @@
 # 基础电磁理论 (Fundamental Electromagnetics)
 
-本章介绍计算电磁学所需的基础理论，包括麦克斯韦方程组、势函数理论、格林函数以及等效原理。
+本章介绍计算电磁学所需的基础理论：麦克斯韦方程组、势函数与规范、格林函数、
+场-源积分算子以及等效原理。公式与符号约定均来自论文第 2 章
+（时间因子 $e^{j\omega t}$，虚数单位记为 ${\rm j}$）。
 
 ## 1. 麦克斯韦方程组 (Maxwell's Equations)
 
-在各向同性、线性、均匀的介质区域 $V$ 中，时谐电磁场（时间因子 $e^{j\omega t}$）满足麦克斯韦方程组：
+频域下，各向同性、线性、均匀介质中的时谐电磁场满足（论文式 (2-1)）：
 
 $$
-\nabla \times \mathbf{E} = -j\omega\mu \mathbf{H} - \mathbf{M}
-$$
-$$
-\nabla \times \mathbf{H} = j\omega\epsilon \mathbf{E} + \mathbf{J}
-$$
-$$
-\nabla \cdot \mathbf{E} = \frac{\rho_e}{\epsilon}
-$$
-$$
-\nabla \cdot \mathbf{H} = \frac{\rho_m}{\mu}
+\begin{aligned}
+\nabla \times \bm{E} &= -{\rm j}\omega \bm{B} - \bm{J}^m \\
+\nabla \times \bm{H} &= \bm{J} + {\rm j}\omega \bm{D} \\
+\nabla \cdot \bm{D} &= \rho_e \\
+\nabla \cdot \bm{B} &= \rho_m
+\end{aligned}
 $$
 
-其中：
-*   $\mathbf{E}, \mathbf{H}$ 分别为电场强度和磁场强度。
-*   $\mathbf{J}, \mathbf{M}$ 分别为外加电流密度和磁流密度（磁流为数学上的等效引入）。
-*   $\rho_e, \rho_m$ 分别为电荷密度和磁荷密度。
-*   $\epsilon, \mu$ 分别为介质的介电常数和磁导率。
+本构关系为 $\bm{D} = \varepsilon \bm{E}$、$\bm{B} = \mu \bm{H}$。
+其中 $\bm{J}$、$\bm{J}^m$ 分别为外加电流密度与磁流密度（磁流为数学上的等效引入），
+$\rho_e$、$\rho_m$ 为对应电荷/磁荷密度。电流与电荷满足连续性方程
+$\nabla \cdot \bm{J} = -{\rm j}\omega \rho_e$。
 
-电流与电荷满足连续性方程：
-$$
-\nabla \cdot \mathbf{J} = -j\omega\rho_e, \quad \nabla \cdot \mathbf{M} = -j\omega\rho_m
-$$
+## 2. 势函数与规范 (Potentials and Gauge)
 
-## 2. 势函数 (Potentials)
-
-为了求解麦克斯韦方程组，通常引入磁矢势 $\mathbf{A}$ 和电矢势 $\mathbf{F}$（或标量势 $\Phi_e, \Phi_m$）。
-
-### 2.1 洛伦兹规范 (Lorenz Gauge)
+由 $\nabla \cdot \bm{B} = 0$ 引入磁矢势 $\bm{A}$，电场可表示为（论文式 (2-5)）：
 
 $$
-\nabla \cdot \mathbf{A} = -j\omega\mu\epsilon \Phi_e
-$$
-$$
-\nabla \cdot \mathbf{F} = -j\omega\mu\epsilon \Phi_m
+\bm{E} = -{\rm j}\omega \bm{A} - \nabla \phi
 $$
 
-### 2.2 亥姆霍兹方程 (Helmholtz Equations)
-
-势函数满足非齐次矢量亥姆霍兹方程：
-$$
-\nabla^2 \mathbf{A} + k^2 \mathbf{A} = -\mu \mathbf{J}
-$$
-$$
-\nabla^2 \mathbf{F} + k^2 \mathbf{F} = -\epsilon \mathbf{M}
-$$
-其中 $k = \omega\sqrt{\mu\epsilon}$ 为波数。
-
-### 2.3 场的势函数表示
+利用恒等式 $\nabla \times \nabla \times \bm{A} = \nabla(\nabla \cdot \bm{A}) - \nabla^2 \bm{A}$，
+可引入洛伦兹规范（论文式 (2-7)）：
 
 $$
-\mathbf{E} = -j\omega\mathbf{A} - \nabla\Phi_e - \frac{1}{\epsilon} \nabla \times \mathbf{F}
-$$
-$$
-\mathbf{H} = -j\omega\mathbf{F} - \nabla\Phi_m + \frac{1}{\mu} \nabla \times \mathbf{A}
+\nabla \cdot \bm{A} + {\rm j}\omega\mu\varepsilon \phi = 0
 $$
 
-利用洛伦兹规范，可消去标量势：
+于是 $\bm{A}$、$\phi$ 分别满足非齐次亥姆霍兹方程，其自由空间积分解为：
+
 $$
-\mathbf{E} = -j\omega\mathbf{A} + \frac{1}{j\omega\mu\epsilon} \nabla(\nabla \cdot \mathbf{A}) - \frac{1}{\epsilon} \nabla \times \mathbf{F}
-$$
-$$
-\mathbf{H} = -j\omega\mathbf{F} + \frac{1}{j\omega\mu\epsilon} \nabla(\nabla \cdot \mathbf{F}) + \frac{1}{\mu} \nabla \times \mathbf{A}
+\bm{A}(\bm{r}) = \mu \int_\Omega G(R)\,\bm{J}(\bm{r}') d\Omega', \qquad
+\phi(\bm{r}) = -\frac{1}{{\rm j}\omega\varepsilon} \int_\Omega G(R)\,\nabla' \cdot \bm{J}(\bm{r}') d\Omega'
 $$
 
-## 3. 格林函数 (Green's Functions)
+其中 $\Omega \in \{S, V\}$ 为源所在的面/体区域，$R = |\bm{r} - \bm{r}'|$，
+标量格林函数为（论文式 (2-10)）：
 
-### 3.1 标量格林函数 (Scalar Green's Function)
-
-三维自由空间中标量亥姆霍兹方程 $(\nabla^2 + k^2)G = -\delta(\mathbf{r}-\mathbf{r}')$ 的解为：
 $$
-G(\mathbf{r}, \mathbf{r}') = \frac{e^{-jkR}}{4\pi R}, \quad R = |\mathbf{r} - \mathbf{r}'|
+G(R) = \frac{e^{-{\rm j}kR}}{4\pi R}, \qquad k = \omega\sqrt{\mu\varepsilon}
 $$
 
-势函数的积分解为：
+将势的解代回 $\bm{E} = -{\rm j}\omega\bm{A} - \nabla\phi$ 并利用洛伦兹规范消去标量势，
+场可由磁矢势单独表示（论文式 (2-12)）：
+
 $$
-\mathbf{A}(\mathbf{r}) = \mu \int_V \mathbf{J}(\mathbf{r}') G(\mathbf{r}, \mathbf{r}') dV'
-$$
-$$
-\mathbf{F}(\mathbf{r}) = \epsilon \int_V \mathbf{M}(\mathbf{r}') G(\mathbf{r}, \mathbf{r}') dV'
+\bm{E}(\bm{r}) = -{\rm j}\omega \bm{A}(\bm{r}) + \frac{\nabla\nabla\cdot \bm{A}(\bm{r})}{{\rm j}\omega\mu\varepsilon}
 $$
 
-### 3.2 并矢格林函数 (Dyadic Green's Functions)
+## 3. 场-源积分算子 (Integral Operators)
 
-为了直接表示场与源的关系，引入并矢格林函数 $\overline{\mathbf{G}}_e$。
+引入磁流 $\bm{J}^m$ 后，空间任意点的电磁场可由电流/磁流与格林函数积分表示
+（论文式 (2-20)~(2-22)）：
+
 $$
-\mathbf{E}(\mathbf{r}) = -j\omega\mu \int_V \overline{\mathbf{G}}_e(\mathbf{r}, \mathbf{r}') \cdot \mathbf{J}(\mathbf{r}') dV'
+\left\{
+\begin{aligned}
+\bm{E}(\bm{r}) &= \eta\, \mathcal{L}\left[\bm{J}(\bm{r}')\right] + \mathcal{K}\left[\bm{J}^m(\bm{r}')\right] \\
+\bm{H}(\bm{r}) &= \frac{1}{\eta}\, \mathcal{L}\left[\bm{J}^m(\bm{r}')\right] - \mathcal{K}\left[\bm{J}(\bm{r}')\right]
+\end{aligned}
+\right.
 $$
-自由空间电并矢格林函数为：
+
+其中 $\eta = \sqrt{\mu/\varepsilon}$ 为波阻抗，矢量算子定义为：
+
 $$
-\overline{\mathbf{G}}_e(\mathbf{r}, \mathbf{r}') = \left( \overline{\mathbf{I}} + \frac{1}{k^2} \nabla\nabla \right) G(\mathbf{r}, \mathbf{r}')
+\mathcal{L}\left[\bm{X}(\bm{r}')\right] = -{\rm j}k \left(1 + \frac{1}{k^2}\nabla\nabla\cdot\right) \int_\Omega G(R)\,\bm{X}(\bm{r}') d\Omega'
 $$
-其中 $\overline{\mathbf{I}}$ 是单位并矢。这对应于 $\mathbf{E} = -j\omega (\mathbf{A} + \frac{1}{k^2}\nabla\nabla\cdot\mathbf{A})$ 的形式。
+
+$$
+\mathcal{K}\left[\bm{X}(\bm{r}')\right] = \int_\Omega \bm{X}(\bm{r}') \times \nabla G(R)\, d\Omega'
+$$
+
+$\mathcal{L}$ 算子还有两种等价的常用形式（论文式 (2-23)~(2-24)）：
+
+$$
+\mathcal{L}[\bm{X}] = -{\rm j}k \int_\Omega \left\{ G(R)\bm{X} + \frac{1}{k^2}\nabla G(R)\left[\nabla' \cdot \bm{X}\right] \right\} d\Omega'
+$$
+
+$$
+\mathcal{L}[\bm{X}] = -{\rm j}k \int_\Omega \overline{\bm{G}}(R) \cdot \bm{X}\, d\Omega', \qquad
+\overline{\bm{G}}(R) = \left(\overline{\bm{I}} + \frac{1}{k^2}\nabla\nabla\right) G(R)
+$$
+
+其中 $\overline{\bm{I}}$ 为单位并矢，$\overline{\bm{G}}$ 称为并矢格林函数。
 
 ## 4. 等效原理 (Equivalence Principle)
 
-### 4.1 惠更斯原理 (Huygens' Principle)
+等效原理建立在惠更斯原理与电磁场唯一性定理基础上：用等效源替代复杂结构，
+并保证待求解区域中的场分布不变，从而把问题转化为自由空间中的等效源辐射问题。
 
-场源分布在区域 $V$ 内，边界为 $S$。外部区域的场可以通过边界 $S$ 上的等效电流 $\mathbf{J}_s$ 和等效磁流 $\mathbf{M}_s$ 唯一确定。
+### 4.1 面等效原理 (Surface Equivalence Principle)
 
-### 4.2 Love 等效原理 (Surface Equivalence Principle)
+移除散射体并在其表面 $S$ 放置等效面电流与面磁流（论文式 (2-26)）：
 
-在边界 $S$ 上建立等效面电流和面磁流：
 $$
-\mathbf{J}_s = \hat{n} \times \mathbf{H}
-$$
-$$
-\mathbf{M}_s = \mathbf{E} \times \hat{n}
-$$
-其中 $\hat{n}$ 为指向外部区域的单位法向量。
-这些等效源在外部区域产生与原始源相同的场，在内部区域产生零场（零场定理）。
-
-### 4.3 体等效原理 (Volume Equivalence Principle)
-
-对于非均匀介质体 $V$，其介电常数为 $\epsilon(\mathbf{r})$，磁导率为 $\mu(\mathbf{r})$。我们可以将其替换为背景介质（通常为真空 $\epsilon_0, \mu_0$），并引入体等效极化电流 $\mathbf{J}_{eq}$ 和磁流 $\mathbf{M}_{eq}$ 来模拟介质的存在。
-
-根据麦克斯韦方程：
-$$
-\nabla \times \mathbf{H} = j\omega\epsilon \mathbf{E} = j\omega\epsilon_0 \mathbf{E} + j\omega(\epsilon - \epsilon_0)\mathbf{E}
-$$
-$$
-\nabla \times \mathbf{E} = -j\omega\mu \mathbf{H} = -j\omega\mu_0 \mathbf{H} - j\omega(\mu - \mu_0)\mathbf{H}
+\bm{J}_S = \hat{\bm{n}} \times \left(\bm{H}_{out,S} - \bm{H}'_{in,S}\right), \qquad
+\bm{J}_S^m = -\hat{\bm{n}} \times \left(\bm{E}_{out,S} - \bm{E}'_{in,S}\right)
 $$
 
-定义体等效电流：
+其中 $\hat{\bm{n}}$ 为闭合面 $S$ 的外法向量。采用面等效后，散射场完全由等效源
+按第 3 节的算子公式产生（论文式 (2-27)）。Love 等效将内部场设为零场，
+据此可得到金属散射问题的表面积分方程。
+
+### 4.2 体等效原理 (Volume Equivalence Principle)
+
+对非均匀介质体，将其替换为背景介质（$\varepsilon_0, \mu_0$），并引入体等效源
+（论文式 (2-28)）：
+
 $$
-\mathbf{J}_{eq}(\mathbf{r}) = j\omega(\epsilon(\mathbf{r}) - \epsilon_0) \mathbf{E}(\mathbf{r})
-$$
-定义体等效磁流：
-$$
-\mathbf{M}_{eq}(\mathbf{r}) = j\omega(\mu(\mathbf{r}) - \mu_0) \mathbf{H}(\mathbf{r})
+\bm{J}_V = {\rm j}\omega (\varepsilon - \varepsilon_0)\bm{E}, \qquad
+\bm{J}_V^m = {\rm j}\omega (\mu - \mu_0)\bm{H}
 $$
 
-此时，总场 $\mathbf{E}, \mathbf{H}$ 可以看作是由入射场（源在外部）和体等效源产生的散射场之和：
-$$
-\mathbf{E} = \mathbf{E}^{inc} + \mathbf{E}^{scat}(\mathbf{J}_{eq}, \mathbf{M}_{eq})
-$$
-$$
-\mathbf{H} = \mathbf{H}^{inc} + \mathbf{H}^{scat}(\mathbf{J}_{eq}, \mathbf{M}_{eq})
-$$
-这就是体积分方程 (VIE) 的物理基础。
+此时空间总场为入射场与体等效源产生的散射场之和：
 
-### 4.4 表面积分方程的基础
+$$
+\bm{E}(\bm{r}) = \bm{E}^i(\bm{r}) + \eta \mathcal{L}[\bm{J}_V] + \mathcal{K}[\bm{J}_V^m]
+$$
 
-利用等效原理，我们可以将散射体替换为背景介质，并在其表面分布等效电流 $\mathbf{J}_s$（对于 PEC，$\mathbf{M}_s=0$）。通过强制满足边界条件（如切向电场为零），建立积分方程求解 $\mathbf{J}_s$。
+这就是体积分方程 (VIE) 的物理基础。对于大多数常见材料 $\mu \approx \mu_0$，
+体磁流 $\bm{J}_V^m$ 可以忽略。

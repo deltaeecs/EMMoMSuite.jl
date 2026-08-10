@@ -375,10 +375,23 @@ end
 """
     calc_k_term_fast!(Z_local, mfie, tri_test, tri_source, r_test, r_src)
 
-Optimized K-term kernel. Key improvements over original:
-1. Loop order: (i,j) outer, (m,n) inner → rvec/R/divr/temp computed once per (i,j)
-2. Precomputed quad points → zero per-pair allocations
-3. Pre-hoisted rho_m/rho_n vectors outside innermost loop
+MFIE 的 K 算子核（论文式 (2-30) 与 (2-22)）：
+
+```math
+\\mathcal{K}[\\bm{X}](\\bm{r}) = \\int_S \\bm{X}(\\bm{r}') \\times \\nabla' G(R)\\, dS'
+```
+
+测试后展开为（`n̂_t` 为测试三角形外法向）：
+
+```math
+\\eta\\, \\frac{l_m l_n}{16\\pi} \\sum_{i,j} w_i w_j\\,
+\\Big[(\\bm{\\rho}_m \\cdot \\bm{R})(\\hat{\\bm{n}}_t \\cdot \\bm{\\rho}_n)
+- (\\hat{\\bm{n}}_t \\cdot \\bm{R})(\\bm{\\rho}_m \\cdot \\bm{\\rho}_n)\\Big]
+\\left({\\rm j}k + \\frac{1}{R}\\right) \\frac{e^{-{\\rm j}kR}}{R^2}
+```
+
+实现优化：`(i,j)` 外层循环使 `R`、`e^{-jkR}/R²`、`(jk+1/R)` 每对只算一次，
+`ρ_m/ρ_n` 提前提升到最内层循环之外；`η/(16π)` 与边长在最后统一乘。
 """
 function calc_k_term_fast!(
     Z_local::AbstractMatrix{CT},

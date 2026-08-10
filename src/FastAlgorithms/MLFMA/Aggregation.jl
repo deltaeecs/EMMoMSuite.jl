@@ -189,6 +189,45 @@ function aggregate_leaf!(
     end
 end
 
+"""
+    add_radiation_pattern_rwg!(aggS, iCube, basis, bf, elem_info, gq, k, cubeCenter, poles_r̂, poles_θhat, poles_ϕhat, coef)
+
+RWG 基函数的叶层辐射积分（论文式 (2-48)：`F_S(f_n^S, k̂)`）。
+
+对第 `n` 个 RWG 基函数（支撑三角形 `T_{n,i}`，`i = 1, 2`），其辐射方向图按定义
+为切向投影后的傅里叶积分：
+
+```math
+F_S(f_n^S, \\hat{k}) = \\int_{T_n} \\left(\\overline{I} - \\hat{k}\\hat{k}\\right) \\cdot
+f_n(r')\\, e^{{\\rm j}k \\hat{k} \\cdot (r' - r_b)}\\, dS'
+```
+
+其中 `r_b` 为基函数所在叶层盒子中心。把统一基函数形式
+`f_n(r) = a_n^{±}/(2A^{±}) ρ`（`a_n^{±} = ±l_n` 为带符号边长）代入并对支撑
+三角形求和，只保留球坐标 `θ`/`φ` 分量（等价于 `(Ī − k̂k̂)` 投影）：
+
+```math
+\\mathcal{F}_p(\\hat{k}) = \\sum_{i=1}^{2} s_{n,i}\\, \\frac{l_n}{2}
+\\int_{T_{n,i}} \\hat{e}_p(\\hat{k}) \\cdot \\rho_i(r')\\,
+e^{{\\rm j}k \\hat{k} \\cdot (r' - r_b)}\\, dS', \\qquad p \\in \\{\\theta, \\phi\\}
+```
+
+代码实现：对每个支撑三角形的高斯点 `r_q`，累加
+`aggS[iPole, p, iCube] += θ̂/φ̂ · (ρ * s*l/2 * w_q * x_n * e^{jk k̂·(r_q − r_b)})`，
+其中 `coef = x_n` 为基函数系数，`gq.weight` 为参考三角形求积权重
+（三角形雅可比已含于求积节点构造中）。
+
+# Arguments
+- `aggS`: 叶层聚合方向图，尺寸 `(nPoles, 2, nCubes)`（第 2 维为 θ/φ 分量）。
+- `iCube`: 基函数所在盒子的全局编号。
+- `basis`/`bf`: 基函数集合与当前基函数（含 `support`、`local_edge_idx`、`signs`、`edge_length`）。
+- `elem_info`: 预计算的单元几何信息（`TriangleInfo`）。
+- `gq`: 三角形高斯求积规则（默认 3 点）。
+- `k`: 波数（`r_local` 以 λ 为单位时相位因子为 `e^{jk k̂·(r−r_b)}`）。
+- `cubeCenter`: 盒子中心 `r_b`。
+- `poles_r̂/θhat/ϕhat`: 球面采样点方向与对应的单位切向量。
+- `coef`: 该基函数的系数 `x_n`。
+"""
 function add_radiation_pattern_rwg!(
     aggS,
     iCube,
@@ -242,6 +281,28 @@ function add_radiation_pattern_rwg!(
     end
 end
 
+"""
+    add_radiation_pattern_swg!(aggS, iCube, basis, bf, elem_info, gq, k, cubeCenter, poles_r̂, poles_θhat, poles_ϕhat, coef)
+
+SWG 基函数的叶层辐射积分（VEFIE/VSIE 路径，论文式 (2-48) 的体扩展）。
+
+对 SWG 基函数，其统一形式为 `f_n(r) = a_n^{±}/(3V^{±}) ρ`（`a_n^{±} = ±A_n`
+为带符号公共面面积），体等效电流还需乘以对比度 `κ = ε/ε_0`。辐射方向图：
+
+```math
+\\mathcal{F}_p(\\hat{k}) = \\kappa \\sum_{i=1}^{2} s_{n,i}\\, \\frac{A_n}{3}
+\\int_{V_{n,i}} \\hat{e}_p(\\hat{k}) \\cdot \\rho_i(r')\\, e^{{\\rm j}k \\hat{k} \\cdot (r' - r_b)}\\, dV'
+```
+
+代码逐项累加 `aggS[iPole, p, iCube] += θ̂/φ̂ · (ρ * s*A/3 * w_q * x_n * κ * e^{jk k̂·(r_q−r_b)})`。
+
+# Arguments
+- `aggS`: 叶层聚合方向图，尺寸 `(nPoles, 2, nCubes)`。
+- `basis`/`bf`: 基函数集合与当前 SWG 基函数（`support`、`local_face_idx`、`signs`、`area`）。
+- `elem_info`: 预计算的四面体几何信息（`TetrahedraInfo`，含对比度 `κ`）。
+- `gq`: 四面体高斯求积规则（默认 5 点）。
+- 其余参数同 [`add_radiation_pattern_rwg!`](@ref)。
+"""
 function add_radiation_pattern_swg!(
     aggS,
     iCube,
@@ -300,7 +361,18 @@ end
 """
     aggregate_upward!(parentLevel::LevelInfo, childLevel::LevelInfo)
 
-Aggregate radiation patterns from child level to parent level (Interpolation + Phase Shift).
+把子层方向图聚合到父层：插值上采样 + 相移（论文式 (4-2)~(4-3)）。
+
+```math
+\\mathcal{F}(\\hat{k}^{l-1}) = \\sum_{c \\in \\mathrm{kids}(p)}
+e^{{\\rm j}k \\hat{k} \\cdot (r_c - r_p)}\\, \\bm{\\Gamma}^{l-1,l}\\,
+\\mathcal{F}_c(\\hat{k}^{l})
+```
+
+其中 `Γ^{l-1,l}` 为子层（第 `l` 层）到父层（第 `l-1` 层）的插值矩阵，
+`e^{jk k̂·(r_c − r_p)}` 为子盒到父盒的相移（`phaseShiftFromKids`）。
+对 Lebedev 一步插值，`Γ` 的 `θϕCSC` 直接作用在展平的 (θ, φ) 分量上；
+对传统两段式，先 `ϕCSC` 再 `θCSC`。最终写入 `parentLevel.aggS`。
 """
 function aggregate_upward!(parentLevel::LevelInfo, childLevel::LevelInfo)
     FT = eltype(parentLevel.cubeEdgel)

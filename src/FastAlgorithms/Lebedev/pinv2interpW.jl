@@ -18,6 +18,12 @@ export runpinvCal, interpWeightsInitial
 tNodes::Matrix{T} 大小为 (3, nt) 的矩阵，表示 nt 个插值点集
 pNodes::Matrix{T} 大小为 (3, np) 的矩阵，表示 np 个待插值点集
 nInterp::Int, 插值点数
+
+对应论文 4.3.2 节"矩阵初始化"：对每个父层待插值点选择距离最近的
+`nInterp` 个子层采样点（球面距离 `2asin(|Δ|/2)` 的反距离权重）作为稀疏模式，
+并按 (θ→θ, φ→φ) 同向与 (θ→φ, φ→θ) 交叉两个子块组装 4 分块矩阵。
+自插值点（距离为 0）同向权重置 1、交叉权重置 0——这是论文中
+"层间共享 14 个固定点行只有 1 个非零元"的初始化基础。
 """
 function interpWeightsInitial(tNodes::Matrix{T}, pNodes::Matrix{T}; nInterp::Integer = 10) where {T}
     # 点数
@@ -64,6 +70,30 @@ function interpWeightsInitial(tNodes::Matrix{T}, pNodes::Matrix{T}; nInterp::Int
     return interpWeits
 end
 
+"""
+    pinv2W!(w, nInterp, xx2D, yy2D)
+
+逐行伪逆求解稀疏插值矩阵（论文式 (4-24)~(4-26)）。
+
+对插值矩阵第 `p` 行，提取非零元向量 `γ_p` 与列索引集合 `C_p`
+（`2N_k` 个，来自 (θ, φ) 两个子矩阵的行），求解最小二乘问题：
+
+```math
+\\bm{\\gamma}_p = \\bm{\\mathbbm{F}}_p(\\hat{k}^{l-1})\\,
+\\bm{\\mathbbm{F}}_{C_p}^{\\dagger}(\\hat{k}^{l})
+```
+
+其中 `F(ĥ)†` 为右伪逆（`pinv`）。行满秩条件由全矩阵的 `N_d > 2N_pl`
+降为 `N_d > 2N_k`，数据集规模只需匹配插值点数（论文式 (4-26) 后论述）。
+当 `nInterp` 覆盖整行（满阵）时退化为一次全局 `pinv`；
+逐行模式对每行跳过仅 1 个非零元的行（层间共享点，论文 4.3.2 节）。
+
+# Arguments
+- `w`: 稀疏插值矩阵（先由 [`interpWeightsInitial`](@ref) 确定稀疏模式）。
+- `nInterp`: 每行非零插值点数。
+- `xx2D`: `F_{C_p}(ĥ^l)` 的数据行（实部虚部拼接，`2N_k × N_d`）。
+- `yy2D`: `F_p(ĥ^{l-1})` 的数据行（`N_p^{l-1} × N_d`）。
+"""
 function pinv2W!(w, nInterp, xx2D, yy2D)
     # 插值点满阵则全计算
     if nInterp >= (size(w, 2) ÷ 2)
@@ -152,6 +182,12 @@ end
 采用伪逆计算插值矩阵，对稀疏矩阵要分行计算
 f(k̂ₗ₋₁) = Wₗ₋₁ₗ f(k̂ₗ)
 Wₗ₋₁ₗ = pinv(f(k̂ₗ)) f(k̂ₗ₋₁) 
+
+即论文式 (4-22)~(4-26)：先生成数据集矩阵
+`F(ĥ^{l-1}) = Γ^{l-1,l} F(ĥ^l)`，再按行求解
+`γ_p = F_p(ĥ^{l-1}) F_{C_p}†(ĥ^l)`。训练集由 `generate_dataset_on_pkpt`
+生成并 hcat 实部/虚部（保证复数约束同时参与拟合）；测试集用于计算插值误差
+`ε = mean(|W·x − y| / max|y|)`（论文式 (4-30)），精度更优时写入 h5 缓存。
 """
 function calWFinal(τt, τp; nInterp, xx2D, yy2D, xx2Dte, yy2Dte, FT = Float64)
     # poles

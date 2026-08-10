@@ -1144,6 +1144,31 @@ function _ordered_swg_self_kernel(vefie::VEFIE, tet::TetrahedraInfo)
     return SMatrix(ztt)
 end
 
+"""
+    vefie_element_interaction_kernel(vefie, tet_t, tet_s, cache_t, cache_s) -> 4×4 SMatrix
+
+VEFIE 的 SWG-SWG 单元相互作用核：返回 `Z_ts`（测试四面体 × 源四面体）。
+
+对应论文式 (2-40) 的体 EFIE 矩阵元（SWG 展开）：
+
+```math
+Z^{VV}_{mn} = \\sum_{t,s \\in \\{+,-\\}} \\Bigg\\{
+\\frac{1}{{\\rm j}\\omega C_\\Omega^2} \\frac{a_m^t}{J_m^t} \\frac{a_n^s}{J_n^s}
+\\frac{1}{\\varepsilon_n^s} \\int_{V_m^t} \\bm{\\rho}_m \\cdot \\bm{\\rho}_n\\, dV
++ \\frac{{\\rm j}\\eta k}{C_\\Omega^2} \\frac{a_m^t}{J_m^t} \\frac{a_n^s}{J_n^s}
+\\kappa_n^s \\int_{V_m^t} \\int_{V_n^s} \\bm{\\rho}_m \\cdot \\bm{\\rho}_n\\, G(R)\\, dV' dV
+- \\frac{{\\rm j}\\eta}{k} \\frac{a_m^t}{J_m^t} \\frac{a_n^s}{J_n^s} \\kappa_n^s
+\\int_{V_m^t} \\int_{V_n^s} G(R)\\, dV' dV + \\cdots \\Bigg\\}
+```
+
+其中 `κ = ε/ε_0` 为对比度，面/边界项仅在介质边界（半基函数）时出现。
+近邻判定：两四面体中心距 `≤ 0.15λ₀/√|ε_r|` 时走
+`_ordered_swg_near_kernel`（含奇异提取），否则走 `_ordered_swg_far_kernel`
+（光滑高斯积分 + 快速指数表）。
+
+# Returns
+- `4×4` 复数矩阵 `Z_ts`（每四面体 4 个 SWG 未知量）。
+"""
 function vefie_element_interaction_kernel(
     vefie::VEFIE,
     tet_t::TetrahedraInfo,

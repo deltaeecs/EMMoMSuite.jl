@@ -1,95 +1,121 @@
 # 积分方程 (Integral Equations)
 
-本章详细推导用于求解电磁散射与辐射问题的各类积分方程。
+本章基于等效原理推导 EMMoMSuite 使用的各类积分方程：PEC 的 S-EFIE / S-MFIE /
+CFIE，介质的 PMCHWT，非均匀介质的 V-EFIE / V-MFIE，以及金属-介质混合的
+VSIE。公式均来自论文第 2 章。
 
 ## 1. 理想导体 (PEC) 表面积分方程
 
-考虑位于自由空间背景中的理想导体，表面为 $S$。入射波为 $(\mathbf{E}^{inc}, \mathbf{H}^{inc})$。
+金属在微波频段近似为理想电导体。PEC 表面 $S$ 上的边界条件为
+（论文式 (2-25)）：
 
-### 1.1 电场积分方程 (EFIE)
+$$
+\left. \left[\bm{E}^i + \bm{E}^s\right] \right|_t = 0, \qquad
+\bm{J}_S^m = 0, \qquad
+\bm{J}_S = \hat{\bm{n}} \times \left(\bm{H}^i + \bm{H}^s\right)
+$$
 
-EFIE 基于 PEC 表面的切向电场边界条件：
+即切向电场为零、面磁流为零。
+
+### 1.1 面电场积分方程 (S-EFIE)
+
+用面等效源替换金属目标并强制切向电场边界条件，得到 S-EFIE（论文式 (2-29)）：
+
 $$
-\hat{n} \times (\mathbf{E}^{inc} + \mathbf{E}^{scat}) = 0, \quad \mathbf{r} \in S
+\left. \bm{E}^i(\bm{r}) \right|_t = -\left. \eta \mathcal{L}\left[\bm{J}_S(\bm{r}')\right] \right|_t, \qquad \bm{r} \in S
 $$
-散射场由表面感应电流 $\mathbf{J}$ 产生：
+
+其显式形式为第一类 Fredholm 积分方程：
+
 $$
-\mathbf{E}^{scat}(\mathbf{J}) = -j\omega\mu \int_S \mathbf{J}(\mathbf{r}') G(\mathbf{r}, \mathbf{r}') dS' + \frac{1}{j\omega\epsilon} \nabla \int_S \nabla' \cdot \mathbf{J}(\mathbf{r}') G(\mathbf{r}, \mathbf{r}') dS'
+\hat{\bm{n}} \times \bm{E}^i(\bm{r}) = \hat{\bm{n}} \times \left[
+{\rm j}\omega\mu \int_S \bm{J}_S G\, dS'
+- \frac{1}{{\rm j}\omega\varepsilon} \nabla \int_S \nabla' \cdot \bm{J}_S\, G\, dS'
+\right]
 $$
-代入边界条件得到 EFIE：
-$$
-\hat{n} \times \mathbf{E}^{inc}(\mathbf{r}) = \hat{n} \times \left[ j\omega\mu \int_S \mathbf{J} G dS' - \frac{1}{j\omega\epsilon} \nabla \int_S \nabla' \cdot \mathbf{J} G dS' \right]
-$$
+
 **特点**：
-*   适用于开域（如薄板）和闭域问题。
-*   属于第一类 Fredholm 积分方程，条件数较差。
-*   在内谐振频率处解不唯一。
+- 适用于开域（薄板、线天线）与闭域问题。
+- 属于第一类 Fredholm 积分方程，离散矩阵条件数较差。
+- 在闭合目标的谐振频率处解不唯一。
 
-### 1.2 磁场积分方程 (MFIE)
+### 1.2 面磁场积分方程 (S-MFIE)
 
-MFIE 基于 PEC 表面的切向磁场边界条件：
+强制磁场边界条件得到 S-MFIE（论文式 (2-30)）：
+
 $$
-\hat{n} \times \mathbf{H}^{tot} = \mathbf{J} \implies \mathbf{J} = \hat{n} \times (\mathbf{H}^{inc} + \mathbf{H}^{scat})
+\hat{\bm{n}} \times \bm{H}^i(\bm{r}) = \bm{J}_S + \hat{\bm{n}} \times \mathcal{K}\left[\bm{J}_S(\bm{r}')\right], \qquad \bm{r} \in S
 $$
-散射磁场为：
+
+当观测点趋近光滑表面时，$\mathcal{K}$ 算子的主值积分产生 $+\frac{1}{2}\bm{J}_S$ 项：
+
 $$
-\mathbf{H}^{scat}(\mathbf{J}) = \int_S \mathbf{J}(\mathbf{r}') \times \nabla' G(\mathbf{r}, \mathbf{r}') dS'
+\frac{1}{2}\bm{J}_S(\bm{r}) - \hat{\bm{n}} \times \int_{PV} \bm{J}_S(\bm{r}') \times \nabla' G(\bm{r}, \bm{r}')\, dS' = \hat{\bm{n}} \times \bm{H}^i(\bm{r})
 $$
-当观测点 $\mathbf{r}$ 趋近于光滑表面时，积分主值产生奇异项 $\frac{1}{2}\mathbf{J}(\mathbf{r})$。
-$$
-\frac{1}{2}\mathbf{J}(\mathbf{r}) - \hat{n} \times \int_{PV} \mathbf{J}(\mathbf{r}') \times \nabla' G(\mathbf{r}, \mathbf{r}') dS' = \hat{n} \times \mathbf{H}^{inc}(\mathbf{r})
-$$
+
 **特点**：
-*   仅适用于闭合曲面。
-*   属于第二类 Fredholm 积分方程，条件数较好。
-*   在内谐振频率处解不唯一。
+- 仅适用于闭合曲面。
+- 属于第二类 Fredholm 积分方程，条件数较好。
+- 在内谐振频率处解不唯一。
 
 ### 1.3 混合场积分方程 (CFIE)
 
-为了消除内谐振问题，采用 EFIE 和 MFIE 的线性组合：
-$$
-	ext{CFIE} = \alpha \cdot \text{EFIE} + (1-\alpha) \cdot \eta \cdot \text{MFIE}
-$$
-其中 $\eta = \sqrt{\mu/\epsilon}$ 为波阻抗，$\alpha$ 为加权系数（通常取 0.2 ~ 0.8）。
-CFIE 在所有频率下均有唯一解，且条件数优于 EFIE。
+为消除内谐振问题并改善收敛，取 EFIE 与 MFIE 的线性组合（论文式 (2-31)）：
 
-## 2. 介质体积分方程 (Dielectric Surface Integral Equations)
+$$
+\text{CFIE} = \alpha\, \text{EFIE} + (1-\alpha)\, \eta\, \text{MFIE}
+$$
 
-考虑均匀介质体，外部区域 $E_1, H_1 (\epsilon_1, \mu_1)$，内部区域 $E_2, H_2 (\epsilon_2, \mu_2)$。边界为 $S$。
-未知量为表面的等效电流 $\mathbf{J}$ 和等效磁流 $\mathbf{M}$。
+其中 $\alpha \in [0, 1]$ 为组合系数（论文采用经验值 0.6，EMMoMSuite 默认 0.5），
+$\eta$ 为波阻抗，用于平衡两个方程的数值量级。CFIE 在所有频率下解唯一，
+条件数优于 EFIE。
 
-### 2.1 PMCHWT 方程
+## 2. 介质体积分方程 (VIE) 与 PMCHWT
 
-Poggio-Miller-Chang-Harrington-Wu-Tsai (PMCHWT) 方程是最常用的介质表面积分方程。
-利用切向场连续性：
-$$
-\hat{n} \times (\mathbf{E}_1^{inc} + \mathbf{E}_1^{scat}) = \hat{n} \times \mathbf{E}_2^{tot}
-$$
-$$
-\hat{n} \times (\mathbf{H}_1^{inc} + \mathbf{H}_1^{scat}) = \hat{n} \times \mathbf{H}_2^{tot}
-$$
-在 PMCHWT 形式中，我们将内外部的积分算子组合：
-$$
-\left[ \hat{n} \times \mathbf{E}_1^{scat}(\mathbf{J}, \mathbf{M}) + \hat{n} \times \mathbf{E}_2^{scat}(-\mathbf{J}, -\mathbf{M}) \right]_{tan} = -\hat{n} \times \mathbf{E}^{inc}
-$$
-$$
-\left[ \hat{n} \times \mathbf{H}_1^{scat}(\mathbf{J}, \mathbf{M}) + \hat{n} \times \mathbf{H}_2^{scat}(-\mathbf{J}, -\mathbf{M}) \right]_{tan} = -\hat{n} \times \mathbf{H}^{inc}
-$$
-这构成了一个 $2N \times 2N$ 的矩阵方程系统。
+### 2.1 体电场/磁场积分方程 (V-EFIE / V-MFIE)
 
-## 3. 体积分方程 (Volume Integral Equation, VIE)
+对非均匀介质采用体等效源后，空间总场为入射场与散射场之和，得到
+V-EFIE 与 V-MFIE（论文式 (2-32)~(2-33)）：
 
-对于非均匀介质，需采用体积分方程。
-定义体等效极化电流：
 $$
-\mathbf{J}_{vol} = j\omega (\epsilon(\mathbf{r}) - \epsilon_0) \mathbf{E}(\mathbf{r})
+\bm{E}^i(\bm{r}) = \bm{E}(\bm{r}) - \eta \mathcal{L}\left[\bm{J}_V\right] - \mathcal{K}\left[\bm{J}_V^m\right], \qquad \bm{r} \in V
 $$
-总电场为入射场与体电流产生的散射场之和：
+
 $$
-\mathbf{E}(\mathbf{r}) = \mathbf{E}^{inc}(\mathbf{r}) + \int_V \overline{\mathbf{G}}_e(\mathbf{r}, \mathbf{r}') \cdot \mathbf{J}_{vol}(\mathbf{r}') dV'
+\bm{H}^i(\bm{r}) = \bm{H}(\bm{r}) - \frac{1}{\eta} \mathcal{L}\left[\bm{J}_V^m\right] + \mathcal{K}\left[\bm{J}_V\right], \qquad \bm{r} \in V
 $$
-将 $\mathbf{J}_{vol}$ 代入，得到关于总场 $\mathbf{E}$ 的积分方程：
+
+当 $\mu = \mu_0$ 时 $\bm{J}_V^m = 0$，只剩 V-EFIE。
+
+### 2.2 金属-介质混合 (VSIE)
+
+金属表面用面等效源、介质区域用体等效源，得到 VS-EFIE / VS-MFIE
+（论文式 (2-34)~(2-35)，无磁体流时为 (2-36)~(2-37)）：
+
 $$
-\mathbf{E}(\mathbf{r}) - \int_V \overline{\mathbf{G}}_e(\mathbf{r}, \mathbf{r}') \cdot [j\omega (\epsilon(\mathbf{r}') - \epsilon_0) \mathbf{E}(\mathbf{r}')] dV' = \mathbf{E}^{inc}(\mathbf{r})
+\left. \bm{E}^i \right|_t = -\left.\left\{ \eta \mathcal{L}[\bm{J}_S] + \eta \mathcal{L}[\bm{J}_V] + \mathcal{K}[\bm{J}_V^m] \right\}\right|_t, \qquad \bm{r} \in S
 $$
-通常使用 SWG 基函数对电通量密度 $\mathbf{D}$ 进行离散求解。
+
+$$
+\bm{E}^i(\bm{r}) = \bm{E}(\bm{r}) - \eta \mathcal{L}[\bm{J}_S] - \eta \mathcal{L}[\bm{J}_V] - \mathcal{K}[\bm{J}_V^m], \qquad \bm{r} \in V
+$$
+
+### 2.3 PMCHWT 方程
+
+对均匀介质体（内外区域分别为 $(\varepsilon_1,\mu_1)$ 与 $(\varepsilon_2,\mu_2)$），
+未知量为表面等效电流 $\bm{J}$ 与等效磁流 $\bm{M}$。PMCHWT 利用切向场连续条件，
+把内、外区域算子叠加为 $2N \times 2N$ 的分块系统：
+
+$$
+\begin{bmatrix}
+\mathcal{L}_1 + \mathcal{L}_2 & \mathcal{K}_1 + \mathcal{K}_2 \\
+-\mathcal{K}_1 - \mathcal{K}_2 & \frac{1}{\eta_1}\mathcal{L}_1 + \frac{1}{\eta_2}\mathcal{L}_2
+\end{bmatrix}
+\begin{bmatrix} \bm{J} \\ \bm{M} \end{bmatrix}
+=
+\begin{bmatrix} -\bm{E}^{i}|_t \\ -\bm{H}^{i}|_t \end{bmatrix}
+$$
+
+矩阵显式区分 EJ/EM/HJ/HM 四个块。EMMoMSuite 中 `PMCHWBlockOperators` 即按
+该块结构实现；`assemble_K_offdiag` 提供不含质量矩阵主值项的 $\mathcal{K}$ 块
+（用于 EM 与 HJ 块）。

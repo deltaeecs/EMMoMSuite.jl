@@ -23,6 +23,30 @@ function anterpolate! end
 const NBDIGITS = 9.0 # Default value
 
 """
+    truncation_kernel(rel_l) -> L
+
+MLFMA 转移函数截断项数经验公式（论文式 (2-42)）：
+
+```math
+\\tau(l) \\approx 1.73\\, k a_l + 2.16\\, d_0^{2/3} (k a_l)^{1/3}, \\qquad d_0 = 3
+```
+
+实现输入 `rel_l = a_l / λ`（盒子边长以波长为单位），利用
+`k a_l = 2π a_l / λ = 2π rel_l` 与 `1.73·2π ≈ 2π√3` 改写为：
+
+```math
+\\tau = 2\\pi \\sqrt{3}\\, rel_l + 2.16\\, d_0^{2/3} (2\\pi\\, rel_l)^{1/3}
+```
+
+注意：实现中的精度参数 `NBDIGITS = 9.0` 对应公式中的 `d_0`（论文推荐
+`d_0 = 3`），取 9 时第二项约为推荐值的 `(9/3)^{2/3} ≈ 2.08` 倍，截断更保守。
+`levelIntegralInfoCal` 使用 `ceil` 取整为整数截断项。
+"""
+function truncation_kernel(rel_l)
+    return 2π * rel_l * sqrt(3) + 2.16 * NBDIGITS^(2.0 / 3.0) * (2π * rel_l)^(1 / 3)
+end
+
+"""
     GLPolesInfo{FT}
 
 Gauss-Legendre Poles Information.
@@ -91,16 +115,36 @@ function octreeXWNCal(lb::FT, hb::FT, L::IT, mod::Symbol) where {IT<:Integer,FT<
     return Xs, Ws
 end
 
-function truncation_kernel(rel_l)
-    return 2π * rel_l * sqrt(3) + 2.16 * NBDIGITS^(2.0 / 3.0) * (2π * rel_l)^(1 / 3)
-end
-
 function truncationLCal(cubel::FT; λ = 1.0) where {FT<:Real}
     rel_l = cubel / λ
     L = floor(Int, truncation_kernel(rel_l))
     return L
 end
 
+"""
+    levelIntegralInfoCal(levelCubeEdgel; λ=1.0, L_min=0) -> (L, GLPolesInfo)
+
+计算球面高斯求积（GL）层的截断项与角谱采样信息（论文 4.1.2 节）。
+
+对截断项为 `L` 的层，球面多项式最高阶为 `p = 2L + 1`，需要 `L+1` 个
+Gauss-Legendre 点覆盖 `θ ∈ [0, π]`（实际对 `cosθ` 求积）与 `2(L+1)` 个
+均匀点覆盖 `φ ∈ [0, 2π]`，总采样点数 `N_p = 2(L+1)²`，权重为两方向权重之积
+（论文式 (4-1)）：
+
+```math
+\\int f(\\hat{k})\\, d^2\\hat{k} \\approx \\sum_{p=1}^{N_p} W_p f(\\hat{k}_p), \\qquad
+\\sum_p W_p = 4\\pi
+```
+
+# Arguments
+- `levelCubeEdgel`: 层盒子边长（米）。
+- `λ`: 局部波长（默认 1，配合以 λ 为单位输入的 `levelCubeEdgel`）。
+- `L_min`: 截断项下限（用于小盒子/低频保护）。
+
+# Returns
+- `L`: 整数截断项（`ceil` 取整后与 `L_min` 取最大）。
+- `GLPolesInfo`: `θ`/`φ` 采样点、权重与球面方向信息。
+"""
 function levelIntegralInfoCal(levelCubeEdgel::FT; λ = 1.0, L_min::Int = 0) where {FT<:Real}
     ## Calculate truncation number
     L = max(truncationLCal(levelCubeEdgel; λ = λ), L_min)
