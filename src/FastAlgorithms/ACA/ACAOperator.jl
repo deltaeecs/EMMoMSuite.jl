@@ -232,6 +232,8 @@ PMCHW 系统的 ACA 算子（2N×2N）：复用 MLFMA 的 `assemble_near_field_p
 近场装配与 `PMCHWBlockEvaluator` 远场块求值。PMCHW 非对称（Z^HJ = -Z^EM），
 对每个叶层非邻盒子对的两个方向分别压缩；`symmetric` 必须为 `false`
 （传入 `true` 会报错）。
+注意：近场复用 `assemble_near_field_pmchw`（内部装配完整 2N×2N 后提取近对），
+N 较大时建立成本为 O(N²)。
 """
 function ACAOperator(
     pmchw::PMCHW,
@@ -345,9 +347,12 @@ BlockJacobiPreconditioner(op::ACAOperator, ::Any) = BlockJacobiPreconditioner(op
 function _leaf_block_indices(op::ACAOperator)
     leaf_level = op.octree.levels[op.octree.nLevels]
     blocks = Vector{Vector{Int}}()
+    pmchw = op.operator isa PMCHW
+    Nb = pmchw ? num_basis(op.bases[1]) : 0
     for cube in leaf_level.cubes
         isempty(cube.bfInterval) && continue
-        push!(blocks, collect(op.sorted_ids[cube.bfInterval]))
+        ids = op.sorted_ids[cube.bfInterval]
+        push!(blocks, pmchw ? vcat(ids, Nb .+ ids) : collect(ids))
     end
     return blocks
 end

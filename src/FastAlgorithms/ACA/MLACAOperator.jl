@@ -144,6 +144,8 @@ end
 PMCHW 系统的 MLACA 算子（2N×2N）：近场用 `assemble_near_field_pmchw`，远场块
 行/列展开为 J/M 双通道（`sys=2`），按非对称双向递归压缩；`symmetric` 必须为
 `false`（传入 `true` 会报错）。
+注意：近场复用 `assemble_near_field_pmchw`（内部装配完整 2N×2N 后提取近对），
+N 较大时建立成本为 O(N²)。
 """
 function MLACAOperator(
     pmchw::PMCHW,
@@ -317,9 +319,12 @@ BlockJacobiPreconditioner(op::MLACAOperator, ::Any) = BlockJacobiPreconditioner(
 function _leaf_block_indices(op::MLACAOperator)
     leaf_level = op.octree.levels[op.octree.nLevels]
     blocks = Vector{Vector{Int}}()
+    pmchw = op.operator isa PMCHW
+    Nb = pmchw ? num_basis(op.bases[1]) : 0
     for cube in leaf_level.cubes
         isempty(cube.bfInterval) && continue
-        push!(blocks, collect(op.sorted_ids[cube.bfInterval]))
+        ids = op.sorted_ids[cube.bfInterval]
+        push!(blocks, pmchw ? vcat(ids, Nb .+ ids) : collect(ids))
     end
     return blocks
 end

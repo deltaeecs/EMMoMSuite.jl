@@ -62,4 +62,13 @@ using IterativeSolvers
         sol_err = norm(I_mlaca - Z \ V) / norm(Z \ V)
         @info "PMCHW MLACA sol err (conditioning-limited) = $sol_err"
     end
+
+    @testset "PMCHW preconditioner block partition covers 2N" begin
+        op = ACAOperator(pmchw, basis, 0.25 * lambda; tol = 1e-4, near_range = 1)
+        P = BlockJacobiPreconditioner(op)
+        @test sum(length, P.indices) == S
+        op2 = MLACAOperator(pmchw, basis, 0.125 * lambda; tol = 1e-4, near_range = 1)
+        P2 = BlockJacobiPreconditioner(op2)
+        @test sum(length, P2.indices) == S
+    end
 end
