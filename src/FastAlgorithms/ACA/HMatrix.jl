@@ -3,9 +3,11 @@ module HMatrixModule
 using LinearAlgebra
 using ...CoreModule: num_basis
 using ...IntegralEquations.PMCHWModule: PMCHW
+using ..ACA: LowRankBlock, aca
 using ..BlockLUModule: extract_block
 
-export HMatrixNode, hmatrix_from_mlaca, materialize, hmatrix_size, hmatrix_count
+export HMatrixNode, hmatrix_from_mlaca, materialize, hmatrix_size, hmatrix_count,
+    h_lu!, h_lu_solve
 
 """
     HMatrixNode{T}
@@ -164,5 +166,218 @@ function materialize(H::HMatrixNode{T}) where {T}
     end
     return Z
 end
+
+# =============================================================================
+# H-LU 分解与多 RHS 求解（标准分层块 LU；默认不截断保证精确分解）
+# =============================================================================
+
+function _child(A::HMatrixNode, i::Int, j::Int)
+    return A.children[(i - 1) * A.ncolblocks + j]
+end
+
+_mul_dense(X::HMatrixNode, Y::HMatrixNode) = materialize(X) * materialize(Y)
+
+"""
+    h_lu!(A::HMatrixNode; tol=1e-4, recompress=false)
+
+原地 H-LU 分解（标准分层块 LU）：对角递归分解；离对角
+`L_sb = (Z_sb − Σ L_sp U_pb) U_bb⁻¹`、`U_bs = L_bb⁻¹ (Z_bs − Σ L_bp U_ps)`。
+默认 `recompress=false` 保证精确分解；`recompress=true` 时用 ACA 截断离对角
+因子块（校验误差 ≤ 10·tol，否则回退稠密）。
+"""
+function h_lu!(A::HMatrixNode{T}; tol::Real = 1e-4, recompress::Bool = false) where {T}
+    if A.kind == :dense
+        A.factor = lu(A.dense, NoPivot())
+        return A
+    end
+    A.kind == :lowrank && return A
+
+    nb = A.nrowblocks
+    for b in 1:nb
+        Ab = _child(A, b, b)
+        # 对角更新：A_bb = Z_bb - Σ_{p<b} L_bp U_pb（先更新再分解）
+        Dd = materialize(Ab)
+        for p in 1:(b - 1)
+            Dd .-= _mul_dense(_child(A, b, p), _child(A, p, b))
+        end
+        _put_back!(Ab, Dd; tol = tol, recompress = recompress)
+        h_lu!(Ab; tol = tol, recompress = recompress)
+
+        for s in (b + 1):nb
+            # L_sb = (Z_sb - Σ_{p<b} L_sp U_pb) * U_bb⁻¹
+            R = _child(A, s, b)
+            D = materialize(R)
+            for p in 1:(b - 1)
+                D .-= _mul_dense(_child(A, s, p), _child(A, p, b))
+            end
+            _h_rdiv_U!(D, Ab)
+            _put_back!(R, D; tol = tol, recompress = recompress)
+
+            # U_bs = L_bb⁻¹ * (Z_bs - Σ_{p<b} L_bp U_ps)
+            C = _child(A, b, s)
+            E = materialize(C)
+            for p in 1:(b - 1)
+                E .-= _mul_dense(_child(A, b, p), _child(A, p, s))
+            end
+            _h_ldiv_L!(E, Ab)
+            _put_back!(C, E; tol = tol, recompress = recompress)
+        end
+    end
+    return A
+end
+
+# 右除 U：X = X * U_bb⁻¹（U 为上三角块）
+function _h_rdiv_U!(X::Matrix, D::HMatrixNode)
+    if D.kind == :dense
+        F = D.factor
+        X .= X / UpperTriangular(Matrix(F.U))
+        return X
+    end
+    nb = D.nrowblocks
+    colpos = Dict(g => i for (i, g) in enumerate(D.rows))
+    for b in 1:nb
+        cb = [colpos[g] for g in _child(D, b, b).rows]
+        rhs = X[:, cb]
+        for t in 1:(b - 1)
+            Utb = _child(D, t, b)
+            ct = [colpos[g] for g in _child(D, t, t).rows]
+            rhs .-= X[:, ct] * materialize(Utb)
+        end
+        X[:, cb] = _h_rdiv_U!(rhs, _child(D, b, b))
+    end
+    return X
+end
+
+# 左除 L：X = L_bb⁻¹ * X（L 为下三角块）
+function _h_ldiv_L!(X::Matrix, D::HMatrixNode)
+    if D.kind == :dense
+        F = D.factor
+        X .= LowerTriangular(Matrix(F.L)) \ X
+        return X
+    end
+    nb = D.nrowblocks
+    rowpos = Dict(g => i for (i, g) in enumerate(D.rows))
+    for b in 1:nb
+        rb = [rowpos[g] for g in _child(D, b, b).rows]
+        rhs = X[rb, :]
+        for p in 1:(b - 1)
+            Lbp = _child(D, b, p)
+            rp = [rowpos[g] for g in _child(D, p, p).rows]
+            rhs .-= materialize(Lbp) * X[rp, :]
+        end
+        X[rb, :] = _h_ldiv_L!(rhs, _child(D, b, b))
+    end
+    return X
+end
+
+# 左除 U：X = U_bb⁻¹ * X（U 为上三角块）
+function _h_ldiv_U!(X::Matrix, D::HMatrixNode)
+    if D.kind == :dense
+        F = D.factor
+        X .= UpperTriangular(Matrix(F.U)) \ X
+        return X
+    end
+    nb = D.nrowblocks
+    rowpos = Dict(g => i for (i, g) in enumerate(D.rows))
+    for b in nb:-1:1
+        rb = [rowpos[g] for g in _child(D, b, b).rows]
+        rhs = X[rb, :]
+        for p in (b + 1):nb
+            Ubp = _child(D, b, p)
+            rp = [rowpos[g] for g in _child(D, p, p).rows]
+            rhs .-= materialize(Ubp) * X[rp, :]
+        end
+        X[rb, :] = _h_ldiv_U!(rhs, _child(D, b, b))
+    end
+    return X
+end
+
+"""
+    _put_back!(node, D; tol, recompress)
+
+将稠密块按节点的树结构写回：`:dense` 存稠密；`:lowrank` 用 ACA 再压缩
+（误差校验后保留低秩，否则回退稠密）；`:split` 递归写回子块。
+"""
+function _put_back!(node::HMatrixNode, D::Matrix; tol::Real = 1e-4, recompress::Bool = false)
+    if node.kind == :dense
+        node.dense = D
+        node.factor = nothing
+    elseif node.kind == :lowrank
+        if recompress
+            B = aca(D; tol = tol, maxrank = min(size(D)...), recompress = true)
+            if size(B.U, 2) * (length(node.rows) + length(node.cols)) < length(D)
+                err = norm(D - B.U * transpose(B.V)) / norm(D)
+                if err <= 10 * tol
+                    node.U = B.U
+                    node.V = B.V
+                    return node
+                end
+            end
+        end
+        node.kind = :dense
+        node.dense = D
+    else
+        rowpos = Dict(g => i for (i, g) in enumerate(node.rows))
+        colpos = Dict(g => j for (j, g) in enumerate(node.cols))
+        for ch in node.children
+            r = [rowpos[g] for g in ch.rows]
+            c = [colpos[g] for g in ch.cols]
+            _put_back!(ch, D[r, c]; tol = tol, recompress = recompress)
+        end
+    end
+    return node
+end
+
+"""
+    h_lu_solve(H::HMatrixNode, B::AbstractMatrix) -> X
+
+用已分解的 H 树做多 RHS 直接求解（前代 + 回代）。输入/输出为全局索引顺序。
+"""
+function h_lu_solve(H::HMatrixNode, B::AbstractMatrix)
+    n = length(H.rows)
+    nrhs = size(B, 2)
+    CT = eltype(B)
+    if H.kind == :dense
+        return Matrix(H.factor \ B[H.rows, :])
+    end
+
+    Bp = B[H.rows, :]   # 置换到树序
+    X = zeros(CT, n, nrhs)
+    Y = zeros(CT, n, nrhs)
+    nb = H.nrowblocks
+    rowpos = Dict(g => i for (i, g) in enumerate(H.rows))
+
+    # 前代：Y_b = L_bb⁻¹ (b_b - Σ_{p<b} L_bp Y_p)
+    for b in 1:nb
+        rb = [rowpos[g] for g in _child(H, b, b).rows]
+        rhs = Bp[rb, :]
+        for p in 1:(b - 1)
+            Lbp = _child(H, b, p)
+            rp = [rowpos[g] for g in _child(H, p, p).rows]
+            rhs .-= materialize(Lbp) * Y[rp, :]
+        end
+        Y[rb, :] = _h_ldiv_L!(rhs, _child(H, b, b))
+    end
+    # 回代：X_b = U_bb⁻¹ (Y_b - Σ_{p>b} U_bp X_p)
+    for b in nb:-1:1
+        rb = [rowpos[g] for g in _child(H, b, b).rows]
+        rhs = Y[rb, :]
+        for p in (b + 1):nb
+            Ubp = _child(H, b, p)
+            rp = [rowpos[g] for g in _child(H, p, p).rows]
+            rhs .-= materialize(Ubp) * X[rp, :]
+        end
+        X[rb, :] = _h_ldiv_U!(rhs, _child(H, b, b))
+    end
+
+    Xg = zeros(CT, size(B, 1), nrhs)
+    Xg[H.rows, :] = X
+    return Xg
+end
+
+h_lu_solve(H::HMatrixNode, b::AbstractVector) = vec(h_lu_solve(H, reshape(b, :, 1)))
+
+Base.:\(H::HMatrixNode, b::AbstractVector) = h_lu_solve(H, b)
+Base.:\(H::HMatrixNode, B::AbstractMatrix) = h_lu_solve(H, B)
 
 end # module HMatrixModule

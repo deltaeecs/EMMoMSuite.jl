@@ -13,6 +13,7 @@ using EMMoMSuite.FastAlgorithms.MLACAOperatorModule: MLACAOperator
 using EMMoMSuite.FastAlgorithms.ACAOperatorModule: ACAOperator
 using EMMoMSuite.FastAlgorithms.BlockLUModule: extract_block
 using EMMoMSuite.FastAlgorithms.HMatrixModule: hmatrix_from_mlaca, materialize
+using EMMoMSuite.FastAlgorithms.HMatrixModule: h_lu!, h_lu_solve
 using LinearAlgebra
 
 function operator_dense(op, N)
@@ -55,5 +56,29 @@ end
         H = hmatrix_from_mlaca(op)
         Zop = operator_dense(op, N)
         @test compare_hmatrix(H, Zop) < 1e-2
+    end
+
+    @testset "H-LU EFIE exact factorization + multi-RHS solve" begin
+        op = MLACAOperator(efie, basis, 0.125 * lambda; tol = 1e-4, near_range = 1)
+        H = hmatrix_from_mlaca(op)
+        h_lu!(H)
+        X_true = randn(ComplexF64, N, 2)
+        B = reduce(hcat, [op * X_true[:, j] for j in 1:2])
+        X = h_lu_solve(H, B)
+        @test norm(X - X_true) / norm(X_true) < 1e-6
+
+        b = randn(ComplexF64, N)
+        x = H \ b
+        @test norm(op * x - b) / norm(b) < 1e-6
+    end
+
+    @testset "H-LU ACA single-level solve" begin
+        op = ACAOperator(efie, basis, 0.25 * lambda; tol = 1e-4, near_range = 1)
+        H = hmatrix_from_mlaca(op)
+        h_lu!(H)
+        X_true = randn(ComplexF64, N, 2)
+        B = reduce(hcat, [op * X_true[:, j] for j in 1:2])
+        X = h_lu_solve(H, B)
+        @test norm(X - X_true) / norm(X_true) < 1e-6
     end
 end
