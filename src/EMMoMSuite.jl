@@ -242,7 +242,9 @@ export FastAlgorithms,
     LowRankBlock,
     aca,
     recompress!,
-    compression_stats
+    compression_stats,
+    BlockEvaluator,
+    eval_block
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")
