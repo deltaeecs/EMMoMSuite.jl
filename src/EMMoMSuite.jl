@@ -251,7 +251,10 @@ export FastAlgorithms,
     MLACAOperator,
     BlockLUFactorization,
     block_lu,
-    block_lu_solve
+    block_lu_solve,
+    HMatrixNode,
+    hmatrix_from_mlaca,
+    materialize
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")

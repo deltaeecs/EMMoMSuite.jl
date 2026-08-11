@@ -17,6 +17,7 @@ include("ACA/BlockEvaluator.jl")
 include("ACA/ACAOperator.jl")
 include("ACA/MLACAOperator.jl")
 include("ACA/BlockLU.jl")
+include("ACA/HMatrix.jl")
 
 using .MLFMA
 using .Lebedev
@@ -25,8 +26,9 @@ using .BlockEvaluatorModule
 using .ACAOperatorModule
 using .MLACAOperatorModule
 using .BlockLUModule
+using .HMatrixModule
 
 export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
-export ACA, LowRankBlock, aca, recompress!, compression_stats, BlockEvaluator, PMCHWBlockEvaluator, eval_block, ACAOperator, ACAParams, MLACAOperator, BlockLUFactorization, block_lu, block_lu_solve
+export ACA, LowRankBlock, aca, recompress!, compression_stats, BlockEvaluator, PMCHWBlockEvaluator, eval_block, ACAOperator, ACAParams, MLACAOperator, BlockLUFactorization, block_lu, block_lu_solve, HMatrixNode, hmatrix_from_mlaca, materialize
 
 end
