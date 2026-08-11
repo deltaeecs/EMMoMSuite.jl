@@ -14,6 +14,7 @@ using Test
     include("test_mlfma.jl")
     include("test_aca.jl")
     include("test_block_evaluator.jl")
+    include("test_aca_operator.jl")
     include("test_parallel.jl")
     include("test_mpiarray.jl")
     include("test_parallel_mfie_cfie.jl")
