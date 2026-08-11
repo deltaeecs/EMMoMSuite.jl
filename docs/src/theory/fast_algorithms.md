@@ -305,3 +305,48 @@ N=252/0.125λ 用例显示 MLFMA 在该尺度的 breakdown——这正是文档 
 预条件实测（N=252 ACA 算子，GMRES，`abstol=1e-6`）：Identity 63 迭代，
 ILU(0.01) 20 迭代，SPAI 19 迭代，BlockJacobi 400 迭代未收敛（叶层块过小）。
 ILU/SPAI 可直接用 `ILUPreconditioner(op)` / `SPAIPreconditioner(op)` 便捷构造。
+
+## 7. 非对称 MLACA 与 PMCHW 多基函数支持
+
+- **非对称 MLACA**：`MLACAOperator(symmetric=false)` 对每个盒子对的两个方向
+  分别压缩（适合 CFIE 等非对称算子）；对称时仍用转置语义避免重复压缩。
+- **PMCHW 多基函数块求值**：`PMCHWBlockEvaluator` 按 2N 系统全局索引求值
+  远场块（J/M 双通道），四个子块 EJ/HM 用 L 算子、EM/HJ 用 ±K^PMCHW；
+  `ACAOperator(pmchw, basis, ...)` 与 `MLACAOperator(pmchw, basis, ...)`
+  直接支持 PMCHW（2N×2N，非对称双向压缩）。注意每个 L 算子必须独立缓冲
+  （`efie_interaction!` 末尾会整体乘 factor，同一缓冲连续调用会重复缩放）。
+- PMCHW 该实现本机 cond≈4.3e6（N=150 球体），解误差受条件数放大；算子级
+  门控以 MatVec 误差与 GMRES 算子残差为准。
+
+## 8. 直接块 LU（多 RHS）
+
+`block_lu(op)`（`FastAlgorithms.BlockLUModule`）对 ACA/MLACA 算子做叶层分块
+直接 LU（Gibson Ch9 Algorithm 7）：
+- 对角块 `A_bb = Z_bb − Σ_{p<b} L_bp U_pb`，用**无主元 LU**
+  （`lu(A, NoPivot())`，块公式要求 `A_bb = L_bb U_bb` 精确成立）；
+- 离对角块 `L_sb = (Z_sb − Σ L_sp U_pb) U_bb⁻¹`、`U_bs = L_bb⁻¹ (Z_bs − Σ L_bp U_ps)`，
+  可用 ACA 再压缩控制存储；
+- `block_lu_solve(F, B)` 前代 + 回代支持多 RHS；`F \ b` 支持单 RHS。
+
+## 9. 更大规模实测（2026-08-11，本地 1 线程，稠密参照）
+
+| 用例 | 方法 | N | MatVec 误差 | 解误差 | 压缩率 | 说明 |
+|------|------|---|------------|--------|--------|------|
+| EFIE 球 | MLFMA | 1734 | 6.2e-5 | 5.9e-4 | 75.0%* | 76 迭代 |
+| EFIE 球 | ACA | 1734 | 2.9e-5 | 3.3e-4 | 57.0% | 求解 0.19s |
+| EFIE 球 | MLFMA | 2280 | 4.3e-5 | 7.1e-4 | 74.8%* | 500 迭代 72.6s |
+| EFIE 球 | ACA/MLACA | 2280 | 2.3e-5 | 5.0e-4 | 60.7% | 500 迭代 1.96s |
+| CFIE 球 | ACA/MLACA | 792 | 1.9e-5 | 2.0e-5 | -3.6% | 7 迭代（cond≈22） |
+| PMCHW 球 | ACA/MLACA | 600 | 1.2e-4 | 1.2 | 4.8% | cond≈4.3e6 限制 |
+| 低频 EFIE | ACA/MLACA | 792 | 5.1e-6 | 2.9e-3 | 42.5% | 30 MHz，0.03λ 叶层 |
+| EFIE 球 | ACA/MLACA | 11352 | 5.1e-6 | 7.2 | 71.5% | GMRES+ILU 500 迭代未收敛（EFIE 稠密网格预条件挑战） |
+| CFIE 球 | ACA/MLACA | 11352 | 2.2e-6 | 2.6e-5 | 67.8% | 100 迭代收敛（cond≈1.2e3） |
+
+`*` MLFMA 压缩率仅计近场稀疏存储（口径不同）。全部用例 `finite/NaN` 检查通过。
+N=2280 时 ACA/MLACA 单次 MatVec 远快于 MLFMA（同 500 迭代下求解 1.96s vs 72.6s），
+且压缩率随 N 增大而提升；小 N（792）CFIE 非对称双向压缩开销超过收益（负压缩率），
+属正常现象。N=11352（约 1.1 万未知量）本地实测：EFIE 压缩率 71.5%、MatVec 误差
+5.1e-6，但 ILU 预条件 GMRES 500 迭代不收敛（残差停滞 ~2.5），属 EFIE 稠密网格
+预条件挑战（算子本身精确）；良态 CFIE 同规模 100 迭代收敛、解误差 2.6e-5、
+压缩率 67.8%。该大规模基准脚本
+（`benchmark/run_large_fast_solvers_benchmark.jl`）仅供本地手动运行，未接入 CI。

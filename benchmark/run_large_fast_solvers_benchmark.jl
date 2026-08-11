@@ -76,52 +76,60 @@ function bench_case(; tag, freq, radius, n_theta, n_phi, leaf_factor, tol = 1e-4
     return rows
 end
 
-function main(; out = joinpath(@__DIR__, "results", "large_fast_solvers_benchmark_2026-08-11.csv"))
+function main(; filter_tags::Vector{String} = String[], out = joinpath(@__DIR__, "results", "large_fast_solvers_benchmark_2026-08-11.csv"))
     println("=============================================================")
     println("  Large-scale Fast Solvers Benchmark (dense reference gates)")
     println("=============================================================")
+    println("  说明：本脚本为本地手动运行的大规模验证，不进 CI/自动测试。")
+    println("  可用过滤参数：", join(("efie_792", "efie_1734", "efie_2280", "efie_11352", "cfie_792", "pmchw_600", "lowfreq_792"), ", "))
     rows = Vector{Vector{Any}}()
 
-    println("\n[case 1] EFIE sphere N~792 (300 MHz)")
-    append!(rows, bench_case(; tag = "efie_792", freq = 300e6, radius = 0.5,
-                             n_theta = 12, n_phi = 24, leaf_factor = 0.25))
-
-    println("\n[case 2] EFIE sphere N~1734 (300 MHz)")
-    append!(rows, bench_case(; tag = "efie_1734", freq = 300e6, radius = 0.5,
-                             n_theta = 18, n_phi = 34, leaf_factor = 0.25))
-
-    println("\n[case 3] EFIE sphere N~2280 (300 MHz)")
-    append!(rows, bench_case(; tag = "efie_2280", freq = 300e6, radius = 0.5,
-                             n_theta = 20, n_phi = 40, leaf_factor = 0.25))
-
-    println("\n[case 4] CFIE sphere N~792 (non-symmetric, 300 MHz)")
-    λ = 299792458.0 / 300e6
-    mesh = generate_sphere_mesh(0.5, 12, 24)
-    basis = RWGBasis(mesh)
-    N = num_basis(basis)
-    cfie = CFIE(300e6)
-    Z = assemble_impedance_matrix(cfie, basis)
-    src = PlaneWave(300e6, 0.0, 0.0, [1.0, 0.0, 0.0])
-    V = excitation_vector(cfie, src, basis)
-    I_dir = Z \ V
-    x = randn(ComplexF64, N)
-    for name in (:aca, :mlaca)
-        op = name === :aca ? ACAOperator(cfie, basis, 0.25 * λ; tol = 1e-4, near_range = 1, symmetric = false) :
-                             MLACAOperator(cfie, basis, 0.25 * λ; tol = 1e-4, near_range = 1, symmetric = false)
-        y = op * x
-        mv_err = norm(y - Z * x) / norm(Z * x)
-        P = ILUPreconditioner(op)
-        t_solve = @elapsed (I, hist) = gmres(op, V; Pl = P, abstol = 1e-6, reltol = 1e-8,
-                                             maxiter = 500, restart = 100, log = true)
-        relres = norm(V - op * I) / norm(V)
-        sol_err = norm(I - I_dir) / norm(I_dir)
-        nnz_near, nblocks, stored_lr, total, ratio = storage_stats(op, N)
-        push!(rows, Any["cfie_792", String(name), N, 300e6, 0.25, 0.0, t_solve, mv_err,
-                        all(isfinite, vec(y)), hist.iters, relres, sol_err, cond(Z),
-                        nnz_near, nblocks, stored_lr, total, ratio])
+    cases = [
+        ("efie_792", (; tag = "efie_792", freq = 300e6, radius = 0.5, n_theta = 12, n_phi = 24, leaf_factor = 0.25)),
+        ("efie_1734", (; tag = "efie_1734", freq = 300e6, radius = 0.5, n_theta = 18, n_phi = 34, leaf_factor = 0.25)),
+        ("efie_2280", (; tag = "efie_2280", freq = 300e6, radius = 0.5, n_theta = 20, n_phi = 40, leaf_factor = 0.25)),
+        ("efie_11352", (; tag = "efie_11352", freq = 300e6, radius = 0.5, n_theta = 44, n_phi = 88,
+                        leaf_factor = 0.25, methods = (:aca, :mlaca))),
+    ]
+    for (key, cfg) in cases
+        (isempty(filter_tags) || any(t -> occursin(t, key), filter_tags)) || continue
+        println("\n[case] ", key)
+        append!(rows, bench_case(; cfg...))
     end
 
-    println("\n[case 5] PMCHW sphere N=300 (2N=600, 300 MHz)")
+    for (ctag, nt, np, lf) in (("cfie_792", 12, 24, 0.25), ("cfie_11352", 44, 88, 0.25))
+        isempty(filter_tags) || any(t -> occursin(t, ctag), filter_tags) || continue
+        println("\n[case] ", ctag, " (non-symmetric CFIE, 300 MHz)")
+        λ = 299792458.0 / 300e6
+        mesh = generate_sphere_mesh(0.5, nt, np)
+        basis = RWGBasis(mesh)
+        N = num_basis(basis)
+        cfie = CFIE(300e6)
+        Z = assemble_impedance_matrix(cfie, basis)
+        src = PlaneWave(300e6, 0.0, 0.0, [1.0, 0.0, 0.0])
+        V = excitation_vector(cfie, src, basis)
+        I_dir = Z \ V
+        x = randn(ComplexF64, N)
+        for name in (:aca, :mlaca)
+            op = name === :aca ? ACAOperator(cfie, basis, lf * λ; tol = 1e-4, near_range = 1, symmetric = false) :
+                                 MLACAOperator(cfie, basis, lf * λ; tol = 1e-4, near_range = 1, symmetric = false)
+            y = op * x
+            mv_err = norm(y - Z * x) / norm(Z * x)
+            P = ILUPreconditioner(op)
+            t_solve = @elapsed (I, hist) = gmres(op, V; Pl = P, abstol = 1e-6, reltol = 1e-8,
+                                                 maxiter = 500, restart = 100, log = true)
+            relres = norm(V - op * I) / norm(V)
+            sol_err = norm(I - I_dir) / norm(I_dir)
+            nnz_near, nblocks, stored_lr, total, ratio = storage_stats(op, N)
+            push!(rows, Any[ctag, String(name), N, 300e6, lf, 0.0, t_solve, mv_err,
+                            all(isfinite, vec(y)), hist.iters, relres, sol_err, cond(Z),
+                            nnz_near, nblocks, stored_lr, total, ratio])
+        end
+    end
+
+    if isempty(filter_tags) || any(t -> occursin(t, "pmchw_600"), filter_tags)
+    println("\n[case] pmchw_600 (PMCHW, 300 MHz)")
+    λ = 299792458.0 / 300e6
     mesh = generate_sphere_mesh(0.5, 6, 10)
     basis = RWGBasis(mesh)
     N = num_basis(basis)
@@ -146,11 +154,14 @@ function main(; out = joinpath(@__DIR__, "results", "large_fast_solvers_benchmar
                         all(isfinite, vec(y)), hist.iters, relres, sol_err, cond(Z),
                         nnz_near, nblocks, stored_lr, total, ratio])
     end
+    end
 
-    println("\n[case 6] low-frequency EFIE N~792 (30 MHz, leaf 0.03 lambda)")
-    append!(rows, bench_case(; tag = "lowfreq_792", freq = 30e6, radius = 0.5,
-                             n_theta = 12, n_phi = 24, leaf_factor = 0.03,
-                             methods = (:aca, :mlaca)))
+    if isempty(filter_tags) || any(t -> occursin(t, "lowfreq_792"), filter_tags)
+        println("\n[case] lowfreq_792 (30 MHz, leaf 0.03 lambda)")
+        append!(rows, bench_case(; tag = "lowfreq_792", freq = 30e6, radius = 0.5,
+                                 n_theta = 12, n_phi = 24, leaf_factor = 0.03,
+                                 methods = (:aca, :mlaca)))
+    end
 
     for r in rows
         println(@sprintf("%-12s %-8s N=%-5d f=%-3.0fMHz leaf=%.3f setup=%.2fs solve=%.2fs mv=%.1e fin=%s it=%d res=%.1e sol=%.1e cond=%.1e ratio=%.1f%%",
@@ -159,8 +170,18 @@ function main(; out = joinpath(@__DIR__, "results", "large_fast_solvers_benchmar
     end
 
     mkpath(dirname(out))
-    writedlm(out, vcat(permutedims(HEADER), reduce(vcat, [permutedims(r) for r in rows])), ',')
+    if !isempty(filter_tags) && isfile(out)
+        # 过滤运行：合并进既有 CSV（按 case+method 去重，保留其他用例数据）
+        old = readdlm(out, ',', skipstart = 1)
+        existing = [collect(row) for row in eachrow(old)]
+        newkeys = Set((r[1], r[2]) for r in rows)
+        merged = [r for r in existing if (r[1], r[2]) ∉ newkeys]
+        append!(merged, rows)
+        writedlm(out, vcat(permutedims(HEADER), reduce(vcat, [permutedims(r) for r in merged])), ',')
+    else
+        writedlm(out, vcat(permutedims(HEADER), reduce(vcat, [permutedims(r) for r in rows])), ',')
+    end
     println("\nCSV written: ", out)
 end
 
-main()
+main(; filter_tags = ARGS)
