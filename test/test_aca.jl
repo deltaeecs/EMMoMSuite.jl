@@ -72,4 +72,27 @@ using Random
         @test rank == size(B1.U, 2)
         @test 0 <= ratio <= 1
     end
+
+    @testset "edge cases and numeric type robustness" begin
+        # 1×n 与 m×1 块精确秩 1
+        z1 = randn(ComplexF64, 1, 6)
+        B1 = aca(z1; tol = 1e-8)
+        @test size(B1.U, 2) == 1
+        @test norm(z1 - B1.U * transpose(B1.V)) / norm(z1) < 1e-12
+        z2 = randn(ComplexF64, 6, 1)
+        B2 = aca(z2; tol = 1e-8)
+        @test size(B2.U, 2) == 1
+        @test norm(z2 - B2.U * transpose(B2.V)) / norm(z2) < 1e-12
+
+        # tol=0：应运行到满秩并精确重构
+        z3 = randn(ComplexF64, 8, 8)
+        B3 = aca(z3; tol = 0.0)
+        @test size(B3.U, 2) == 8
+        @test norm(z3 - B3.U * transpose(B3.V)) / norm(z3) < 1e-10
+
+        # 整数矩阵不应因 eps(Int) 报错（修复：eps(float(real(T)))）
+        zi = rand(1:3, 4, 4)
+        B4 = aca(zi; tol = 1e-8)
+        @test norm(zi .- B4.U * transpose(B4.V)) / norm(zi) < 1e-8
+    end
 end

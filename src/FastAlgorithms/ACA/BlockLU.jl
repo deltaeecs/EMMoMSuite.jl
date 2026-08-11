@@ -2,6 +2,8 @@ module BlockLUModule
 
 using LinearAlgebra
 using SparseArrays
+using ...CoreModule: num_basis
+using ...IntegralEquations.PMCHWModule: PMCHW
 using ..ACA: LowRankBlock, aca
 
 export BlockLUFactorization, block_lu, block_lu_solve
@@ -15,8 +17,10 @@ ACA/MLACA 压缩矩阵的直接块 LU 分解（Gibson《Method of Moments》Ch9 
 - 下三角 `L[s][b]`（s > b）：`L_sb = (Z_sb - Σ_{p<b} L_sp U_pb) * U_bb⁻¹`；
 - 上三角 `U[b][s]`（s > b）：`U_bs = L_bb⁻¹ * (Z_bs - Σ_{p<b} L_bp U_ps)`。
 
-分解一次后支持多 RHS 直接求解（前代 + 回代）。分解得到的离对角块可
-用 ACA 再压缩（`recompress=true`）控制存储。
+分解一次后支持多 RHS 直接求解（前代 + 回代）。**默认 `recompress=false`
+（精确分解）**；ACA 再压缩（`recompress=true`）会引入约 `tol` 的因子误差，
+并在后续块更新中复合放大，对病态系统（如本仓库 PMCHW cond≈1e6）会使
+分解残差达到 O(0.1)，仅建议在良态系统（EFIE/CFIE 等）上为节省存储开启。
 """
 struct BlockLUFactorization{CT}
     N::Int
@@ -34,11 +38,17 @@ Base.size(F::BlockLUFactorization) = (F.N, F.N)
 对 ACA/MLACA 算子做叶层块 LU 分解。`Z_bb` 与离对角块由近场稀疏矩阵与
 低秩块重建（`extract_block`）。
 """
-function block_lu(op; tol::Real = 1e-4, recompress::Bool = true)
+function block_lu(op; tol::Real = 1e-4, recompress::Bool = false)
     leaf_level = op.octree.levels[op.octree.nLevels]
     cubes = leaf_level.cubes
-    idxs = [collect(op.sorted_ids[c.bfInterval]) for c in cubes]
-    filter!(!isempty, idxs)
+    pmchw = op.operator isa PMCHW
+    Nb = pmchw ? num_basis(op.bases[1]) : 0
+    idxs = Vector{Vector{Int}}()
+    for c in cubes
+        isempty(c.bfInterval) && continue
+        ids = op.sorted_ids[c.bfInterval]
+        push!(idxs, pmchw ? vcat(ids, Nb .+ ids) : collect(ids))
+    end
     M = length(idxs)
     CT = eltype(op)
 
@@ -132,7 +142,12 @@ function _maybe_aca(A::Matrix{CT}; tol::Real = 1e-4) where {CT}
     k_full = min(m, n)
     B = aca(A; tol = tol, maxrank = k_full, recompress = true)
     if size(B.U, 2) * (m + n) < m * n
-        return B
+        # 仅当低秩重构误差可接受（<= 10*tol）时才保留压缩块，否则回退稠密，
+        # 避免 ACA 对满秩/病态块截断过狠而污染块 LU 因子。
+        err = norm(A - B.U * transpose(B.V)) / norm(A)
+        if err <= 10 * tol
+            return B
+        end
     end
     return A
 end

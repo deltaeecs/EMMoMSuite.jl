@@ -78,4 +78,30 @@ end
         Xd = Z \ B
         @test norm(X - Xd) / norm(Xd) < 1e-2
     end
+
+    @testset "PMCHW block LU (2N system) multi-RHS solve" begin
+        pmchw = PMCHW(300e6, 4.0)
+        op = ACAOperator(pmchw, basis, 0.25 * lambda; tol = 1e-4, near_range = 1)
+        S = 2N
+        @test size(op, 1) == S
+
+        # 分解+求解应精确反演压缩算子：X_true → B = op*X_true → block_lu_solve ≈ X_true
+        X_true = randn(ComplexF64, S, 2)
+        B = reduce(hcat, [op * X_true[:, j] for j in 1:2])
+        # PMCHW 病态（cond≈4e6）：默认精确分解（recompress=false）须精确反演；
+        # 再压缩在病态系统下不稳定（因子误差被块更新复合放大），不作为门控。
+        F = block_lu(op; tol = 1e-4, recompress = false)
+        @test sum(length, F.blocks) == S
+        X = block_lu_solve(F, B)
+        @test norm(X - X_true) / norm(X_true) < 1e-8
+    end
+
+    @testset "EFIE recompressed block LU (well-conditioned opt-in)" begin
+        op = ACAOperator(efie, basis, 0.25 * lambda; tol = 1e-4, near_range = 1)
+        F = block_lu(op; tol = 1e-4, recompress = true)
+        B = randn(ComplexF64, N, 2)
+        X = block_lu_solve(F, B)
+        Xd = Z \ B
+        @test norm(X - Xd) / norm(Xd) < 1e-2
+    end
 end

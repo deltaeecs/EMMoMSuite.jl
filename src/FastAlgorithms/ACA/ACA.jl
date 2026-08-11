@@ -75,7 +75,7 @@ function aca(
     rows_used = falses(m)
     cols_used = falses(n)
     normZ2 = 0.0
-    eps_t = eps(real(T))
+    eps_t = eps(float(real(T)))
     k = 0
 
     while k < maxrank
