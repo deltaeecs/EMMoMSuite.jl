@@ -40,6 +40,12 @@ Preconditioners must implement:
 abstract type AbstractPreconditioner end
 
 # --- Identity Preconditioner ---
+"""
+    IdentityPreconditioner <: AbstractPreconditioner
+
+单位预条件子：`M⁻¹ = I`，即 `P \\ x == x`。
+不改变原线性系统，常用于调试、基准测试或作为"无预条件"的对照组。
+"""
 struct IdentityPreconditioner <: AbstractPreconditioner end
 LinearAlgebra.ldiv!(y, P::IdentityPreconditioner, x) = copyto!(y, x)
 LinearAlgebra.ldiv!(P::IdentityPreconditioner, x) = x

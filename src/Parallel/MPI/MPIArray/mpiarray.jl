@@ -35,6 +35,14 @@ mutable struct MPIArray{T,I,N,DT,IG} <: AbstractArray{T,N}
 end
 
 const MPIVector{T,I,DT,IG} = MPIArray{T,I,1,DT,IG} where {T,I,DT,IG}
+
+"""
+    MPIMatrix{T,I,DT,IG}
+
+`MPIArray` 的二维别名（`N = 2`），表示按列分区的分布式矩阵：
+每个 MPI rank 持有本地数据块 `data` 与对应全局列索引 `indices`，
+并通过 `comm` / `myrank` 参与全局矩阵的分布式存储与通信。
+"""
 const MPIMatrix{T,I,DT,IG} = MPIArray{T,I,2,DT,IG} where {T,I,DT,IG}
 const SubMPIVector{T,I,DT,IG,SI,L} =
     SubArray{T,1,MPIArray{T,I,MN,DT,IG},SI,L} where {T,I,MN,DT,IG,SI,L}

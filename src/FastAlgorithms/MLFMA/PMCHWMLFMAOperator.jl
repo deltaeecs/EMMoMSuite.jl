@@ -52,6 +52,17 @@ const pmchw_assemble_full = assemble_impedance_matrix
 
 export PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
 
+"""
+    PMCHWMLFMAErrorBudget{FT}
+
+PMCHW-MLFMA 的近场/远场误差预算参数：
+- `leaf_wavelength_divisor`：叶子边长占波长的比例；
+- `near_range_scale` / `min_near_range` / `max_near_range`：近邻范围缩放与上下限；
+- `L_min`：最小截断阶数；
+- `fixed_near_range` / `fixed_leaf_size_eff`：固定近邻范围 / 固定有效叶子尺寸（`0` 表示自动）。
+
+构造：`PMCHWMLFMAErrorBudget(::Type{FT}=Float64; kwargs...)`。
+"""
 struct PMCHWMLFMAErrorBudget{FT<:AbstractFloat}
     leaf_wavelength_divisor::FT
     near_range_scale::FT
@@ -518,10 +529,13 @@ function disaggregate_leaf_pmchw_m!(
     return nothing
 end
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 15.8: assemble_near_field_pmchw
-# ─────────────────────────────────────────────────────────────────────────────
+"""
+    assemble_near_field_pmchw(pmchw, basis, octree, sorted_ids, inv_sorted_ids)
 
+装配 PMCHW-MLFMA 的完整 `2N×2N` 近场稀疏矩阵：
+先显式装配完整 PMCHW 矩阵，再按八叉树叶子近邻关系提取近场分块
+（`EJ` / `EM` / `HJ` / `HM` 四块同序）。
+"""
 function assemble_near_field_pmchw(
     pmchw::PMCHW,
     basis::RWGBasis,

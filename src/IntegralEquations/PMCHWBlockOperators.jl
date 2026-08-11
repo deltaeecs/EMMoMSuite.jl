@@ -22,12 +22,31 @@ export AbstractPMCHWBackend,
     weak_form,
     strong_form
 
+"""
+    AbstractPMCHWBackend
+
+PMCHW 分块算子的后端抽象类型。
+具体后端决定弱形式以何种方式存储与作用：
+- [`DensePMCHWBackend`](@ref)：稠密矩阵；
+- [`MatrixFreePMCHWBackend`](@ref)：矩阵自由算子（如 MLFMA）。
+"""
 abstract type AbstractPMCHWBackend end
 
+"""
+    DensePMCHWBackend{CT,MT} <: AbstractPMCHWBackend
+
+稠密矩阵后端，封装完整 PMCHW 阻抗矩阵 `matrix::MT`。
+"""
 struct DensePMCHWBackend{CT<:Complex,MT<:AbstractMatrix{CT}} <: AbstractPMCHWBackend
     matrix::MT
 end
 
+"""
+    MatrixFreePMCHWBackend{A} <: AbstractPMCHWBackend
+
+矩阵自由后端，封装一个可作用算子 `operator::A`（如 MLFMA 算子），
+避免显式装配稠密 PMCHW 矩阵。
+"""
 struct MatrixFreePMCHWBackend{A} <: AbstractPMCHWBackend
     operator::A
 end
@@ -83,12 +102,24 @@ function _rwg_surface_gram_interaction!(
     return nothing
 end
 
+"""
+    pmchw_surface_gram_matrix(basis::RWGBasis)
+
+计算 RWG 基函数的表面 Gram 矩阵：第 `(i,j)` 元为第 `i` 个测试基函数
+与第 `j` 个源基函数在公共三角形上的内积（`N×N`）。
+"""
 function pmchw_surface_gram_matrix(basis::RWGBasis{IT,FT}) where {IT,FT}
     gram = RWGSurfaceGramOperator{FT}(GaussQuadratureInfo(:Triangle, 4, FT))
     wrapper = (Z, op, t1, t2) -> _rwg_surface_gram_interaction!(Z, op, t1, t2)
     return assemble_generic(gram, basis, wrapper, symmetric = false)
 end
 
+"""
+    pmchw_block_pairing_matrix(basis::RWGBasis)
+
+由表面 Gram 矩阵构造的 `2N×2N` 分块配对矩阵（对角块为 `surface_mass`），
+用于 PMCHW 强弱形式转换时的测试/试验基函数配对。
+"""
 function pmchw_block_pairing_matrix(basis::RWGBasis{IT,FT}) where {IT,FT}
     surface_mass = pmchw_surface_gram_matrix(basis)
     N = num_basis(basis)
@@ -99,6 +130,18 @@ function pmchw_block_pairing_matrix(basis::RWGBasis{IT,FT}) where {IT,FT}
     return block_mass
 end
 
+"""
+    PMCHWBlockOperator{FT,CT,B,MB,TP,RP} <: AbstractIntegralOperator
+
+PMCHW 分块算子：将完整 `2N×2N` PMCHW 阻抗矩阵拆分为
+`EJ` / `EM` / `HJ` / `HM` 四个 `N×N` 块，并携带测试/试验配对矩阵，
+支持弱形式与强形式两种使用方式。
+
+构造方式：
+- `PMCHWBlockOperator(pmchw, basis)`：稠密后端（自动装配并分块）；
+- `PMCHWBlockOperator(pmchw, basis, backend)`：指定 `DensePMCHWBackend` 或
+  `MatrixFreePMCHWBackend`。
+"""
 struct PMCHWBlockOperator{FT<:AbstractFloat,CT<:Complex,B<:AbstractPMCHWBackend,MB<:AbstractMatrix{CT},TP,RP} <:
        AbstractIntegralOperator
     pmchw::PMCHW{FT,CT}
@@ -182,12 +225,28 @@ function PMCHWBlockOperator(
     )
 end
 
+"""
+    pmchw_blocks(op::PMCHWBlockOperator)
+
+返回 PMCHW 分块算子的四个子块：`(EJ, EM, HJ, HM)`。
+"""
 pmchw_blocks(op::PMCHWBlockOperator) = (EJ = op.ej, EM = op.em, HJ = op.hj, HM = op.hm)
 
+"""
+    weak_form(backend_or_op)
+
+返回 PMCHW 算子的弱形式：对稠密后端返回矩阵，对矩阵自由后端返回算子。
+"""
 weak_form(backend::DensePMCHWBackend) = backend.matrix
 weak_form(backend::MatrixFreePMCHWBackend) = backend.operator
 weak_form(op::PMCHWBlockOperator) = weak_form(op.backend)
 
+"""
+    strong_form(op::PMCHWBlockOperator)
+
+将弱形式转换为强形式：右乘试验配对矩阵、左除测试配对矩阵。
+对矩阵自由后端返回 `PairingTransformedOperator` 惰性封装。
+"""
 function strong_form(op_backend::PairingTransformedOperator)
     return op_backend
 end
@@ -207,11 +266,21 @@ function strong_form(op::PMCHWBlockOperator)
     return PairingTransformedOperator(base, op.test_pairing, op.trial_pairing)
 end
 
+"""
+    strong_form_rhs(op::PMCHWBlockOperator, rhs)
+
+对强形式右端项施加测试配对矩阵的逆变换（`rhs = test_pairing \\ rhs`）。
+"""
 function strong_form_rhs(op::PMCHWBlockOperator, rhs::AbstractVector)
     op.test_pairing === nothing && return rhs
     return op.test_pairing \ rhs
 end
 
+"""
+    recover_trial_coefficients(op::PMCHWBlockOperator, coeffs)
+
+由强形式的解恢复原始试验基函数系数（`coeffs = trial_pairing * coeffs`）。
+"""
 function recover_trial_coefficients(op::PMCHWBlockOperator, coeffs::AbstractVector)
     op.trial_pairing === nothing && return coeffs
     return op.trial_pairing * coeffs
