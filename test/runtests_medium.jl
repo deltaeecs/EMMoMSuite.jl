@@ -34,6 +34,7 @@ using Test
         include("test_block_lu.jl")
         include("test_block_evaluator_pmchw.jl")
         include("test_aca_mlaca_pmchw.jl")
+        include("test_hmatrix.jl")
     end
     
     @testset "Parallel" begin

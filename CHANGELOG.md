@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   集成）；非对称支持（CFIE，`symmetric=false` 双向压缩）；PMCHW 2N 多基函数
   支持（`PMCHWBlockEvaluator`，EJ/EM/HJ/HM 子块）；叶层分块直接 LU
   （`block_lu`/`block_lu_solve`，多 RHS，默认 `recompress=false`）。
+- **H 矩阵 H-LU**：`FastAlgorithms.ACA.HMatrixModule`——从 MLACA/ACA 算子重建
+  显式 H 矩阵树（`:dense`/`:lowrank`/`:split`），分层 H-LU 分解与多 RHS 递归
+  三角求解（默认精确，残差 ~1e-15；再压缩为良态系统可控选项）。
 - **MLFMA 参数配置化**：`nInterp`、`precision_digits` 构造参数（串行与 MPI），
   ILU/SPAI/BlockJacobi 便捷接线。
 - **大规模本地基准**：`benchmark/run_large_fast_solvers_benchmark.jl`

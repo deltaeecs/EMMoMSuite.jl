@@ -350,3 +350,39 @@ N=2280 时 ACA/MLACA 单次 MatVec 远快于 MLFMA（同 500 迭代下求解 1.8
 预条件挑战（算子本身精确）；良态 CFIE 同规模 100 迭代收敛、解误差 2.6e-5、
 压缩率 67.8%。该大规模基准脚本
 （`benchmark/run_large_fast_solvers_benchmark.jl`）仅供本地手动运行，未接入 CI。
+
+## 10. H 矩阵 H-LU 与 H2 扩展
+
+### 10.1 实现
+
+- `FastAlgorithms.ACA.HMatrixModule`：`HMatrixNode`（`:dense`/`:lowrank`/`:split`）
+  与 `hmatrix_from_mlaca`——从 MLACA/ACA 算子的分层低秩结构重建显式 H 矩阵树
+  （对称算子反方向用转置因子 `V*(Uᵀ)`；PMCHW 2N 自动展开 J/M 双通道）。
+- `h_lu!`：标准分层块 LU（对角先更新 `A_bb = Z_bb − Σ L_bp U_pb` 再递归分解；
+  离对角 `L_sb = (Z_sb − Σ L_sp U_pb) U_bb⁻¹`、`U_bs = L_bb⁻¹ (Z_bs − Σ L_bp U_ps)`；
+  递归右除 U / 左除 L）。
+- `h_lu_solve`：前代 + 回代多 RHS 直接求解（全局索引输入/输出）。
+- 默认 `recompress=false` 精确分解；`recompress=true` 用 ACA 截断离对角因子块
+  （误差校验 ≤10·tol，否则回退稠密）。
+
+### 10.2 实测结果（2026-08-11，本地 1 线程，`benchmark/benchmark_hl_lu.jl`）
+
+| 用例 | N | 方法 | 因子化 | 求解 | 残差 | 压缩率 |
+|------|---|------|--------|------|------|--------|
+| EFIE（MLACA 多层树） | 150 | H-LU 精确 | 0.37s | 0.008s | 9.4e-16 | 0% |
+| EFIE | 792 | BlockLU | 2.06s | 0.008s | 1.5e-15 | 0% |
+| EFIE | 792 | H-LU 精确 | 0.50s | 0.014s | 1.7e-15 | 0% |
+| EFIE | 792 | H-LU 再压缩 | 0.76s | 0.014s | 7.8e-4 | **12.7%**（944 低秩块） |
+| CFIE（非对称） | 150 | H-LU 精确 | 0.14s | 0.003s | 4.5e-16 | 0% |
+| PMCHW（2N） | 300 | H-LU 精确 | 0.21s | 0.005s | 1.1e-15 | 0% |
+| PMCHW | 300 | H-LU 再压缩 | 0.23s | 0.005s | 0.50 | 6.2%（cond≈4e6 不稳定） |
+| 低频 EFIE | 150 | H-LU 精确 | 0.06s | 0.003s | 4.0e-16 | 0% |
+
+结论：H-LU 精确分解比叶层 BlockLU 快 4-14 倍、残差 ~1e-15；再压缩在良态系统上
+以 ≤10·tol 受控误差换取存储（N=792 12.7%），病态系统（PMCHW）不稳定，默认关闭。
+
+### 10.3 H2 与 H2-LU（设计，下一阶段）
+
+- H2 矩阵：嵌套基（cluster bases U_t/V_t + 父子转移矩阵），MatVec 用嵌套基加速；
+- **H2-LU 为 opt-in 实验特性**：按 H2Mat4Ham 经验，仅当残差/解误差/秩/内存对照
+  H-LU 无回归时才启用；每个实验保留稠密参照门控。
