@@ -78,7 +78,14 @@ generated_source = prepare_documenter_source(DOCS_SRC)
 makedocs(
     sitename = "EMMoMSuite.jl",
     source = generated_source,
-    format = Documenter.HTML(repolink = "", prettyurls = false, edit_link = "master"),
+    format = Documenter.HTML(
+        repolink = "",
+        prettyurls = false,
+        edit_link = "master",
+        # 完整 API 页包含全部子模块 docstring（约 500+ KiB），
+        # 按 Documenter 建议对该页豁免默认 HTML 大小阈值。
+        size_threshold_ignore = ["api/public_api.md"],
+    ),
     modules = [EMMoMSuite],
     remotes = nothing,
     checkdocs = :none,      # Do not require every docstring to appear in the manual.

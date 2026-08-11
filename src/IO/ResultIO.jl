@@ -113,6 +113,14 @@ function save_RCS_csv(
 end
 
 
+"""
+    save_results_hdf5(filename::String, data::Dict)
+    save_results_hdf5(filename::String; kwargs...)
+
+将结果数据保存为 HDF5 文件（`filename.h5`）。
+支持两种调用方式：传入 `Dict`，或以关键字参数形式传入各数据项；
+每个键对应文件中的一个数据集。
+"""
 function save_results_hdf5(filename::String, data::Dict)
     h5open(filename, "w") do file
         for (k, v) in data

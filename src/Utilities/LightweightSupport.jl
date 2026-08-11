@@ -19,6 +19,12 @@ function Progress(total::Integer, message::AbstractString = "")
     return Progress(total_int, String(message), 0, interval)
 end
 
+"""
+    @showprogress ex
+
+进度显示宏。当前实现为透传（不改变原表达式语义），用于保持调用方 API 兼容；
+与 `Progress` / `next!` 配合可在循环中手动输出进度。
+"""
 macro showprogress(ex)
     return esc(ex)
 end

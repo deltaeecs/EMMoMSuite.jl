@@ -1,3 +1,12 @@
+"""
+    MLFMA
+
+多层快速多极算法（Multilevel Fast Multipole Algorithm）实现模块：
+包含八叉树构建（`Octree` / `OctreeBuilder`）、聚合-转移-散播
+（`Aggregation` / `Translation` / `Disaggregation`）、插值（`Interpolation`）、
+MLFMA 算子（`MLFMAOperator` / `MLFMAOperatorMPI`）与
+PMCHW-MLFMA 算子（`PMCHWMLFMAOperator`）。
+"""
 module MLFMA
 
 include("Interpolation.jl")

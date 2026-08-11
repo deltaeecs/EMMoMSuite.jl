@@ -19,6 +19,14 @@ import ..CoreModule: excitation_vector
 
 export NMuller, assemble_impedance_matrix
 
+"""
+    NMuller{FT,CT} <: AbstractIntegralOperator
+
+N-Muller 均匀介质体表面积分方程算子（透射公式 dense 基线）。
+
+构造：`NMuller(freq, eps_r, mu_r = 1.0)`，其中 `eps_r` / `mu_r` 为介质相对
+介电常数与磁导率；内部计算介质波数 `k₁` 与本征阻抗 `η₁`，并同步全局 `set_frequency!`。
+"""
 struct NMuller{FT<:AbstractFloat,CT<:Complex} <: AbstractIntegralOperator
     freq::FT
     k0::FT

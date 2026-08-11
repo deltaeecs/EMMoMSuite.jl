@@ -39,6 +39,13 @@ end
 
 const GLOBAL_PARAMS = SimulationParameters()
 
+"""
+    set_frequency!(freq::Float64)
+
+设置全局仿真频率，并同步更新角频率 `ω`、自由空间波数 `k₀` 与本征阻抗 `η₀`。
+
+⚠️ 该函数修改的是无锁保护的全局参数，多线程场景下需保证在并行计算前由单线程调用。
+"""
 function set_frequency!(freq::Float64)
     GLOBAL_PARAMS.frequency = freq
     GLOBAL_PARAMS.omega = 2 * pi * freq
@@ -46,8 +53,25 @@ function set_frequency!(freq::Float64)
     GLOBAL_PARAMS.eta0 = Constants.eta0
 end
 
+"""
+    get_k0()
+
+返回当前全局自由空间波数 `k₀`（rad/m）。
+"""
 get_k0() = GLOBAL_PARAMS.k0
+
+"""
+    get_eta0()
+
+返回当前全局自由空间本征阻抗 `η₀`（Ω）。
+"""
 get_eta0() = GLOBAL_PARAMS.eta0
+
+"""
+    get_omega()
+
+返回当前全局角频率 `ω = 2πf`（rad/s）。
+"""
 get_omega() = GLOBAL_PARAMS.omega
 
 end

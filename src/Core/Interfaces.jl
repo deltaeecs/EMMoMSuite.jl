@@ -12,10 +12,41 @@ Must implement:
 """
 abstract type AbstractMesh end
 
+"""
+    vertices(mesh)
+
+Return the vertex coordinate matrix of a mesh.
+Each column corresponds to one vertex (`3×N` for 3D meshes, `2×N` for 2D meshes).
+"""
 vertices(mesh::AbstractMesh) = error("Not implemented")
+
+"""
+    elements(mesh)
+
+Return the element connectivity matrix of a mesh.
+Each column lists the vertex indices of one element.
+"""
 elements(mesh::AbstractMesh) = error("Not implemented")
+
+"""
+    dimension(mesh)
+
+Return the mesh dimension (e.g. `2` for surface meshes, `3` for volume meshes).
+"""
 dimension(mesh::AbstractMesh) = error("Not implemented")
+
+"""
+    num_vertices(mesh)
+
+Return the number of vertices in the mesh.
+"""
 num_vertices(mesh::AbstractMesh) = size(vertices(mesh), 2)
+
+"""
+    num_elements(mesh)
+
+Return the number of elements in the mesh.
+"""
 num_elements(mesh::AbstractMesh) = size(elements(mesh), 2)
 
 # ==================== Basis Function Interface ====================
@@ -31,6 +62,12 @@ Must implement:
 abstract type AbstractBasisFunction end
 
 num_basis(bf::AbstractBasisFunction) = error("Not implemented")
+
+"""
+    support(bf, i)
+
+Return the support elements of the `i`-th basis function.
+"""
 support(bf::AbstractBasisFunction, i::Int) = error("Not implemented")
 evaluate(bf::AbstractBasisFunction, i::Int, r::AbstractVector) = error("Not implemented")
 
@@ -45,7 +82,19 @@ Must implement:
 """
 abstract type AbstractIntegralOperator end
 
+"""
+    kernel(op, r, r_prime)
+
+Calculate the Green's function kernel of the integral operator.
+"""
 kernel(op::AbstractIntegralOperator, r, r_prime) = error("Not implemented")
+
+"""
+    impedance_element(op, bf_test, i, bf_trial, j)
+
+Calculate the impedance matrix element between the `i`-th test basis
+function and the `j`-th trial basis function.
+"""
 impedance_element(op::AbstractIntegralOperator, bf_test, i, bf_trial, j) = error("Not implemented")
 
 """

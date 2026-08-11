@@ -6,6 +6,15 @@ using Logging
 
 export run_simulation
 
+"""
+    run_simulation(config_path::String)
+
+从配置文件启动完整 MoM 仿真流程：
+加载配置 → 初始化日志 → 读取几何网格 → 构造基函数 → 装配阻抗矩阵 →
+施加激励 → 求解 → 后处理（RCS/方向图/近场）→ 保存结果。
+
+返回 `SimulationResult`，其中包含仿真配置与求解结果。
+"""
 function run_simulation(config_path::String)
     # 1. Load Configuration
     config = load_config(config_path)
