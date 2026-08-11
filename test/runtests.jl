@@ -12,6 +12,7 @@ using Test
     include("test_solvers_verification.jl")
     include("test_preconditioners.jl")
     include("test_mlfma.jl")
+    include("test_mlfma_params.jl")
     include("test_aca.jl")
     include("test_block_evaluator.jl")
     include("test_aca_operator.jl")

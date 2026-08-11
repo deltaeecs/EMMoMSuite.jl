@@ -69,9 +69,8 @@ Compute interpolation matrices for all levels.
 function compute_interpolation_matrices!(
     nLevels::Int,
     levels::Dict{Int,LV},
+    nInterp::Int = 6,
 ) where {LV<:AbstractLevel}
-    nInterp = 6 # Default interpolation points
-
     for iLevel = nLevels:-1:2
         parentLevel = levels[iLevel-1]
         childLevel = levels[iLevel]

@@ -96,6 +96,8 @@ function ACAOperator(
     symmetric::Bool = true,
     near_range::Int = 1,
     interp_method::Val = Val(:Lagrange2Step),
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 )
     return ACAOperator(
         operator,
@@ -107,6 +109,8 @@ function ACAOperator(
         symmetric = symmetric,
         near_range = near_range,
         interp_method = interp_method,
+        nInterp = nInterp,
+        precision_digits = precision_digits,
     )
 end
 
@@ -120,6 +124,8 @@ function ACAOperator(
     symmetric::Bool = true,
     near_range::Int = 1,
     interp_method::Val = Val(:Lagrange2Step),
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 )
     params = ACAParams(; tol = tol, maxrank = maxrank, recompress = recompress, symmetric = symmetric)
 
@@ -133,6 +139,8 @@ function ACAOperator(
         λ = λ,
         interp_method = interp_method,
         near_range = near_range,
+        nInterp = nInterp,
+        precision_digits = precision_digits,
     )
     N = length(sorted_ids)
     inv_sorted_ids = zeros(Int, N)
@@ -216,6 +224,22 @@ function ACAOperator(
 end
 
 get_leaf_intervals(A::ACAOperator) = get_leaf_intervals(A.octree)
+
+import ....Solvers: ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
+ILUPreconditioner(op::ACAOperator; τ::Real = 0.01) = ILUPreconditioner(op.Z_near; τ = τ)
+SPAIPreconditioner(op::ACAOperator) = SPAIPreconditioner(op.Z_near)
+BlockJacobiPreconditioner(op::ACAOperator) = BlockJacobiPreconditioner(op.Z_near, _leaf_block_indices(op))
+BlockJacobiPreconditioner(op::ACAOperator, ::Any) = BlockJacobiPreconditioner(op)
+
+function _leaf_block_indices(op::ACAOperator)
+    leaf_level = op.octree.levels[op.octree.nLevels]
+    blocks = Vector{Vector{Int}}()
+    for cube in leaf_level.cubes
+        isempty(cube.bfInterval) && continue
+        push!(blocks, collect(op.sorted_ids[cube.bfInterval]))
+    end
+    return blocks
+end
 
 function Base.:*(A::ACAOperator, x::AbstractVector)
     y = similar(x)

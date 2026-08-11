@@ -56,4 +56,21 @@ using IterativeSolvers
         err = norm(y - Z * x) / norm(Z * x)
         @test err < 1e-2
     end
+
+    @testset "preconditioner wiring" begin
+        efie = EFIE(300e6)
+        op = ACAOperator(efie, basis, leaf; tol = 1e-4, near_range = 1)
+        x = randn(ComplexF64, N)
+
+        P1 = ILUPreconditioner(op)
+        P2 = ILUPreconditioner(op.Z_near; τ = 0.01)
+        @test norm(P1 \ x - P2 \ x) / norm(P2 \ x) < 1e-8
+
+        P3 = SPAIPreconditioner(op)
+        @test size(P3.M) == (N, N)
+
+        P4 = BlockJacobiPreconditioner(op)
+        @test !isempty(P4.blocks)
+        @test norm(P4 \ x) > 0
+    end
 end

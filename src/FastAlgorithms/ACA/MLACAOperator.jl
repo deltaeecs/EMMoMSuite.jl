@@ -68,6 +68,8 @@ function MLACAOperator(
     symmetric::Bool = true,
     near_range::Int = 1,
     interp_method::Val = Val(:Lagrange2Step),
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 )
     symmetric || error("MLACAOperator 当前仅支持对称算子（symmetric=true）")
     params = ACAParams(; tol = tol, maxrank = maxrank, recompress = recompress, symmetric = true)
@@ -81,6 +83,8 @@ function MLACAOperator(
         λ = λ,
         interp_method = interp_method,
         near_range = near_range,
+        nInterp = nInterp,
+        precision_digits = precision_digits,
     )
     N = length(sorted_ids)
     inv_sorted_ids = zeros(Int, N)
@@ -223,6 +227,22 @@ function Base.:*(A::MLACAOperator, x::AbstractVector)
     y = similar(x)
     mul!(y, A, x)
     return y
+end
+
+import ....Solvers: ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
+ILUPreconditioner(op::MLACAOperator; τ::Real = 0.01) = ILUPreconditioner(op.Z_near; τ = τ)
+SPAIPreconditioner(op::MLACAOperator) = SPAIPreconditioner(op.Z_near)
+BlockJacobiPreconditioner(op::MLACAOperator) = BlockJacobiPreconditioner(op.Z_near, _leaf_block_indices(op))
+BlockJacobiPreconditioner(op::MLACAOperator, ::Any) = BlockJacobiPreconditioner(op)
+
+function _leaf_block_indices(op::MLACAOperator)
+    leaf_level = op.octree.levels[op.octree.nLevels]
+    blocks = Vector{Vector{Int}}()
+    for cube in leaf_level.cubes
+        isempty(cube.bfInterval) && continue
+        push!(blocks, collect(op.sorted_ids[cube.bfInterval]))
+    end
+    return blocks
 end
 
 """

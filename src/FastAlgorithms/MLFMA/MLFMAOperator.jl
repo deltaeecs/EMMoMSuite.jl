@@ -176,8 +176,19 @@ function MLFMAOperator(
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
     near_range::Int = 4,
+    ;
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 )
-    return MLFMAOperator(operator, [basis], leafCubeEdgel, interp_method, near_range)
+    return MLFMAOperator(
+        operator,
+        [basis],
+        leafCubeEdgel,
+        interp_method,
+        near_range;
+        nInterp = nInterp,
+        precision_digits = precision_digits,
+    )
 end
 
 function MLFMAOperator(
@@ -186,6 +197,9 @@ function MLFMAOperator(
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
     near_range::Int = 4,
+    ;
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 )
     # 1. Build Octree
     # Concatenate centers from all bases
@@ -199,6 +213,8 @@ function MLFMAOperator(
         λ = lambda,
         interp_method = interp_method,
         near_range = near_range,
+        nInterp = nInterp,
+        precision_digits = precision_digits,
     )
 
     # Inverse permutation
@@ -282,6 +298,10 @@ end
 
 BlockJacobiPreconditioner(op::MLFMAOperator) = BlockJacobiPreconditioner(op.Z_near, _leaf_block_indices(op))
 BlockJacobiPreconditioner(op::MLFMAOperator, ::Any) = BlockJacobiPreconditioner(op)
+
+import ....Solvers: ILUPreconditioner, SPAIPreconditioner
+ILUPreconditioner(op::MLFMAOperator; τ::Real = 0.01) = ILUPreconditioner(op.Z_near; τ = τ)
+SPAIPreconditioner(op::MLFMAOperator) = SPAIPreconditioner(op.Z_near)
 
 function Base.:*(A::MLFMAOperator, x::AbstractVector)
     y = similar(x)

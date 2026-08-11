@@ -47,10 +47,11 @@ function Interpolation.levelIntegralInfoCal(
     levelCubeEdgel::FT,
     ::Val{:LbTrained1Step};
     λ = 1.0,
+    precision_digits::Real = Interpolation.NBDIGITS,
 ) where {FT<:Real}
     ## 计算截断项
     # truncation_kernel 的输入是盒子边长（以 λ 计）a/λ
-    L = truncation_kernel(levelCubeEdgel / λ)
+    L = truncation_kernel(levelCubeEdgel / λ, precision_digits)
     truncL = ceil(Int, L)
 
     p = 2truncL + 1
