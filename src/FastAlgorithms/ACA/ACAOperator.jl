@@ -245,6 +245,7 @@ function ACAOperator(
     nInterp::Int = 6,
     precision_digits::Real = 9.0,
 )
+    symmetric && error("PMCHW 系统非对称（Z^HJ = -Z^EM），ACAOperator 必须使用 symmetric=false")
     params = ACAParams(; tol = tol, maxrank = maxrank, recompress = recompress, symmetric = false)
     N = num_basis(basis)
 

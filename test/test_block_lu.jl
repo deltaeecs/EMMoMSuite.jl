@@ -104,4 +104,15 @@ end
         Xd = Z \ B
         @test norm(X - Xd) / norm(Xd) < 1e-2
     end
+
+    @testset "CFIE block LU (non-symmetric) multi-RHS solve" begin
+        cfie = CFIE(300e6)
+        op = ACAOperator(cfie, basis, 0.25 * lambda; tol = 1e-4, near_range = 1, symmetric = false)
+        Zc = assemble_impedance_matrix(cfie, basis)
+        F = block_lu(op; tol = 1e-4)
+        B = randn(ComplexF64, N, 2)
+        X = block_lu_solve(F, B)
+        Xd = Zc \ B
+        @test norm(X - Xd) / norm(Xd) < 1e-2
+    end
 end

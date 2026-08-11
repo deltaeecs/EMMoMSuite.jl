@@ -933,8 +933,17 @@ function MLFMAOperatorMPI(
     basis::AbstractBasisFunction,
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 )
-    return MLFMAOperatorMPI(operator, [basis], leafCubeEdgel; comm = comm)
+    return MLFMAOperatorMPI(
+        operator,
+        [basis],
+        leafCubeEdgel;
+        comm = comm,
+        nInterp = nInterp,
+        precision_digits = precision_digits,
+    )
 end
 
 function MLFMAOperatorMPI(
@@ -942,6 +951,8 @@ function MLFMAOperatorMPI(
     bases::Vector{<:AbstractBasisFunction},
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 )
     rank     = MPI.Comm_rank(comm)
     n_procs  = MPI.Comm_size(comm)
@@ -951,7 +962,13 @@ function MLFMAOperatorMPI(
     bf_centers      = reduce(hcat, bf_centers_list)
 
     lambda = Constants.c0 / operator.freq
-    octree, sorted_ids = build_octree(bf_centers, leafCubeEdgel; λ = lambda)
+    octree, sorted_ids = build_octree(
+        bf_centers,
+        leafCubeEdgel;
+        λ = lambda,
+        nInterp = nInterp,
+        precision_digits = precision_digits,
+    )
 
     N = size(bf_centers, 2)
     inv_sorted_ids = zeros(Int, N)
