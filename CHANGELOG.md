@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **FastAlgorithms.ACA / MLACA**：部分主元 ACA（转置约定，无共轭）与 QR/SVD
+  再压缩；`ACAOperator`/`MLACAOperator`（复用八叉树聚类与近场稀疏装配，GMRES
+  集成）；非对称支持（CFIE，`symmetric=false` 双向压缩）；PMCHW 2N 多基函数
+  支持（`PMCHWBlockEvaluator`，EJ/EM/HJ/HM 子块）；叶层分块直接 LU
+  （`block_lu`/`block_lu_solve`，多 RHS，默认 `recompress=false`）。
+- **MLFMA 参数配置化**：`nInterp`、`precision_digits` 构造参数（串行与 MPI），
+  ILU/SPAI/BlockJacobi 便捷接线。
+- **大规模本地基准**：`benchmark/run_large_fast_solvers_benchmark.jl`
+  （N 至 1.1 万、多配方、稠密参照、finite/NaN 检查；本地手动运行，不进 CI）。
+
+### Fixed
+
+- `aca` 对整数类型矩阵的 `eps(Int)` 崩溃（改用 `eps(float(real(T)))`）。
+- `block_lu` 对 PMCHW（2N 系统）的错误分区（叶层块展开为 J/M 双通道）。
+- `block_lu` 再压缩在病态系统（PMCHW cond≈1e6）下因子误差复合放大，
+  默认改为 `recompress=false`，再压缩仅建议良态系统显式开启。
+- `get_leaf_intervals` 对 ACA/MLACA 算子缺失（原实现对 octree 调用不存在的方法）。
+
 ## [0.1.1] - 2026-08-09
 
 ### Fixed
