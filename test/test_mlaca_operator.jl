@@ -28,6 +28,7 @@ using IterativeSolvers
 
     @test size(op) == (N, N)
     @test !isempty(op.blocks)
+    @test length(get_leaf_intervals(op)) >= 1
 
     # 多层证据：至少一个低秩块的行覆盖超过单个叶层盒子的基函数数
     leaf_level = op.octree.levels[op.octree.nLevels]

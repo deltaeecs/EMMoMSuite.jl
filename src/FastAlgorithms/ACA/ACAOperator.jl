@@ -330,7 +330,10 @@ function ACAOperator(
     )
 end
 
-get_leaf_intervals(A::ACAOperator) = get_leaf_intervals(A.octree)
+function get_leaf_intervals(A::ACAOperator)
+    leaf_level = A.octree.levels[A.octree.nLevels]
+    return [cube.bfInterval for cube in leaf_level.cubes]
+end
 
 import ....Solvers: ILUPreconditioner, SPAIPreconditioner, BlockJacobiPreconditioner
 ILUPreconditioner(op::ACAOperator; τ::Real = 0.01) = ILUPreconditioner(op.Z_near; τ = τ)

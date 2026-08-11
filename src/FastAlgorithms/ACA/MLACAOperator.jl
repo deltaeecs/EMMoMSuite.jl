@@ -9,6 +9,7 @@ using ...BasisFunctions
 using ...IntegralEquations
 using ...IntegralEquations.PMCHWModule: PMCHW
 using ..MLFMA: OctreeInfo, build_octree
+import ..MLFMA: get_leaf_intervals
 using ..MLFMA.MLFMAOperatorModule: assemble_near_field
 using ..MLFMA.PMCHWMLFMAOperatorModule: assemble_near_field_pmchw
 using ..ACA: LowRankBlock, aca
@@ -320,6 +321,11 @@ function _leaf_block_indices(op::MLACAOperator)
         push!(blocks, collect(op.sorted_ids[cube.bfInterval]))
     end
     return blocks
+end
+
+function get_leaf_intervals(A::MLACAOperator)
+    leaf_level = A.octree.levels[A.octree.nLevels]
+    return [cube.bfInterval for cube in leaf_level.cubes]
 end
 
 """

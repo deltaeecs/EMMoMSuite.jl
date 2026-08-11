@@ -27,6 +27,7 @@ using IterativeSolvers
 
         @test size(op) == (N, N)
         @test !isempty(op.blocks)
+        @test length(get_leaf_intervals(op)) >= 1
 
         x = randn(ComplexF64, N)
         y = op * x
