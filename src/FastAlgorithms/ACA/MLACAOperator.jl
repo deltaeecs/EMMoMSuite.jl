@@ -7,10 +7,12 @@ using ...CoreModule: Constants
 using ...Geometry
 using ...BasisFunctions
 using ...IntegralEquations
+using ...IntegralEquations.PMCHWModule: PMCHW
 using ..MLFMA: OctreeInfo, build_octree
 using ..MLFMA.MLFMAOperatorModule: assemble_near_field
+using ..MLFMA.PMCHWMLFMAOperatorModule: assemble_near_field_pmchw
 using ..ACA: LowRankBlock, aca
-using ..BlockEvaluatorModule: BlockEvaluator, eval_block
+using ..BlockEvaluatorModule: BlockEvaluator, PMCHWBlockEvaluator, eval_block
 using ..ACAOperatorModule: ACAParams
 
 export MLACAOperator
@@ -112,11 +114,11 @@ function MLACAOperator(
     n_top = length(top.cubes)
     if params.symmetric
         for i in 1:n_top, j in i:n_top
-            _compress_pair!(blocks, ev, levels, nLevels, 1, i, j, sorted_ids, params)
+            _compress_pair!(blocks, ev, levels, nLevels, 1, i, j, sorted_ids, params, 1, 0)
         end
     else
         for i in 1:n_top, j in 1:n_top
-            _compress_pair!(blocks, ev, levels, nLevels, 1, i, j, sorted_ids, params)
+            _compress_pair!(blocks, ev, levels, nLevels, 1, i, j, sorted_ids, params, 1, 0)
         end
     end
 
@@ -129,6 +131,73 @@ function MLACAOperator(
         Z_near,
         blocks,
         operator,
+        sorted_ids,
+        inv_sorted_ids,
+        params,
+    )
+end
+
+"""
+    MLACAOperator(pmchw::PMCHW, basis::RWGBasis, leafCubeEdgel; tol=1e-4, ...)
+
+PMCHW 系统的 MLACA 算子（2N×2N）：近场用 `assemble_near_field_pmchw`，远场块
+行/列展开为 J/M 双通道（`sys=2`），按非对称双向递归压缩。
+"""
+function MLACAOperator(
+    pmchw::PMCHW,
+    basis::RWGBasis,
+    leafCubeEdgel::Float64;
+    tol::Real = 1e-4,
+    maxrank::Int = 512,
+    recompress::Bool = true,
+    symmetric::Bool = false,
+    near_range::Int = 1,
+    interp_method::Val = Val(:Lagrange2Step),
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
+)
+    params = ACAParams(; tol = tol, maxrank = maxrank, recompress = recompress, symmetric = false)
+    N = num_basis(basis)
+
+    bf_centers = reduce(hcat, [bf.center for bf in basis.functions])
+    λ = Constants.c0 / pmchw.freq
+    octree, sorted_ids = build_octree(
+        bf_centers,
+        leafCubeEdgel;
+        λ = λ,
+        interp_method = interp_method,
+        near_range = near_range,
+        nInterp = nInterp,
+        precision_digits = precision_digits,
+    )
+    inv_sorted_ids = zeros(Int, N)
+    for i in 1:N
+        inv_sorted_ids[sorted_ids[i]] = i
+    end
+    basis_offsets = cumsum([num_basis(basis)])
+    abstract_bases = Vector{AbstractBasisFunction}([basis])
+
+    Z_near = assemble_near_field_pmchw(pmchw, basis, octree, sorted_ids, inv_sorted_ids)
+    ev = PMCHWBlockEvaluator(pmchw, basis)
+
+    blocks = Vector{MLACABlock{ComplexF64}}()
+    levels = octree.levels
+    nLevels = octree.nLevels
+    top = levels[1]
+    n_top = length(top.cubes)
+    for i in 1:n_top, j in 1:n_top
+        _compress_pair!(blocks, ev, levels, nLevels, 1, i, j, sorted_ids, params, 2, N)
+    end
+
+    FT = eltype(basis.mesh.node)
+    CT = eltype(Z_near)
+    return MLACAOperator{FT,CT}(
+        octree,
+        abstract_bases,
+        basis_offsets,
+        Z_near,
+        blocks,
+        pmchw,
         sorted_ids,
         inv_sorted_ids,
         params,
@@ -170,7 +239,7 @@ subtree_ids(levels, nLevels::Int, levelID::Int, cube_idx::Int, sorted_ids::Vecto
 """
 function _compress_pair!(
     blocks::Vector{MLACABlock{CT}},
-    ev::BlockEvaluator,
+    ev,
     levels,
     nLevels::Int,
     levelID::Int,
@@ -178,6 +247,8 @@ function _compress_pair!(
     iB::Int,
     sorted_ids::Vector{Int},
     params::ACAParams,
+    sys::Int,
+    N::Int,
 ) where {CT}
     level = levels[levelID]
     cubeA = level.cubes[iA]
@@ -189,11 +260,11 @@ function _compress_pair!(
         nk = length(kids)
         if params.symmetric
             for a in 1:nk, b in a:nk
-                _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, kids[a], kids[b], sorted_ids, params)
+                _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, kids[a], kids[b], sorted_ids, params, sys, N)
             end
         else
             for a in 1:nk, b in 1:nk
-                _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, kids[a], kids[b], sorted_ids, params)
+                _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, kids[a], kids[b], sorted_ids, params, sys, N)
             end
         end
         return
@@ -201,8 +272,10 @@ function _compress_pair!(
 
     if !(iB in cubeA.neighbors)
         # 可容许 → 压缩整个子树块
-        rows = subtree_ids(levels, nLevels, levelID, iA, sorted_ids)
-        cols = subtree_ids(levels, nLevels, levelID, iB, sorted_ids)
+        idsA = subtree_ids(levels, nLevels, levelID, iA, sorted_ids)
+        idsB = subtree_ids(levels, nLevels, levelID, iB, sorted_ids)
+        rows = sys == 2 ? vcat(idsA, N .+ idsA) : idsA
+        cols = sys == 2 ? vcat(idsB, N .+ idsB) : idsB
         (isempty(rows) || isempty(cols)) && return
         B = aca(
             ComplexF64,
@@ -221,7 +294,7 @@ function _compress_pair!(
     # 近邻：下钻（叶层邻对已在 Z_near）
     levelID == nLevels && return
     for a in cubeA.kidsInterval, b in cubeB.kidsInterval
-        _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, a, b, sorted_ids, params)
+        _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, a, b, sorted_ids, params, sys, N)
     end
     return
 end
