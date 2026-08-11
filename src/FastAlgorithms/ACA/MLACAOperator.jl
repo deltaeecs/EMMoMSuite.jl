@@ -36,8 +36,8 @@ end
 - 近邻对 → 下钻到子层；叶层近邻对由 `Z_near`（复用 MLFMA 近场装配）覆盖。
 - 对角块 → 递归到子层，叶层自/邻对在 `Z_near` 中。
 
-当前仅支持复数对称算子（如 EFIE，`symmetric=true`）；非对称问题请使用
-`ACAOperator(symmetric=false)`。
+`symmetric=true` 时只压缩 (i,j) 方向并用转置语义应用 (j,i)（适合 EFIE 等复数
+对称算子）；`symmetric=false` 时两个方向分别压缩（适合 CFIE 等非对称算子）。
 
 # 参考
 - Gibson, The Method of Moments in Electromagnetics, 3rd, Ch10（MLACA 递归压缩）。
@@ -71,8 +71,7 @@ function MLACAOperator(
     nInterp::Int = 6,
     precision_digits::Real = 9.0,
 )
-    symmetric || error("MLACAOperator 当前仅支持对称算子（symmetric=true）")
-    params = ACAParams(; tol = tol, maxrank = maxrank, recompress = recompress, symmetric = true)
+    params = ACAParams(; tol = tol, maxrank = maxrank, recompress = recompress, symmetric = symmetric)
 
     # 1. 八叉树聚类（复用 MLFMA build_octree）
     bf_centers = reduce(hcat, [bf.center for bf in basis.functions])
@@ -110,18 +109,15 @@ function MLACAOperator(
     levels = octree.levels
     nLevels = octree.nLevels
     top = levels[1]
-    for i in 1:length(top.cubes), j in i:length(top.cubes)
-        _compress_pair!(
-            blocks,
-            ev,
-            levels,
-            nLevels,
-            1,
-            i,
-            j,
-            sorted_ids,
-            params,
-        )
+    n_top = length(top.cubes)
+    if params.symmetric
+        for i in 1:n_top, j in i:n_top
+            _compress_pair!(blocks, ev, levels, nLevels, 1, i, j, sorted_ids, params)
+        end
+    else
+        for i in 1:n_top, j in 1:n_top
+            _compress_pair!(blocks, ev, levels, nLevels, 1, i, j, sorted_ids, params)
+        end
     end
 
     FT = eltype(basis.mesh.node)
@@ -169,7 +165,8 @@ subtree_ids(levels, nLevels::Int, levelID::Int, cube_idx::Int, sorted_ids::Vecto
 - `iA == iB`：对角块下钻到子层（叶层由 `Z_near` 覆盖）。
 - 非邻（可容许）→ ACA 压缩整个子树块。
 - 近邻且非叶 → 下钻到全部子盒子对；近邻且叶层 → `Z_near` 覆盖。
-对称矩阵只处理 `iA ≤ iB`，下三角由 `mul!` 转置语义应用。
+对称矩阵只处理 `iA ≤ iB`，下三角由 `mul!` 转置语义应用；非对称矩阵两个方向
+分别压缩。
 """
 function _compress_pair!(
     blocks::Vector{MLACABlock{CT}},
@@ -190,8 +187,14 @@ function _compress_pair!(
         levelID == nLevels && return
         kids = cubeA.kidsInterval
         nk = length(kids)
-        for a in 1:nk, b in a:nk
-            _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, kids[a], kids[b], sorted_ids, params)
+        if params.symmetric
+            for a in 1:nk, b in a:nk
+                _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, kids[a], kids[b], sorted_ids, params)
+            end
+        else
+            for a in 1:nk, b in 1:nk
+                _compress_pair!(blocks, ev, levels, nLevels, levelID + 1, kids[a], kids[b], sorted_ids, params)
+            end
         end
         return
     end
@@ -249,7 +252,7 @@ end
     mul!(y, A::MLACAOperator, x)
 
 `y = A*x = Z_near*x + Σ 多层低秩块`。对称矩阵的下三角块用转置语义
-（`V * (Uᵀ * x)`，无共轭）应用。
+（`V * (Uᵀ * x)`，无共轭）应用；非对称矩阵两个方向分别存储、直接应用。
 """
 function LinearAlgebra.mul!(y::AbstractVector, A::MLACAOperator, x::AbstractVector)
     mul!(y, A.Z_near, x)
@@ -259,10 +262,12 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLACAOperator, x::AbstractVect
         @inbounds for (idx, r) in enumerate(blk.rows)
             y[r] += t[idx]
         end
-        xi = view(x, blk.rows)
-        t2 = blk.V * (transpose(blk.U) * xi)
-        @inbounds for (idx, c) in enumerate(blk.cols)
-            y[c] += t2[idx]
+        if A.params.symmetric
+            xi = view(x, blk.rows)
+            t2 = blk.V * (transpose(blk.U) * xi)
+            @inbounds for (idx, c) in enumerate(blk.cols)
+                y[c] += t2[idx]
+            end
         end
     end
     return y

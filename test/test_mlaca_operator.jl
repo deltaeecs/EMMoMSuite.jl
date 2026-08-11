@@ -45,3 +45,28 @@ using IterativeSolvers
     I_dir = Z \ V
     @test norm(I_mlaca - I_dir) / norm(I_dir) < 1e-2
 end
+
+@testset "MLACAOperator non-symmetric (CFIE)" begin
+    mesh = generate_sphere_mesh(0.5, 8, 12)
+    basis = RWGBasis(mesh)
+    N = num_basis(basis)
+    λ = 299792458.0 / 300e6
+
+    cfie = CFIE(300e6)
+    Z = assemble_impedance_matrix(cfie, basis)
+    op = MLACAOperator(cfie, basis, 0.125 * λ; tol = 1e-4, near_range = 1, symmetric = false)
+
+    @test size(op) == (N, N)
+    @test !isempty(op.blocks)
+
+    x = randn(ComplexF64, N)
+    y = op * x
+    err = norm(y - Z * x) / norm(Z * x)
+    @test err < 1e-2
+
+    src = PlaneWave(300e6, 0.0, 0.0, [1.0, 0.0, 0.0])
+    V = excitation_vector(cfie, src, basis)
+    I_mlaca = gmres(op, V; abstol = 1e-6, reltol = 1e-8, maxiter = 300, restart = 50)
+    I_dir = Z \ V
+    @test norm(I_mlaca - I_dir) / norm(I_dir) < 1e-2
+end
