@@ -2,8 +2,13 @@ name: TagBot
 
 on:
   issue_comment:
-    types: [created]
+    types:
+      - created
   workflow_dispatch:
+  schedule:
+    # 官方废弃公告推荐的默认触发：每小时检查一次 General registry，
+    # 不依赖已废弃的 JuliaTagBot App（App 评论仅作即时通知，定时触发兜底）
+    - cron: 0 * * * *
 
 permissions:
   contents: write
@@ -12,11 +17,13 @@ permissions:
 
 jobs:
   TagBot:
-    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
+    # schedule / workflow_dispatch 直接放行；
+    # issue_comment 仅响应 JuliaTagBot 机器人（官方 example 的原始条件）
+    if: github.event_name != 'issue_comment' || github.actor == 'JuliaTagBot'
     runs-on: ubuntu-latest
     steps:
-      - uses: JuliaRegistries/TagBot@v1
+      - uses: JuliaRegistries/TagBot@cded32665b34ca0496d3ac10a67d08ddfc726963 # v1.25.11
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: if you use Documenter with SSH deploy keys, add ssh key secret.
+          # 如需打 tag 触发其他 workflow（如按版本构建文档），改用 SSH deploy key：
           # ssh: ${{ secrets.DOCUMENTER_KEY }}
