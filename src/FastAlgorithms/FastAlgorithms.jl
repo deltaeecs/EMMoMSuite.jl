@@ -16,6 +16,7 @@ include("ACA/ACA.jl")
 include("ACA/BlockEvaluator.jl")
 include("ACA/ACAOperator.jl")
 include("ACA/MLACAOperator.jl")
+include("ACA/BlockLU.jl")
 
 using .MLFMA
 using .Lebedev
@@ -23,8 +24,9 @@ using .ACA
 using .BlockEvaluatorModule
 using .ACAOperatorModule
 using .MLACAOperatorModule
+using .BlockLUModule
 
 export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
-export ACA, LowRankBlock, aca, recompress!, compression_stats, BlockEvaluator, PMCHWBlockEvaluator, eval_block, ACAOperator, ACAParams, MLACAOperator
+export ACA, LowRankBlock, aca, recompress!, compression_stats, BlockEvaluator, PMCHWBlockEvaluator, eval_block, ACAOperator, ACAParams, MLACAOperator, BlockLUFactorization, block_lu, block_lu_solve
 
 end

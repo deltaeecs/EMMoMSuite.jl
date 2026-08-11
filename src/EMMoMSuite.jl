@@ -248,7 +248,10 @@ export FastAlgorithms,
     eval_block,
     ACAOperator,
     ACAParams,
-    MLACAOperator
+    MLACAOperator,
+    BlockLUFactorization,
+    block_lu,
+    block_lu_solve
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")
