@@ -254,3 +254,54 @@ Lebedev 数据集最高支持 131 阶多项式（论文给出 131 阶的数据�
 $\bm{Z}_{block} \approx \bm{U}\bm{V}^{T}$（$\bm{U} \in \mathbb{C}^{M\times r}$，
 $\bm{V} \in \mathbb{C}^{N\times r}$，$r \ll M, N$），不依赖核函数的解析加法定理，
 对复杂介质核更灵活，但常数因子与稳定性需要单独评估。
+
+## 4. ACA 实现（`FastAlgorithms.ACA`）
+
+EMMoMSuite 已实现部分主元 ACA（Gibson《Method of Moments》Ch9 Algorithm 6）：
+
+- `aca(getrow, getcol, m, n; tol, maxrank, recompress)`：按行/列采样构造
+  $\bm{Z}_{block} \approx \bm{U}\bm{V}^{T}$（**转置约定，无共轭**，适配复数对称
+  阻抗矩阵）；收敛判据为 $\|\bm{u}_k\|\|\bm{v}_k\| \le \mathrm{tol}\,\|\tilde{\bm{Z}}\|_F$，
+  $\|\tilde{\bm{Z}}\|_F^2$ 用递推估计；含零行/零块早期终止。
+- `recompress!`：QR/SVD 再压缩（$\tau_{SVD} \approx 10\,\tau_{ACA}$），典型再压缩
+  20–30%。
+- `BlockEvaluator` / `eval_block`：按全局基函数索引求值 `Z[rows, cols]`，支持
+  EFIE/MFIE/CFIE 的 RWG 块，供 ACA 按行/列稀疏采样，避免装配整块矩阵。
+- `ACAOperator <: AbstractIntegralOperator`：复用 MLFMA 八叉树聚类与近场稀疏
+  装配；叶层非邻盒子对按 ACA 压缩为低秩块，实现 `mul!` 与 GMRES 直接兼容。
+  对称矩阵用转置语义应用下三角块（`V*(Uᵀ*x)`），避免重复压缩。
+
+## 5. MLACA 实现（`FastAlgorithms.ACA.MLACAOperator`）
+
+H-矩阵风格多层递归块压缩（Gibson Ch10 思想，基于八叉树多层结构）：
+
+- 可容许对（非邻盒子）→ ACA 压缩整个子树块（可跨越多个叶层盒子）；
+- 近邻对 → 下钻子盒子对；叶层近邻对由近场稀疏矩阵覆盖；
+- 对角块 → 递归到子层；叶层自/邻对在近场中。
+
+该结构保证每个叶层基函数对恰好被近场或某个低秩块覆盖一次，无重叠、无漏算。
+当前支持复数对称算子（EFIE）；非对称问题使用 `ACAOperator(symmetric=false)`。
+
+## 6. 参数配置与实测结果（2026-08-11）
+
+- `nInterp`（层间插值点数）与 `precision_digits`（截断公式精度参数 $d_0$，默认
+  9.0）不再硬编码，可通过 `MLFMAOperator`/`ACAOperator`/`MLACAOperator` 构造参数
+  配置，默认值保持现状。
+- 实测（EFIE 球体，本机 Julia 1.12，1 线程）：
+
+| 用例 | 方法 | MatVec 相对误差 | 解相对误差 | 压缩率 | 说明 |
+|------|------|-----------------|------------|--------|------|
+| N=792, 叶层 0.25λ | MLFMA | 3.4e-4 | 1.9e-3 | 75.2%* | 近场稀疏 + 远场隐式 |
+| N=792, 叶层 0.25λ | ACA | 5.6e-5 | 1.9e-4 | 40.3% | 1252 个低秩块 |
+| N=252, 叶层 0.125λ | ACA | 2.8e-6 | 2.1e-5 | 17.7% | 13304 块（单层） |
+| N=252, 叶层 0.125λ | MLACA | 1.6e-5 | 3.5e-5 | 22.3% | 3652 块（多层，块数少 73%） |
+| N=252, 叶层 0.125λ | MLFMA | 2.1 | 1.3 | — | 小叶层失效（breakdown） |
+
+`*` MLFMA 的"压缩率"仅计近场稀疏存储（远场不显式存储），与 ACA 的显式低秩存储
+口径不同，不可直接比较。MLACA 在四层八叉树上以更少块数实现更高压缩率，且
+N=252/0.125λ 用例显示 MLFMA 在该尺度的 breakdown——这正是文档 §3 所述
+低频/小叶层失效，ACA/MLACA 作为核无关路径形成互补。
+
+预条件实测（N=252 ACA 算子，GMRES，`abstol=1e-6`）：Identity 63 迭代，
+ILU(0.01) 20 迭代，SPAI 19 迭代，BlockJacobi 400 迭代未收敛（叶层块过小）。
+ILU/SPAI 可直接用 `ILUPreconditioner(op)` / `SPAIPreconditioner(op)` 便捷构造。
