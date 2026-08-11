@@ -11,6 +11,7 @@ using EMMoMSuite.IntegralEquations
 using EMMoMSuite.FastAlgorithms.ACA
 using EMMoMSuite.FastAlgorithms.MLACAOperatorModule: MLACAOperator
 using EMMoMSuite.FastAlgorithms.ACAOperatorModule: ACAOperator
+using EMMoMSuite.FastAlgorithms.ACAOperatorModule: ACAOperator as ACAOp
 using EMMoMSuite.FastAlgorithms.BlockLUModule: extract_block
 using EMMoMSuite.FastAlgorithms.HMatrixModule: hmatrix_from_mlaca, materialize
 using EMMoMSuite.FastAlgorithms.HMatrixModule: h_lu!, h_lu_solve
@@ -74,6 +75,41 @@ end
 
     @testset "H-LU ACA single-level solve" begin
         op = ACAOperator(efie, basis, 0.25 * lambda; tol = 1e-4, near_range = 1)
+        H = hmatrix_from_mlaca(op)
+        h_lu!(H)
+        X_true = randn(ComplexF64, N, 2)
+        B = reduce(hcat, [op * X_true[:, j] for j in 1:2])
+        X = h_lu_solve(H, B)
+        @test norm(X - X_true) / norm(X_true) < 1e-6
+    end
+
+    @testset "H-LU CFIE (non-symmetric) solve" begin
+        cfie = CFIE(300e6)
+        op = ACAOperator(cfie, basis, 0.25 * lambda; tol = 1e-4, near_range = 1, symmetric = false)
+        H = hmatrix_from_mlaca(op)
+        h_lu!(H)
+        X_true = randn(ComplexF64, N, 2)
+        B = reduce(hcat, [op * X_true[:, j] for j in 1:2])
+        X = h_lu_solve(H, B)
+        @test norm(X - X_true) / norm(X_true) < 1e-6
+    end
+
+    @testset "H-LU PMCHW (2N system) solve" begin
+        pmchw = PMCHW(300e6, 4.0)
+        op = ACAOperator(pmchw, basis, 0.25 * lambda; tol = 1e-4, near_range = 1)
+        H = hmatrix_from_mlaca(op)
+        @test length(H.rows) == 2N
+        h_lu!(H)
+        X_true = randn(ComplexF64, 2N, 2)
+        B = reduce(hcat, [op * X_true[:, j] for j in 1:2])
+        X = h_lu_solve(H, B)
+        @test norm(X - X_true) / norm(X_true) < 1e-6
+    end
+
+    @testset "H-LU low-frequency EFIE solve" begin
+        lf = EFIE(30e6)
+        lambda_lf = 299792458.0 / 30e6
+        op = ACAOperator(lf, basis, 0.03 * lambda_lf; tol = 1e-4, near_range = 1)
         H = hmatrix_from_mlaca(op)
         h_lu!(H)
         X_true = randn(ComplexF64, N, 2)
