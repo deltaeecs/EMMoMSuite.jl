@@ -1,6 +1,6 @@
 name = "EMMoMSuite"
 uuid = "899f6035-dac1-4aaa-a294-a84c0e2067b5"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["xyhe <1225385871@qq.com>"]
 license = "GPL-3.0-only"
 
