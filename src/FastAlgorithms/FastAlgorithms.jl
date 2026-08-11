@@ -12,10 +12,13 @@ module FastAlgorithms
 
 include("MLFMA/MLFMA.jl")
 include("Lebedev/Lebedev.jl")
+include("ACA/ACA.jl")
 
 using .MLFMA
 using .Lebedev
+using .ACA
 
 export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
+export ACA, LowRankBlock, aca, recompress!, compression_stats
 
 end
