@@ -142,7 +142,8 @@ end
     MLACAOperator(pmchw::PMCHW, basis::RWGBasis, leafCubeEdgel; tol=1e-4, ...)
 
 PMCHW 系统的 MLACA 算子（2N×2N）：近场用 `assemble_near_field_pmchw`，远场块
-行/列展开为 J/M 双通道（`sys=2`），按非对称双向递归压缩。
+行/列展开为 J/M 双通道（`sys=2`），按非对称双向递归压缩；`symmetric` 必须为
+`false`（传入 `true` 会报错）。
 """
 function MLACAOperator(
     pmchw::PMCHW,

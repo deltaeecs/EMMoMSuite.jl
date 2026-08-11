@@ -230,7 +230,8 @@ end
 
 PMCHW 系统的 ACA 算子（2N×2N）：复用 MLFMA 的 `assemble_near_field_pmchw`
 近场装配与 `PMCHWBlockEvaluator` 远场块求值。PMCHW 非对称（Z^HJ = -Z^EM），
-对每个叶层非邻盒子对的两个方向分别压缩。
+对每个叶层非邻盒子对的两个方向分别压缩；`symmetric` 必须为 `false`
+（传入 `true` 会报错）。
 """
 function ACAOperator(
     pmchw::PMCHW,

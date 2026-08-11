@@ -333,9 +333,9 @@ ILU/SPAI 可直接用 `ILUPreconditioner(op)` / `SPAIPreconditioner(op)` 便捷�
 | 用例 | 方法 | N | MatVec 误差 | 解误差 | 压缩率 | 说明 |
 |------|------|---|------------|--------|--------|------|
 | EFIE 球 | MLFMA | 1734 | 6.2e-5 | 5.9e-4 | 75.0%* | 76 迭代 |
-| EFIE 球 | ACA | 1734 | 2.9e-5 | 3.3e-4 | 57.0% | 求解 0.19s |
-| EFIE 球 | MLFMA | 2280 | 4.3e-5 | 7.1e-4 | 74.8%* | 500 迭代 72.6s |
-| EFIE 球 | ACA/MLACA | 2280 | 2.3e-5 | 5.0e-4 | 60.7% | 500 迭代 1.96s |
+| EFIE 球 | ACA | 1734 | 2.8e-5 | 3.3e-4 | 57.0% | 求解 0.19s |
+| EFIE 球 | MLFMA | 2280 | 4.1e-5 | 7.1e-4 | 74.8%* | 500 迭代 82.2s |
+| EFIE 球 | ACA/MLACA | 2280 | 2.5e-5 | 5.0e-4 | 60.7% | 500 迭代 1.8s |
 | CFIE 球 | ACA/MLACA | 792 | 1.9e-5 | 2.0e-5 | -3.6% | 7 迭代（cond≈22） |
 | PMCHW 球 | ACA/MLACA | 600 | 1.2e-4 | 1.2 | 4.8% | cond≈4.3e6 限制 |
 | 低频 EFIE | ACA/MLACA | 792 | 5.1e-6 | 2.9e-3 | 42.5% | 30 MHz，0.03λ 叶层 |
@@ -343,7 +343,7 @@ ILU/SPAI 可直接用 `ILUPreconditioner(op)` / `SPAIPreconditioner(op)` 便捷�
 | CFIE 球 | ACA/MLACA | 11352 | 2.2e-6 | 2.6e-5 | 67.8% | 100 迭代收敛（cond≈1.2e3） |
 
 `*` MLFMA 压缩率仅计近场稀疏存储（口径不同）。全部用例 `finite/NaN` 检查通过。
-N=2280 时 ACA/MLACA 单次 MatVec 远快于 MLFMA（同 500 迭代下求解 1.96s vs 72.6s），
+N=2280 时 ACA/MLACA 单次 MatVec 远快于 MLFMA（同 500 迭代下求解 1.8s vs 82.2s），
 且压缩率随 N 增大而提升；小 N（792）CFIE 非对称双向压缩开销超过收益（负压缩率），
 属正常现象。N=11352（约 1.1 万未知量）本地实测：EFIE 压缩率 71.5%、MatVec 误差
 5.1e-6，但 ILU 预条件 GMRES 500 迭代不收敛（残差停滞 ~2.5），属 EFIE 稠密网格
