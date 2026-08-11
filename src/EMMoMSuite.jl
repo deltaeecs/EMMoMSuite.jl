@@ -246,7 +246,8 @@ export FastAlgorithms,
     BlockEvaluator,
     eval_block,
     ACAOperator,
-    ACAParams
+    ACAParams,
+    MLACAOperator
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")
