@@ -20,7 +20,7 @@ function anterpolate end
 function interpolate! end
 function anterpolate! end
 
-const NBDIGITS = 9.0 # Default value
+const NBDIGITS = 9.0 # Default value (d0 in the truncation formula)
 
 """
     truncation_kernel(rel_l) -> L
@@ -42,8 +42,8 @@ MLFMA 转移函数截断项数经验公式（论文式 (2-42)）：
 `d_0 = 3`），取 9 时第二项约为推荐值的 `(9/3)^{2/3} ≈ 2.08` 倍，截断更保守。
 `levelIntegralInfoCal` 使用 `ceil` 取整为整数截断项。
 """
-function truncation_kernel(rel_l)
-    return 2π * rel_l * sqrt(3) + 2.16 * NBDIGITS^(2.0 / 3.0) * (2π * rel_l)^(1 / 3)
+function truncation_kernel(rel_l, nbdigits::Real = NBDIGITS)
+    return 2π * rel_l * sqrt(3) + 2.16 * nbdigits^(2.0 / 3.0) * (2π * rel_l)^(1 / 3)
 end
 
 """
@@ -115,9 +115,9 @@ function octreeXWNCal(lb::FT, hb::FT, L::IT, mod::Symbol) where {IT<:Integer,FT<
     return Xs, Ws
 end
 
-function truncationLCal(cubel::FT; λ = 1.0) where {FT<:Real}
+function truncationLCal(cubel::FT; λ = 1.0, precision_digits::Real = NBDIGITS) where {FT<:Real}
     rel_l = cubel / λ
-    L = floor(Int, truncation_kernel(rel_l))
+    L = floor(Int, truncation_kernel(rel_l, precision_digits))
     return L
 end
 
@@ -145,9 +145,10 @@ Gauss-Legendre 点覆盖 `θ ∈ [0, π]`（实际对 `cosθ` 求积）与 `2(L+
 - `L`: 整数截断项（`ceil` 取整后与 `L_min` 取最大）。
 - `GLPolesInfo`: `θ`/`φ` 采样点、权重与球面方向信息。
 """
-function levelIntegralInfoCal(levelCubeEdgel::FT; λ = 1.0, L_min::Int = 0) where {FT<:Real}
+function levelIntegralInfoCal(levelCubeEdgel::FT; λ = 1.0, L_min::Int = 0,
+                              precision_digits::Real = NBDIGITS) where {FT<:Real}
     ## Calculate truncation number
-    L = max(truncationLCal(levelCubeEdgel; λ = λ), L_min)
+    L = max(truncationLCal(levelCubeEdgel; λ = λ, precision_digits = precision_digits), L_min)
 
     ## Integration points and weights
     # Theta direction (Gauss-Legendre)

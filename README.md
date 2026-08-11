@@ -129,7 +129,7 @@ flowchart LR
 - 直接法：`LUSolver`
 - 迭代法：`GMRESSolver` `BiCGSTABSolver`
 - 预条件器：`DiagonalPreconditioner` `ILUPreconditioner` `BlockJacobiPreconditioner`
-- 快速算法：`MLFMA` `MLFMAOperatorMPI`
+- 快速算法：`MLFMA` `MLFMAOperatorMPI` `ACAOperator` `MLACAOperator` `block_lu`
 - 并行能力：线程并行、MPI 组装、`mpi_gmres!`、`MPIMatrix`
 
 ### 后处理与端口

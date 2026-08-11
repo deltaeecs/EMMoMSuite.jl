@@ -22,6 +22,19 @@ using Test
     
     @testset "MLFMA" begin
         include("test_mlfma.jl")
+        include("test_mlfma_params.jl")
+    end
+
+    @testset "Fast Solvers (ACA/MLACA)" begin
+        include("test_aca.jl")
+        include("test_block_evaluator.jl")
+        include("test_aca_operator.jl")
+        include("test_mlaca_operator.jl")
+        include("test_lowfreq_aca.jl")
+        include("test_block_lu.jl")
+        include("test_block_evaluator_pmchw.jl")
+        include("test_aca_mlaca_pmchw.jl")
+        include("test_hmatrix.jl")
     end
     
     @testset "Parallel" begin

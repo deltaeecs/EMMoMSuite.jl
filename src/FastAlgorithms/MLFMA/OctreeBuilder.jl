@@ -54,6 +54,8 @@ function build_octree(
     L_min::Int = 0,
     near_range::Int = 4,
     interp_method::Val = Val(:Lagrange2Step),
+    nInterp::Int = 6,
+    precision_digits::Real = 9.0,
 ) where {FT<:Real}
     @info "Building Octree..."
 
@@ -78,6 +80,7 @@ function build_octree(
         L_min = L_min,
         near_range = near_range,
         interp_method = interp_method,
+        precision_digits = precision_digits,
     )
 
     # Initialize levels dictionary
@@ -99,6 +102,7 @@ function build_octree(
             L_min = L_min,
             near_range = near_range,
             interp_method = interp_method,
+            precision_digits = precision_digits,
         )
         levels[ilevel] = level
         levelsCubeIDSorted[ilevel+1] = levelIDSorted
@@ -119,7 +123,7 @@ function build_octree(
     end
 
     # 8. Calculate Interpolation Matrices
-    compute_interpolation_matrices!(nLevels, levels)
+    compute_interpolation_matrices!(nLevels, levels, nInterp)
 
     # 9. Precompute Shift Factors
     k = 2π / λ
@@ -158,6 +162,7 @@ function setLevelInfo!(
     L_min::Int = 0,
     near_range::Int = 4,
     interp_method::Val = Val(:Lagrange2Step),
+    precision_digits::Real = 9.0,
 ) where {FT<:Real}
     nleaves = size(leafnodes, 2)
     nodesInCubeID3D = zeros(Int, nleaves, 4)
@@ -205,9 +210,11 @@ function setLevelInfo!(
     end
 
     L, poles = if interp_method == Val(:LbTrained1Step)
-        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
+        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ,
+                             precision_digits = precision_digits)
     else
-        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
+        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min,
+                             precision_digits = precision_digits)
     end
 
     level = LevelInfo{Int,FT,interp_type(poles)}()
@@ -231,6 +238,7 @@ function setLevelInfo!(
     L_min::Int = 0,
     near_range::Int = 4,
     interp_method::Val = Val(:Lagrange2Step),
+    precision_digits::Real = 9.0,
 ) where {FT<:Real}
     nkidCubes = length(kidLevel.cubes)
     kidCubesInCubeID3D = zeros(Int, nkidCubes, 4)
@@ -276,9 +284,11 @@ function setLevelInfo!(
     end
 
     L, poles = if interp_method == Val(:LbTrained1Step)
-        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
+        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ,
+                             precision_digits = precision_digits)
     else
-        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
+        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min,
+                             precision_digits = precision_digits)
     end
 
     level = LevelInfo{Int,FT,interp_type(poles)}()

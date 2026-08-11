@@ -254,3 +254,135 @@ Lebedev 数据集最高支持 131 阶多项式（论文给出 131 阶的数据�
 $\bm{Z}_{block} \approx \bm{U}\bm{V}^{T}$（$\bm{U} \in \mathbb{C}^{M\times r}$，
 $\bm{V} \in \mathbb{C}^{N\times r}$，$r \ll M, N$），不依赖核函数的解析加法定理，
 对复杂介质核更灵活，但常数因子与稳定性需要单独评估。
+
+## 4. ACA 实现（`FastAlgorithms.ACA`）
+
+EMMoMSuite 已实现部分主元 ACA（Gibson《Method of Moments》Ch9 Algorithm 6）：
+
+- `aca(getrow, getcol, m, n; tol, maxrank, recompress)`：按行/列采样构造
+  $\bm{Z}_{block} \approx \bm{U}\bm{V}^{T}$（**转置约定，无共轭**，适配复数对称
+  阻抗矩阵）；收敛判据为 $\|\bm{u}_k\|\|\bm{v}_k\| \le \mathrm{tol}\,\|\tilde{\bm{Z}}\|_F$，
+  $\|\tilde{\bm{Z}}\|_F^2$ 用递推估计；含零行/零块早期终止。
+- `recompress!`：QR/SVD 再压缩（$\tau_{SVD} \approx 10\,\tau_{ACA}$），典型再压缩
+  20–30%。
+- `BlockEvaluator` / `eval_block`：按全局基函数索引求值 `Z[rows, cols]`，支持
+  EFIE/MFIE/CFIE 的 RWG 块，供 ACA 按行/列稀疏采样，避免装配整块矩阵。
+- `ACAOperator <: AbstractIntegralOperator`：复用 MLFMA 八叉树聚类与近场稀疏
+  装配；叶层非邻盒子对按 ACA 压缩为低秩块，实现 `mul!` 与 GMRES 直接兼容。
+  对称矩阵用转置语义应用下三角块（`V*(Uᵀ*x)`），避免重复压缩。
+
+## 5. MLACA 实现（`FastAlgorithms.ACA.MLACAOperator`）
+
+H-矩阵风格多层递归块压缩（Gibson Ch10 思想，基于八叉树多层结构）：
+
+- 可容许对（非邻盒子）→ ACA 压缩整个子树块（可跨越多个叶层盒子）；
+- 近邻对 → 下钻子盒子对；叶层近邻对由近场稀疏矩阵覆盖；
+- 对角块 → 递归到子层；叶层自/邻对在近场中。
+
+该结构保证每个叶层基函数对恰好被近场或某个低秩块覆盖一次，无重叠、无漏算。
+当前支持复数对称算子（EFIE）；非对称问题使用 `ACAOperator(symmetric=false)`。
+
+## 6. 参数配置与实测结果（2026-08-11）
+
+- `nInterp`（层间插值点数）与 `precision_digits`（截断公式精度参数 $d_0$，默认
+  9.0）不再硬编码，可通过 `MLFMAOperator`/`ACAOperator`/`MLACAOperator` 构造参数
+  配置，默认值保持现状。
+- 实测（EFIE 球体，本机 Julia 1.12，1 线程）：
+
+| 用例 | 方法 | MatVec 相对误差 | 解相对误差 | 压缩率 | 说明 |
+|------|------|-----------------|------------|--------|------|
+| N=792, 叶层 0.25λ | MLFMA | 3.4e-4 | 1.9e-3 | 75.2%* | 近场稀疏 + 远场隐式 |
+| N=792, 叶层 0.25λ | ACA | 5.6e-5 | 1.9e-4 | 40.3% | 1252 个低秩块 |
+| N=252, 叶层 0.125λ | ACA | 2.8e-6 | 2.1e-5 | 17.7% | 13304 块（单层） |
+| N=252, 叶层 0.125λ | MLACA | 1.6e-5 | 3.5e-5 | 22.3% | 3652 块（多层，块数少 73%） |
+| N=252, 叶层 0.125λ | MLFMA | 2.1 | 1.3 | — | 小叶层失效（breakdown） |
+
+`*` MLFMA 的"压缩率"仅计近场稀疏存储（远场不显式存储），与 ACA 的显式低秩存储
+口径不同，不可直接比较。MLACA 在四层八叉树上以更少块数实现更高压缩率，且
+N=252/0.125λ 用例显示 MLFMA 在该尺度的 breakdown——这正是文档 §3 所述
+低频/小叶层失效，ACA/MLACA 作为核无关路径形成互补。
+
+预条件实测（N=252 ACA 算子，GMRES，`abstol=1e-6`）：Identity 63 迭代，
+ILU(0.01) 20 迭代，SPAI 19 迭代，BlockJacobi 400 迭代未收敛（叶层块过小）。
+ILU/SPAI 可直接用 `ILUPreconditioner(op)` / `SPAIPreconditioner(op)` 便捷构造。
+
+## 7. 非对称 MLACA 与 PMCHW 多基函数支持
+
+- **非对称 MLACA**：`MLACAOperator(symmetric=false)` 对每个盒子对的两个方向
+  分别压缩（适合 CFIE 等非对称算子）；对称时仍用转置语义避免重复压缩。
+- **PMCHW 多基函数块求值**：`PMCHWBlockEvaluator` 按 2N 系统全局索引求值
+  远场块（J/M 双通道），四个子块 EJ/HM 用 L 算子、EM/HJ 用 ±K^PMCHW；
+  `ACAOperator(pmchw, basis, ...)` 与 `MLACAOperator(pmchw, basis, ...)`
+  直接支持 PMCHW（2N×2N，非对称双向压缩）。注意每个 L 算子必须独立缓冲
+  （`efie_interaction!` 末尾会整体乘 factor，同一缓冲连续调用会重复缩放）。
+- PMCHW 该实现本机 cond≈4.3e6（N=150 球体），解误差受条件数放大；算子级
+  门控以 MatVec 误差与 GMRES 算子残差为准。
+
+## 8. 直接块 LU（多 RHS）
+
+`block_lu(op)`（`FastAlgorithms.BlockLUModule`）对 ACA/MLACA 算子做叶层分块
+直接 LU（Gibson Ch9 Algorithm 7）：
+- 对角块 `A_bb = Z_bb − Σ_{p<b} L_bp U_pb`，用**无主元 LU**
+  （`lu(A, NoPivot())`，块公式要求 `A_bb = L_bb U_bb` 精确成立）；
+- 离对角块 `L_sb = (Z_sb − Σ L_sp U_pb) U_bb⁻¹`、`U_bs = L_bb⁻¹ (Z_bs − Σ L_bp U_ps)`，
+  可用 ACA 再压缩控制存储；
+- `block_lu_solve(F, B)` 前代 + 回代支持多 RHS；`F \ b` 支持单 RHS。
+
+## 9. 更大规模实测（2026-08-11，本地 1 线程，稠密参照）
+
+| 用例 | 方法 | N | MatVec 误差 | 解误差 | 压缩率 | 说明 |
+|------|------|---|------------|--------|--------|------|
+| EFIE 球 | MLFMA | 1734 | 6.2e-5 | 5.9e-4 | 75.0%* | 76 迭代 |
+| EFIE 球 | ACA | 1734 | 2.8e-5 | 3.3e-4 | 57.0% | 求解 0.19s |
+| EFIE 球 | MLFMA | 2280 | 4.1e-5 | 7.1e-4 | 74.8%* | 500 迭代 82.2s |
+| EFIE 球 | ACA/MLACA | 2280 | 2.5e-5 | 5.0e-4 | 60.7% | 500 迭代 1.8s |
+| CFIE 球 | ACA/MLACA | 792 | 1.9e-5 | 2.0e-5 | -3.6% | 7 迭代（cond≈22） |
+| PMCHW 球 | ACA/MLACA | 600 | 1.2e-4 | 1.2 | 4.8% | cond≈4.3e6 限制 |
+| 低频 EFIE | ACA/MLACA | 792 | 5.1e-6 | 2.9e-3 | 42.5% | 30 MHz，0.03λ 叶层 |
+| EFIE 球 | ACA/MLACA | 11352 | 5.1e-6 | 7.2 | 71.5% | GMRES+ILU 500 迭代未收敛（EFIE 稠密网格预条件挑战） |
+| CFIE 球 | ACA/MLACA | 11352 | 2.2e-6 | 2.6e-5 | 67.8% | 100 迭代收敛（cond≈1.2e3） |
+
+`*` MLFMA 压缩率仅计近场稀疏存储（口径不同）。全部用例 `finite/NaN` 检查通过。
+N=2280 时 ACA/MLACA 单次 MatVec 远快于 MLFMA（同 500 迭代下求解 1.8s vs 82.2s），
+且压缩率随 N 增大而提升；小 N（792）CFIE 非对称双向压缩开销超过收益（负压缩率），
+属正常现象。N=11352（约 1.1 万未知量）本地实测：EFIE 压缩率 71.5%、MatVec 误差
+5.1e-6，但 ILU 预条件 GMRES 500 迭代不收敛（残差停滞 ~2.5），属 EFIE 稠密网格
+预条件挑战（算子本身精确）；良态 CFIE 同规模 100 迭代收敛、解误差 2.6e-5、
+压缩率 67.8%。该大规模基准脚本
+（`benchmark/run_large_fast_solvers_benchmark.jl`）仅供本地手动运行，未接入 CI。
+
+## 10. H 矩阵 H-LU 与 H2 扩展
+
+### 10.1 实现
+
+- `FastAlgorithms.ACA.HMatrixModule`：`HMatrixNode`（`:dense`/`:lowrank`/`:split`）
+  与 `hmatrix_from_mlaca`——从 MLACA/ACA 算子的分层低秩结构重建显式 H 矩阵树
+  （对称算子反方向用转置因子 `V*(Uᵀ)`；PMCHW 2N 自动展开 J/M 双通道）。
+- `h_lu!`：标准分层块 LU（对角先更新 `A_bb = Z_bb − Σ L_bp U_pb` 再递归分解；
+  离对角 `L_sb = (Z_sb − Σ L_sp U_pb) U_bb⁻¹`、`U_bs = L_bb⁻¹ (Z_bs − Σ L_bp U_ps)`；
+  递归右除 U / 左除 L）。
+- `h_lu_solve`：前代 + 回代多 RHS 直接求解（全局索引输入/输出）。
+- 默认 `recompress=false` 精确分解；`recompress=true` 用 ACA 截断离对角因子块
+  （误差校验 ≤10·tol，否则回退稠密）。
+
+### 10.2 实测结果（2026-08-11，本地 1 线程，`benchmark/benchmark_hl_lu.jl`）
+
+| 用例 | N | 方法 | 因子化 | 求解 | 残差 | 压缩率 |
+|------|---|------|--------|------|------|--------|
+| EFIE（MLACA 多层树） | 150 | H-LU 精确 | 0.37s | 0.008s | 9.4e-16 | 0% |
+| EFIE | 792 | BlockLU | 2.06s | 0.008s | 1.5e-15 | 0% |
+| EFIE | 792 | H-LU 精确 | 0.50s | 0.014s | 1.7e-15 | 0% |
+| EFIE | 792 | H-LU 再压缩 | 0.76s | 0.014s | 7.8e-4 | **12.7%**（944 低秩块） |
+| CFIE（非对称） | 150 | H-LU 精确 | 0.14s | 0.003s | 4.5e-16 | 0% |
+| PMCHW（2N） | 300 | H-LU 精确 | 0.21s | 0.005s | 1.1e-15 | 0% |
+| PMCHW | 300 | H-LU 再压缩 | 0.23s | 0.005s | 0.50 | 6.2%（cond≈4e6 不稳定） |
+| 低频 EFIE | 150 | H-LU 精确 | 0.06s | 0.003s | 4.0e-16 | 0% |
+
+结论：H-LU 精确分解比叶层 BlockLU 快 4-14 倍、残差 ~1e-15；再压缩在良态系统上
+以 ≤10·tol 受控误差换取存储（N=792 12.7%），病态系统（PMCHW）不稳定，默认关闭。
+
+### 10.3 H2 与 H2-LU（设计，下一阶段）
+
+- H2 矩阵：嵌套基（cluster bases U_t/V_t + 父子转移矩阵），MatVec 用嵌套基加速；
+- **H2-LU 为 opt-in 实验特性**：按 H2Mat4Ham 经验，仅当残差/解误差/秩/内存对照
+  H-LU 无回归时才启用；每个实验保留稠密参照门控。
