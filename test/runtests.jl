@@ -15,6 +15,7 @@ using Test
     include("test_mlfma_params.jl")
     include("test_aca.jl")
     include("test_block_evaluator.jl")
+    include("test_block_evaluator_pmchw.jl")
     include("test_aca_operator.jl")
     include("test_mlaca_operator.jl")
     include("test_lowfreq_aca.jl")

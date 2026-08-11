@@ -25,6 +25,6 @@ using .ACAOperatorModule
 using .MLACAOperatorModule
 
 export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
-export ACA, LowRankBlock, aca, recompress!, compression_stats, BlockEvaluator, eval_block, ACAOperator, ACAParams, MLACAOperator
+export ACA, LowRankBlock, aca, recompress!, compression_stats, BlockEvaluator, PMCHWBlockEvaluator, eval_block, ACAOperator, ACAParams, MLACAOperator
 
 end
