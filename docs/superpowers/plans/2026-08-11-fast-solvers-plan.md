@@ -707,16 +707,24 @@ git commit -m "feat(ACA): ACAOperator with octree clustering, near-field reuse, 
 
 ## Task 6+: 后续里程碑（另行计划文档细化）
 
-### M3 MLACAOperator
+> 状态：M3/M4/M5 与后续方向（非对称 MLACA、PMCHW、直接块 LU、N=1.1 万
+> 本地大规模基准）均已完成，见设计文档 §2.4 与 docs/theory/fast_algorithms.md §7-9。
+
+### M3 MLACAOperator ✅
 - 八叉树多层簇结构上的 H-矩阵风格递归块压缩：可容许远块 ACA、近块下钻、叶层稠密（`Z_near`）。
-- MatVec 递归应用；对照稠密 / ACAOperator / MLFMA；L=1..3 压缩率递增且无精度回退。
+- MatVec 递归应用；对照稠密 / ACAOperator / MLFMA；N=11352 压缩率 71.5%（EFIE）。
 
-### M4 MLFMA 加速
-- 预条件接线：`ILUPreconditioner(op.Z_near)` / `SPAIPreconditioner` 在 MLFMA/ACA 算子上的迭代数基准（对照 Identity/BlockJacobi）。
-- 参数配置化：`nInterp`、截断精度等改为构造参数（默认值保持现状），测试 kwarg 生效。
-- 低频：ACAOperator 覆盖低频场景，与 MLFMA 形成互补（docs §3 路线）。
+### M4 MLFMA 加速 ✅
+- 预条件接线：`ILUPreconditioner(op)` / `SPAIPreconditioner(op)` / `BlockJacobiPreconditioner(op)`
+  在 MLFMA/ACA/MLACA 算子上的迭代数基准（Identity/ILU/SPAI/BlockJacobi 扫描）。
+- 参数配置化：`nInterp`、`precision_digits` 构造参数（默认保持现状），MPI 构造器同步支持。
+- 低频：ACAOperator 覆盖低频场景（30 MHz、0.03λ 叶层），与 MLFMA 互补。
 
-### M5 综合基准与文档
-- `benchmark/run_full_fast_solvers_benchmark.jl`：稠密 vs MLFMA vs ACA vs MLACA 的 N/τ 扫描。
-- 报告刷新：精度/内存/耗时/压缩率分列；finite/NaN 检查。
-- `docs/src/theory/fast_algorithms.md`、API 文档、README 更新。
+### M5 综合基准与文档 ✅
+- `benchmark/run_full_fast_solvers_benchmark.jl`、`benchmark/run_large_fast_solvers_benchmark.jl`
+  （N=792..11352，多配方，finite/NaN 检查，本地手动运行、不进 CI）。
+- 报告：精度/内存/耗时/压缩率分列 CSV + docs 表格。
+- `docs/src/theory/fast_algorithms.md`、API 文档更新。
+
+### 后续方向（已完成）
+- 非对称 MLACA（CFIE）✅；PMCHW 2N 多基函数 ✅；直接块 LU（多 RHS）✅。

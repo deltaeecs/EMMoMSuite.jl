@@ -61,6 +61,10 @@ LinearAlgebra.mul!(y, A::ACAOperator, x)   # 近场稀疏 + 远场低秩块
 
 ### 2.4 不做（本期范围外）
 
-- Gibson U/V 型 MLACA 直接块 LU（多 RHS 直接求解）→ 后续计划。
+- ~~Gibson U/V 型 MLACA 直接块 LU（多 RHS 直接求解）~~ → **已实现**：
+  叶层分块直接 LU（`block_lu`/`block_lu_solve`，默认 `recompress=false`，
+  病态系统下再压缩不稳定已文档化）；U/V 型层级块 LU 仍为后续方向。
+- ~~非对称 MLACA / PMCHW 多基函数支持~~ → **已实现**：`symmetric=false`
+  双向压缩；`PMCHWBlockEvaluator` 与 `ACAOperator(pmchw)`/`MLACAOperator(pmchw)`。
 - K-means 聚类（复用八叉树即可满足聚类目标）。
 - 外部 H-matrix 库引入。
