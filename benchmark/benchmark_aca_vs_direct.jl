@@ -9,7 +9,6 @@ using Printf
 using SparseArrays
 using DelimitedFiles
 using IterativeSolvers
-using EMMoMSuite.FastAlgorithms.ACA: compression_stats
 
 function run_benchmark(;
     freq::Real = 300e6,

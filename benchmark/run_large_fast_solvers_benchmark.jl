@@ -111,8 +111,9 @@ function main(; filter_tags::Vector{String} = String[], out = joinpath(@__DIR__,
         I_dir = Z \ V
         x = randn(ComplexF64, N)
         for name in (:aca, :mlaca)
-            op = name === :aca ? ACAOperator(cfie, basis, lf * λ; tol = 1e-4, near_range = 1, symmetric = false) :
-                                 MLACAOperator(cfie, basis, lf * λ; tol = 1e-4, near_range = 1, symmetric = false)
+            t_setup = @elapsed op = name === :aca ?
+                ACAOperator(cfie, basis, lf * λ; tol = 1e-4, near_range = 1, symmetric = false) :
+                MLACAOperator(cfie, basis, lf * λ; tol = 1e-4, near_range = 1, symmetric = false)
             y = op * x
             mv_err = norm(y - Z * x) / norm(Z * x)
             P = ILUPreconditioner(op)
@@ -121,7 +122,7 @@ function main(; filter_tags::Vector{String} = String[], out = joinpath(@__DIR__,
             relres = norm(V - op * I) / norm(V)
             sol_err = norm(I - I_dir) / norm(I_dir)
             nnz_near, nblocks, stored_lr, total, ratio = storage_stats(op, N)
-            push!(rows, Any[ctag, String(name), N, 300e6, lf, 0.0, t_solve, mv_err,
+            push!(rows, Any[ctag, String(name), N, 300e6, lf, t_setup, t_solve, mv_err,
                             all(isfinite, vec(y)), hist.iters, relres, sol_err, cond(Z),
                             nnz_near, nblocks, stored_lr, total, ratio])
         end
@@ -140,8 +141,9 @@ function main(; filter_tags::Vector{String} = String[], out = joinpath(@__DIR__,
     I_dir = Z \ V
     x = randn(ComplexF64, S)
     for name in (:aca, :mlaca)
-        op = name === :aca ? ACAOperator(pmchw, basis, 0.25 * λ; tol = 1e-4, near_range = 1) :
-                             MLACAOperator(pmchw, basis, 0.125 * λ; tol = 1e-4, near_range = 1)
+        t_setup = @elapsed op = name === :aca ?
+            ACAOperator(pmchw, basis, 0.25 * λ; tol = 1e-4, near_range = 1) :
+            MLACAOperator(pmchw, basis, 0.125 * λ; tol = 1e-4, near_range = 1)
         y = op * x
         mv_err = norm(y - Z * x) / norm(Z * x)
         P = ILUPreconditioner(op)
@@ -150,7 +152,7 @@ function main(; filter_tags::Vector{String} = String[], out = joinpath(@__DIR__,
         relres = norm(V - op * I) / norm(V)
         sol_err = norm(I - I_dir) / norm(I_dir)
         nnz_near, nblocks, stored_lr, total, ratio = storage_stats(op, S)
-        push!(rows, Any["pmchw_600", String(name), S, 300e6, 0.25, 0.0, t_solve, mv_err,
+        push!(rows, Any["pmchw_600", String(name), S, 300e6, 0.25, t_setup, t_solve, mv_err,
                         all(isfinite, vec(y)), hist.iters, relres, sol_err, cond(Z),
                         nnz_near, nblocks, stored_lr, total, ratio])
     end
