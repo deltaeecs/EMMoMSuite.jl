@@ -12,6 +12,8 @@ using Test
     include("test_solvers_verification.jl")
     include("test_preconditioners.jl")
     include("test_mlfma.jl")
+    include("test_fft_interp.jl")
+    include("test_aim_operator.jl")
     include("test_parallel.jl")
     include("test_mpiarray.jl")
     include("test_parallel_mfie_cfie.jl")

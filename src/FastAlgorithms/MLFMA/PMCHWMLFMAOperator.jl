@@ -16,7 +16,7 @@ PMCHW 系统的 MLFMA 线性算子（自包含模块）。
 
 实现：
   近场 Z_near — assemble_near_field_pmchw → 2N×2N 稀疏矩阵
-              （策略：计算全矩阵后依据 octree 近邻关系稀疏化）
+              （原生装配：仅计算 octree 近邻 cube 对的相互作用，不装配全稠密矩阵）
   远场 Z_far  — 4 遍 MLFMA（J×k0, J×k1, M×k0, M×k1）
 
 四遍数据流：
@@ -31,6 +31,7 @@ using LinearAlgebra
 using StaticArrays
 using SparseArrays
 using Logging
+using MPI
 using ....CoreModule
 using ....Geometry
 using ....BasisFunctions
@@ -45,12 +46,11 @@ using ..Level
 using ..Interpolation: AbstractPolesInfo
 
 using ....IntegralEquations.Impedance: get_triangle_info, get_triangles_info
+using ....IntegralEquations.EFIEModule: efie_interaction!
 using ....IntegralEquations.PMCHWModule: PMCHW
+import ....IntegralEquations.PMCHWModule: _l_block_operator, calc_k_pmchw_term!
 
-using ....IntegralEquations.PMCHWModule: assemble_impedance_matrix
-const pmchw_assemble_full = assemble_impedance_matrix
-
-export PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
+export PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, PMCHWMLFMAOperatorMPI, assemble_near_field_pmchw
 
 """
     PMCHWMLFMAErrorBudget{FT}
@@ -318,6 +318,8 @@ function aggregate_leaf_pmchw!(
     sorted_ids::Vector{Int},
     x_range::AbstractUnitRange{Int},
     k::Number,
+    ;
+    cube_filter = nothing,
 )
     leaf_level = octree.levels[octree.nLevels]
     offset = first(x_range) - 1
@@ -345,6 +347,7 @@ function aggregate_leaf_pmchw!(
     poles_ϕhat = [p.ϕhat for p in poles.r̂sθsϕs]
 
     Threads.@threads for iCube = 1:nCubes
+        cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = leaf_level.cubes[iCube]
         cubeCenter = cube.center
 
@@ -464,6 +467,8 @@ function disaggregate_leaf_pmchw_j!(
     y::AbstractVector,
     sorted_ids::Vector{Int},
     kmode::Symbol,
+    ;
+    cube_filter = nothing,
 )
     N = num_basis(basis)
     k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
@@ -475,6 +480,7 @@ function disaggregate_leaf_pmchw_j!(
     isdefined(leaf_level, :disaggG) || return
 
     Threads.@threads for iCube = 1:leaf_level.nCubes
+        cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = leaf_level.cubes[iCube]
         field = view(leaf_level.disaggG, :, :, iCube)
         r0 = cube.center
@@ -502,6 +508,8 @@ function disaggregate_leaf_pmchw_m!(
     y::AbstractVector,
     sorted_ids::Vector{Int},
     kmode::Symbol,
+    ;
+    cube_filter = nothing,
 )
     N = num_basis(basis)
     k, η = kmode === :k0 ? (pmchw.k0, pmchw.eta0) : (pmchw.k1, pmchw.eta1)
@@ -513,6 +521,7 @@ function disaggregate_leaf_pmchw_m!(
     isdefined(leaf_level, :disaggG) || return
 
     Threads.@threads for iCube = 1:leaf_level.nCubes
+        cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = leaf_level.cubes[iCube]
         field = view(leaf_level.disaggG, :, :, iCube)
         r0 = cube.center
@@ -542,53 +551,501 @@ function assemble_near_field_pmchw(
     octree::OctreeInfo,
     sorted_ids::Vector{Int},
     inv_sorted_ids::Vector{Int},
+    ;
+    cube_filter::Function = i -> true,
 )
     N = num_basis(basis)
     CT = Complex{typeof(pmchw.k0)}
-
-    @info "  [PMCHWMLFMAOperator] 装配完整 2N×2N PMCHW 矩阵（N=$N）..."
-    Z_full = pmchw_assemble_full(pmchw, basis)
-
+    FT = eltype(basis.mesh.node)
     leaf_level = octree.levels[octree.nLevels]
-    nCubes = leaf_level.nCubes
+    n_cubes = leaf_level.nCubes
 
-    # 构建近邻对集合
-    near_pairs = Set{Tuple{Int,Int}}()
-    for i_cube = 1:nCubes
+    # ── 1. 三角形 → RWG 基函数映射（与 MLFMA 近场装配一致） ─────────────
+    nt = num_elements(basis.mesh)
+    tri_to_rwg = [Vector{Tuple{Int,Int,Float64}}() for _ = 1:nt]
+    for (i, f) in enumerate(basis.functions)
+        for k = 1:2
+            tri_id = f.support[k]
+            if tri_id > 0
+                push!(tri_to_rwg[tri_id], (f.local_edge_idx[k], i, f.signs[k]))
+            end
+        end
+    end
+    all_tris = get_triangles_info(basis.mesh, basis)
+
+    # ── 2. cube → 唯一三角形 ─────────────────────────────────────────────
+    cube_tris_vec = [Int[] for _ = 1:n_cubes]
+    for i_cube = 1:n_cubes
         cube = leaf_level.cubes[i_cube]
         isempty(cube.bfInterval) && continue
-        my_bfs = [sorted_ids[s] for s in cube.bfInterval]
+        tris_set = Set{Int}()
+        for sorted_idx in cube.bfInterval
+            global_id = sorted_ids[sorted_idx]
+            f = basis.functions[global_id]
+            for k = 1:2
+                f.support[k] > 0 && push!(tris_set, f.support[k])
+            end
+        end
+        cube_tris_vec[i_cube] = collect(tris_set)
+    end
 
-        for neigh_idx in cube.neighbors
-            neigh_cube = leaf_level.cubes[neigh_idx]
-            isempty(neigh_cube.bfInterval) && continue
-            neigh_bfs = [sorted_ids[s] for s in neigh_cube.bfInterval]
+    # ── 3. 子块算子与核（与稠密 PMCHW 装配完全相同的因子/积分核） ────────
+    k0 = pmchw.k0
+    eta0 = pmchw.eta0
+    k0_c = CT(k0)
+    eta0_c = CT(eta0)
+    k1_c = pmchw.k1
+    eta1_c = pmchw.eta1
 
-            for i in my_bfs, j in neigh_bfs
-                push!(near_pairs, (i, j))   # EJ 块
-                push!(near_pairs, (i, j + N))   # EM 块
-                push!(near_pairs, (i + N, j))   # HJ 块
-                push!(near_pairs, (i + N, j + N))   # HM 块
+    efie_ej0 = _l_block_operator(k0, eta0, k0_c, eta0_c, :EJ)
+    efie_ej1 = _l_block_operator(k1_c, eta1_c, k1_c, eta1_c, :EJ)
+    efie_hm0 = _l_block_operator(k0, eta0, k0_c, eta0_c, :HM)
+    efie_hm1 = _l_block_operator(k1_c, eta1_c, k1_c, eta1_c, :HM)
+
+    gq_far = GaussQuadratureInfo(:Triangle, 4, FT)
+    gq_near = GaussQuadratureInfo(:Triangle, 7, FT)
+    mfie_k0 = (k = k0, eta = one(FT), gq_far = gq_far, gq_near = gq_near)
+    mfie_k1 = (k = k1_c, eta = one(CT), gq_far = gq_far, gq_near = gq_near)
+
+    # K 核的高斯点（与 _assemble_K_pmchw_offdiag! 相同）
+    N_points = length(gq_far.weight)
+    quad_points = Vector{SVector{N_points,SVector{3,FT}}}(undef, nt)
+    Threads.@threads for t = 1:nt
+        v_idx = basis.mesh.triangles[:, t]
+        v1 = SVector{3,FT}(basis.mesh.node[:, v_idx[1]])
+        v2 = SVector{3,FT}(basis.mesh.node[:, v_idx[2]])
+        v3 = SVector{3,FT}(basis.mesh.node[:, v_idx[3]])
+        quad_points[t] = SVector{N_points,SVector{3,FT}}(
+            v1 * gq_far.coordinate[1, i] +
+            v2 * gq_far.coordinate[2, i] +
+            v3 * gq_far.coordinate[3, i] for i = 1:N_points
+        )
+    end
+
+    function k_pmchw_interaction!(Z_local, op, t_test, t_src)
+        t_test.triID == t_src.triID && return nothing
+        r_test = quad_points[t_test.triID]
+        r_src = quad_points[t_src.triID]
+        calc_k_pmchw_term!(Z_local, op, t_test, t_src, r_test, r_src)
+        return nothing
+    end
+
+    # ── 4. 原生装配循环（仅 octree 近邻 cube 对；线程并行，按线程 COO） ──
+    n_threads = Threads.nthreads()
+    max_tid = Threads.maxthreadid()
+
+    estimated_nnz_per_thread = 0
+    non_empty_cubes = 0
+    for i_c = 1:n_cubes
+        cube_c = leaf_level.cubes[i_c]
+        isempty(cube_c.bfInterval) && continue
+        non_empty_cubes += 1
+        n_my = length(cube_tris_vec[i_c])
+        for ni in cube_c.neighbors
+            n_neigh = length(cube_tris_vec[ni])
+            estimated_nnz_per_thread += n_my * n_neigh * 9 * 4
+        end
+    end
+    estimated_nnz_per_thread = max(1024, div(estimated_nnz_per_thread, max(n_threads, 1)))
+    estimated_nnz_per_thread = min(estimated_nnz_per_thread, 10_000_000)
+
+    Is = [Vector{Int}(undef, estimated_nnz_per_thread) for _ = 1:max_tid]
+    Js = [Vector{Int}(undef, estimated_nnz_per_thread) for _ = 1:max_tid]
+    Vs = [Vector{CT}(undef, estimated_nnz_per_thread) for _ = 1:max_tid]
+    counts = zeros(Int, max_tid)
+
+    counter = Threads.Atomic{Int}(0)
+    total_cubes = n_cubes
+
+    println("Assembling PMCHW Near Field Matrix (native, octree neighbor pairs) with $n_threads threads...")
+    println("  Non-empty Cubes: $non_empty_cubes, est nnz/thread: $estimated_nnz_per_thread")
+
+    Threads.@threads :static for i_cube = 1:n_cubes
+        tid = Threads.threadid()
+        cube_filter(i_cube) || continue
+
+        c = Threads.atomic_add!(counter, 1)
+        if c % 200 == 0 || c == total_cubes
+            print("\rProgress: $c / $total_cubes cubes")
+        end
+
+        cube = leaf_level.cubes[i_cube]
+        isempty(cube.bfInterval) && continue
+        my_tris = cube_tris_vec[i_cube]
+
+        # efie_interaction! 末尾会乘各算子的 factor，因此 k0/k1 必须用独立缓冲
+        Z_ej0 = zeros(CT, 3, 3)
+        Z_ej1 = zeros(CT, 3, 3)
+        Z_ej = zeros(CT, 3, 3)
+        Z_hm0 = zeros(CT, 3, 3)
+        Z_hm1 = zeros(CT, 3, 3)
+        Z_hm = zeros(CT, 3, 3)
+        # calc_k_pmchw_term! 末尾同样原地乘边长因子，k0/k1 必须独立缓冲
+        Z_em0 = zeros(CT, 3, 3)
+        Z_em1 = zeros(CT, 3, 3)
+        Z_em = zeros(CT, 3, 3)
+
+        for neighbor_idx in cube.neighbors
+            neighbor_cube = leaf_level.cubes[neighbor_idx]
+            isempty(neighbor_cube.bfInterval) && continue
+            neigh_tris = cube_tris_vec[neighbor_idx]
+
+            for t_test in my_tris
+                tri_test = all_tris[t_test]
+                for t_src in neigh_tris
+                    tri_src = all_tris[t_src]
+
+                    fill!(Z_ej0, zero(CT))
+                    fill!(Z_ej1, zero(CT))
+                    fill!(Z_hm0, zero(CT))
+                    fill!(Z_hm1, zero(CT))
+                    fill!(Z_em0, zero(CT))
+                    fill!(Z_em1, zero(CT))
+                    efie_interaction!(Z_ej0, efie_ej0, tri_test, tri_src)
+                    efie_interaction!(Z_ej1, efie_ej1, tri_test, tri_src)
+                    efie_interaction!(Z_hm0, efie_hm0, tri_test, tri_src)
+                    efie_interaction!(Z_hm1, efie_hm1, tri_test, tri_src)
+                    @. Z_ej = Z_ej0 + Z_ej1
+                    @. Z_hm = Z_hm0 + Z_hm1
+                    k_pmchw_interaction!(Z_em0, mfie_k0, tri_test, tri_src)
+                    k_pmchw_interaction!(Z_em1, mfie_k1, tri_test, tri_src)
+                    @. Z_em = Z_em0 + Z_em1
+
+                    distribute_term_pmchw!(
+                        Is, Js, Vs, counts, tid,
+                        Z_ej, Z_em, Z_hm,
+                        tri_to_rwg[t_test], tri_to_rwg[t_src],
+                        cube.bfInterval, neighbor_cube.bfInterval,
+                        inv_sorted_ids, N,
+                    )
+                end
             end
         end
     end
 
-    nz = length(near_pairs)
-    IIs = Vector{Int}(undef, nz)
-    JJs = Vector{Int}(undef, nz)
-    VVs = Vector{CT}(undef, nz)
-
-    idx = 1
-    for (row, col) in near_pairs
-        IIs[idx] = row
-        JJs[idx] = col
-        VVs[idx] = CT(Z_full[row, col])
-        idx += 1
+    # ── 5. 合并线程缓冲 → 稀疏矩阵 ───────────────────────────────────────
+    for tid = 1:max_tid
+        ct = counts[tid]
+        resize!(Is[tid], ct)
+        resize!(Js[tid], ct)
+        resize!(Vs[tid], ct)
     end
+    I_total = _concat_thread_buffers_pmchw(Is, counts)
+    J_total = _concat_thread_buffers_pmchw(Js, counts)
+    V_total = _concat_thread_buffers_pmchw(Vs, counts)
 
-    Z_near = sparse(IIs, JJs, VVs, 2N, 2N)
-    @info "  [PMCHWMLFMAOperator] 近场矩阵：nnz=$(nnz(Z_near)) / $(2N)×$(2N)"
+    Z_near = sparse(I_total, J_total, V_total, 2N, 2N)
+    # 滤除机器精度噪声：K 块中多三角形组合可抵消到 ~1e-16×scale，这些条目
+    # 相对误差度量失真且对 matvec 无意义。按稀疏合并后的总和值做绝对阈值。
+    if nnz(Z_near) > 0
+        scale = maximum(abs, nonzeros(Z_near))
+        tol = 1e-12 * abs(scale)
+        if tol > 0
+            I_f, J_f, V_f = findnz(Z_near)
+            keep = abs.(V_f) .> tol
+            if !all(keep)
+                Z_near = sparse(I_f[keep], J_f[keep], V_f[keep], 2N, 2N)
+            end
+        end
+    end
+    @info "  [PMCHWMLFMAOperator] 近场矩阵（原生装配）：nnz=$(nnz(Z_near)) / $(2N)×$(2N)"
     return Z_near
 end
+
+@inline function _ensure_capacity_pmchw!(
+    Is::Vector{Vector{Int}},
+    Js::Vector{Vector{Int}},
+    Vs::Vector{Vector{CT}},
+    counts::Vector{Int},
+    tid::Int,
+    needed::Int,
+) where {CT}
+    required = counts[tid] + needed
+    cap = length(Is[tid])
+    if required > cap
+        new_cap = max(required, cap * 2)
+        resize!(Is[tid], new_cap)
+        resize!(Js[tid], new_cap)
+        resize!(Vs[tid], new_cap)
+    end
+    return nothing
+end
+
+@inline function _push4!(
+    Is, Js, Vs, counts, tid,
+    i1, j1, v1, i2, j2, v2, i3, j3, v3, i4, j4, v4,
+)
+    _ensure_capacity_pmchw!(Is, Js, Vs, counts, tid, 4)
+    @inbounds begin
+        ct = counts[tid]
+        Is[tid][ct + 1] = i1; Js[tid][ct + 1] = j1; Vs[tid][ct + 1] = v1
+        Is[tid][ct + 2] = i2; Js[tid][ct + 2] = j2; Vs[tid][ct + 2] = v2
+        Is[tid][ct + 3] = i3; Js[tid][ct + 3] = j3; Vs[tid][ct + 3] = v3
+        Is[tid][ct + 4] = i4; Js[tid][ct + 4] = j4; Vs[tid][ct + 4] = v4
+        counts[tid] = ct + 4
+    end
+    return nothing
+end
+
+"""
+    distribute_term_pmchw!(Is, Js, Vs, counts, tid, Z_ej, Z_em, Z_hm,
+                           test_bases, src_bases, test_interval, src_interval,
+                           inv_sorted_ids, N)
+
+把 3×3 元素相互作用写入 PMCHW 四个子块：
+  EJ: (row=test, col=src)
+  EM: (row=test, col=src+N)
+  HJ: (row=test+N, col=src) = -EM（结构不变量）
+  HM: (row=test+N, col=src+N)
+行/列均为原始（非排序）基函数编号；`test_interval`/`src_interval` 为排序后的
+cube 区间，用于保证每个 cube 只写出其 own 的行（与 MLFMA 近场装配一致）。
+"""
+@inline function distribute_term_pmchw!(
+    Is, Js, Vs, counts, tid,
+    Z_ej, Z_em, Z_hm,
+    test_bases,
+    src_bases,
+    test_interval,
+    src_interval,
+    inv_sorted_ids,
+    N,
+)
+    _ensure_capacity_pmchw!(Is, Js, Vs, counts, tid, 4 * length(test_bases) * length(src_bases))
+    @inbounds for (loc_test, glob_test, sign_test) in test_bases
+        sorted_idx_test = inv_sorted_ids[glob_test]
+        sorted_idx_test in test_interval || continue
+
+        for (loc_src, glob_src, sign_src) in src_bases
+            sorted_idx_src = inv_sorted_ids[glob_src]
+            sorted_idx_src in src_interval || continue
+
+            st = sign_test * sign_src
+            v_ej = Z_ej[loc_test, loc_src] * st
+            v_em = Z_em[loc_test, loc_src] * st
+            v_hm = Z_hm[loc_test, loc_src] * st
+            _push4!(
+                Is, Js, Vs, counts, tid,
+                glob_test, glob_src, v_ej,
+                glob_test, glob_src + N, v_em,
+                glob_test + N, glob_src, -v_em,
+                glob_test + N, glob_src + N, v_hm,
+            )
+        end
+    end
+    return nothing
+end
+
+function _concat_thread_buffers_pmchw(buffers::Vector{Vector{T}}, counts::Vector{Int}) where {T}
+    total_count = sum(counts)
+    merged = Vector{T}(undef, total_count)
+    offset = 0
+    @inbounds for tid in eachindex(buffers)
+        ct = counts[tid]
+        if ct == 0
+            continue
+        end
+        copyto!(merged, offset + 1, buffers[tid], 1, ct)
+        offset += ct
+    end
+    return merged
+end
+
+"""
+    PMCHWMLFMAOperatorMPI(pmchw, basis, leaf_size; budget=..., comm=MPI.COMM_WORLD)
+
+PMCHW 的 MPI 混合算子：双八叉树（各秩一致），近场按 cube 分区原生装配
+（rank 拥有 `(i_cube-1)%P` 号叶 cube 的 J/M 行，不装配全稠密矩阵），
+远场四遍按 cube 分区（聚合/转移/反聚合 + 每层 Allreduce），秩内 `@threads`。
+每遍使用独立 `y_pass` 缓冲，Allreduce 后累加，避免跨遍重复求和。
+"""
+struct PMCHWMLFMAOperatorMPI{FT,CT} <: AbstractIntegralOperator
+    pmchw::PMCHW
+    basis::RWGBasis
+    Z_near_local::SparseMatrixCSC{CT,Int}
+    budget::PMCHWMLFMAErrorBudget{FT}
+    leaf_size_eff::FT
+    near_range::Int
+    rows::Vector{Int}
+    octree0::OctreeInfo
+    octree1::OctreeInfo
+    sorted_ids0::Vector{Int}
+    inv_sorted_ids0::Vector{Int}
+    sorted_ids1::Vector{Int}
+    inv_sorted_ids1::Vector{Int}
+    freq::FT
+    comm
+end
+
+function PMCHWMLFMAOperatorMPI(
+    pmchw::PMCHW,
+    basis::RWGBasis,
+    leaf_size::Float64;
+    budget = PMCHWMLFMAErrorBudget(Float64),
+    comm = MPI.COMM_WORLD,
+)
+    rank = MPI.Comm_rank(comm)
+    P = MPI.Comm_size(comm)
+    N = num_basis(basis)
+    FT = typeof(real(pmchw.freq))
+    CT = Complex{FT}
+
+    centers = reduce(hcat, [bf.center for bf in basis.functions])
+    λ0 = FT(2π) / real(pmchw.k0)
+    λ1 = FT(2π) / real(pmchw.k1)
+    λ0f = Float64(λ0)
+    λ1f = Float64(λ1)
+    λ_min = FT(min(λ0f, λ1f))
+    budget_ft =
+        budget isa PMCHWMLFMAErrorBudget{FT} ? budget :
+        PMCHWMLFMAErrorBudget(
+            FT;
+            leaf_wavelength_divisor = budget.leaf_wavelength_divisor,
+            near_range_scale = budget.near_range_scale,
+            min_near_range = budget.min_near_range,
+            max_near_range = budget.max_near_range,
+            L_min = budget.L_min,
+            fixed_near_range = budget.fixed_near_range,
+            fixed_leaf_size_eff = budget.fixed_leaf_size_eff,
+        )
+    leaf_size_eff, near_range = _resolve_budget_parameters(budget_ft, λ_min, FT(leaf_size))
+    octree0, sorted_ids0 = build_octree(
+        centers, leaf_size_eff;
+        λ = λ0f, near_range = near_range, L_min = budget_ft.L_min,
+    )
+    octree1, sorted_ids1 = build_octree(
+        centers, leaf_size_eff;
+        λ = λ1f, near_range = near_range, L_min = budget_ft.L_min,
+    )
+    inv_sorted_ids0 = Vector{Int}(undef, N)
+    inv_sorted_ids1 = Vector{Int}(undef, N)
+    for i = 1:N
+        inv_sorted_ids0[sorted_ids0[i]] = i
+        inv_sorted_ids1[sorted_ids1[i]] = i
+    end
+
+    # 近场：按叶 cube 分区原生装配（仅计算近邻对，无全稠密矩阵）。
+    rank_filter = i_cube -> (i_cube - 1) % P == rank
+    Z_near_local = assemble_near_field_pmchw(
+        pmchw, basis, octree0, sorted_ids0, inv_sorted_ids0;
+        cube_filter = rank_filter,
+    )
+    rows = Int[]
+    leaf_level = octree0.levels[octree0.nLevels]
+    for (i_cube, cube) in enumerate(leaf_level.cubes)
+        (i_cube - 1) % P == rank || continue
+        for s in cube.bfInterval
+            push!(rows, sorted_ids0[s])
+            push!(rows, sorted_ids0[s] + N)
+        end
+    end
+    sort!(rows)
+
+    return PMCHWMLFMAOperatorMPI{FT,CT}(
+        pmchw,
+        basis,
+        Z_near_local,
+        budget_ft,
+        leaf_size_eff,
+        near_range,
+        rows,
+        octree0,
+        octree1,
+        sorted_ids0,
+        inv_sorted_ids0,
+        sorted_ids1,
+        inv_sorted_ids1,
+        FT(pmchw.freq),
+        comm,
+    )
+end
+
+Base.size(op::PMCHWMLFMAOperatorMPI) = (2 * num_basis(op.basis), 2 * num_basis(op.basis))
+Base.size(op::PMCHWMLFMAOperatorMPI, d::Int) = 2 * num_basis(op.basis)
+Base.eltype(::PMCHWMLFMAOperatorMPI{FT,CT}) where {FT,CT} = CT
+
+function _pmchw_pass_mpi!(
+    oct,
+    A::PMCHWMLFMAOperatorMPI,
+    sorted_ids,
+    x,
+    x_range,
+    k,
+    kmode,
+    kind,
+    cube_filter,
+    y_pass,
+    comm,
+)
+    for (_, lv) in oct.levels
+        isdefined(lv, :aggS) && fill!(lv.aggS, zero(eltype(lv.aggS)))
+        isdefined(lv, :disaggG) && fill!(lv.disaggG, zero(eltype(lv.disaggG)))
+    end
+    nL = oct.nLevels
+    aggregate_leaf_pmchw!(oct, A.basis, x, sorted_ids, x_range, k; cube_filter = cube_filter)
+    MPI.Allreduce!(oct.levels[nL].aggS, +, comm)
+    for lv in (nL - 1):-1:2
+        aggregate_upward!(oct.levels[lv], oct.levels[lv + 1]; cube_filter = cube_filter)
+        MPI.Allreduce!(oct.levels[lv].aggS, +, comm)
+    end
+    for lv in 2:nL
+        translate!(oct.levels[lv]; cube_filter = cube_filter)
+    end
+    if nL >= 2
+        MPI.Allreduce!(oct.levels[2].disaggG, +, comm)
+    end
+    for lv in 2:(nL - 1)
+        disaggregate_downward!(oct.levels[lv], oct.levels[lv + 1]; child_filter = cube_filter)
+        if lv + 1 < nL
+            MPI.Allreduce!(oct.levels[lv + 1].disaggG, +, comm)
+        end
+    end
+    if kind === :j
+        disaggregate_leaf_pmchw_j!(
+            oct, A.basis, A.pmchw, y_pass, sorted_ids, kmode; cube_filter = cube_filter
+        )
+    else
+        disaggregate_leaf_pmchw_m!(
+            oct, A.basis, A.pmchw, y_pass, sorted_ids, kmode; cube_filter = cube_filter
+        )
+    end
+    MPI.Allreduce!(y_pass, +, comm)
+    return nothing
+end
+
+function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperatorMPI, x::AbstractVector)
+    N = num_basis(A.basis)
+    M = 2N
+    rank = MPI.Comm_rank(A.comm)
+    n_procs = MPI.Comm_size(A.comm)
+    cube_filter = n_procs > 1 ? (i -> (i - 1) % n_procs == rank) : nothing
+
+    # 近场（本地 cube 行）+ Allreduce：Z_near_local 只含本秩拥有的行，
+    # 乘完后 y 仅这些行非零，Allreduce 得到完整近场乘积。
+    fill!(y, 0)
+    mul!(y, A.Z_near_local, x)
+    MPI.Allreduce!(y, +, A.comm)
+
+    # 远场：四遍，每遍独立 y_pass（Allreduce 后累加，避免跨遍重复求和）
+    y_far = zeros(ComplexF64, M)
+    y_pass = zeros(ComplexF64, M)
+    k0 = A.pmchw.k0
+    k1 = A.pmchw.k1
+    _pmchw_pass_mpi!(A.octree0, A, A.sorted_ids0, x, 1:N, k0, :k0, :j, cube_filter, y_pass, A.comm)
+    y_far .+= y_pass
+    fill!(y_pass, 0)
+    _pmchw_pass_mpi!(A.octree1, A, A.sorted_ids1, x, 1:N, k1, :k1, :j, cube_filter, y_pass, A.comm)
+    y_far .+= y_pass
+    fill!(y_pass, 0)
+    _pmchw_pass_mpi!(A.octree0, A, A.sorted_ids0, x, (N+1):(2N), k0, :k0, :m, cube_filter, y_pass, A.comm)
+    y_far .+= y_pass
+    fill!(y_pass, 0)
+    _pmchw_pass_mpi!(A.octree1, A, A.sorted_ids1, x, (N+1):(2N), k1, :k1, :m, cube_filter, y_pass, A.comm)
+    y_far .+= y_pass
+
+    y .+= y_far
+    return y
+end
+
+Base.:*(A::PMCHWMLFMAOperatorMPI, x::AbstractVector) = (y = similar(x); mul!(y, A, x); y)
 
 end # module PMCHWMLFMAOperatorModule

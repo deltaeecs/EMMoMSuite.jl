@@ -206,6 +206,8 @@ function setLevelInfo!(
 
     L, poles = if interp_method == Val(:LbTrained1Step)
         levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
+    elseif interp_method == Val(:FFTSpectral)
+        levelIntegralInfoCal(cubeEdgel, Val(:FFTSpectral); λ = λ, L_min = L_min)
     else
         levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
     end
@@ -277,6 +279,8 @@ function setLevelInfo!(
 
     L, poles = if interp_method == Val(:LbTrained1Step)
         levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
+    elseif interp_method == Val(:FFTSpectral)
+        levelIntegralInfoCal(cubeEdgel, Val(:FFTSpectral); λ = λ, L_min = L_min)
     else
         levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
     end

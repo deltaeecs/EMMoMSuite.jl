@@ -72,14 +72,26 @@ function compute_interpolation_matrices!(
 ) where {LV<:AbstractLevel}
     nInterp = 6 # Default interpolation points
 
-    for iLevel = nLevels:-1:2
+    Threads.@threads for iLevel = nLevels:-1:2
         parentLevel = levels[iLevel-1]
         childLevel = levels[iLevel]
 
-        # Compute interpolation matrix between Parent and Child
-        # The function computes matrices for interpolation from Parent (Coarse) to Child (Fine)
-        # and stores transposes for Child to Parent.
-        childLevel.interpWθϕ = interpolationCSCMatCal(parentLevel.poles, childLevel.poles, nInterp)
+        # Compute interpolation matrix between Parent and Child.
+        # FFTSpectral 路径：θ 方向 Lagrange 矩阵复用两步法构造，φ 方向改由 FFT 谱插值
+        # （插值/反插值在 Aggregation/Disaggregation 调用 fft_interp_phi/fft_anterp_phi）。
+        childLevel.interpWθϕ = if childLevel.poles isa FFTGLPolesInfo
+            info = interpolationCSCMatCal(parentLevel.poles.inner, childLevel.poles.inner, nInterp)
+            FFTInterpInfo(
+                info.θCSC,
+                info.θCSCT,
+                length(childLevel.poles.Xθs),
+                length(childLevel.poles.Xϕs),
+                length(parentLevel.poles.Xϕs),
+                childLevel.nCubes,
+            )
+        else
+            interpolationCSCMatCal(parentLevel.poles, childLevel.poles, nInterp)
+        end
     end
 end
 

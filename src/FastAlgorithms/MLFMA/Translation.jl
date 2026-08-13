@@ -36,47 +36,17 @@ function compute_translation_factors!(
     k::Real;
     near_range::Int = 4,
 ) where {LV<:AbstractLevel}
-
-    # Precompute the far neighbor relative indices.
-    # Theory: parent near_range = N → child far offset ≤ 2N+1 (proven by child-ID arithmetic).
-    # Far condition: at least one dimension |Δ| > near_range (matches searchNearCubes).
-    max_range = 2 * near_range + 1
-    n_max = (2 * max_range + 1)^3
-
-    all316FarNeighID = zeros(Int, 3, n_max)
-    all343InFar316 = OffsetArray(
-        zeros(Int, 2 * max_range + 1, 2 * max_range + 1, 2 * max_range + 1),
-        -max_range:max_range,
-        -max_range:max_range,
-        -max_range:max_range,
-    )
-
-    indexfar316 = 0
-    for kz = -max_range:max_range
-        for ky = -max_range:max_range
-            for kx = -max_range:max_range
-                if (abs(kx) > near_range) || (abs(ky) > near_range) || (abs(kz) > near_range)
-                    indexfar316 += 1
-                    all343InFar316[kx, ky, kz] = indexfar316
-                    all316FarNeighID[:, indexfar316] .= [kx, ky, kz]
-                end
-            end
-        end
-    end
-
     # Compute for each level (from 2 to nLevels)
     for iLevel = 2:nLevels
         level = levels[iLevel]
-        cal_alpha_trans_on_level!(level, all316FarNeighID, all343InFar316, k, indexfar316)
+        cal_alpha_trans_on_level!(level, k, near_range)
     end
 end
 
 function cal_alpha_trans_on_level!(
     level::LevelInfo,
-    all316FarNeighID::Matrix{Int},
-    all343InFar316::OffsetArray,
     k::Real,
-    nFar::Int,
+    near_range::Int,
 )
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -91,20 +61,53 @@ function cal_alpha_trans_on_level!(
     # Verification shows we need this standard factor to match Direct Solver.
     const_factor = -im * k / (4 * FT(π))
 
-    αTrans = zeros(CT, nPoles, nFar)
-
-    # Loop over nFar directions
-    Threads.@threads for iFarNei = 1:nFar
-        # Relative vector * cube edge length
-        RabVec = SVector{3,FT}(level.cubeEdgel .* all316FarNeighID[:, iFarNei])
-        Rab = norm(RabVec)
-        
-        # Skip if two cubes have essentially the same center (should never happen in well-formed octree)
-        if Rab < eps(FT) * level.cubeEdgel
-            # Translation between identical centers is identity, αTrans remains zeros
-            continue
+    # 只计算/存储本层实际出现的远场相对偏移列：
+    # 全量偏移表为 (2·(2·near_range+1)+1)³ − (2·near_range+1)³ 列，稀疏八叉树中
+    # 绝大多数列从未被任何 cube 的 farneighbors 引用（实测 N=594、near_range=16 时
+    # 仅 1.7% 被使用，低层远邻集为空却仍分配数 GB）。改为按使用集压缩。
+    max_range = 2 * near_range + 1
+    seen = Set{Tuple{Int,Int,Int}}()
+    used = Tuple{Int,Int,Int}[]
+    for cube in level.cubes
+        for iFarNei in cube.farneighbors
+            far = level.cubes[iFarNei]
+            off = (
+                cube.ID3D[1] - far.ID3D[1],
+                cube.ID3D[2] - far.ID3D[2],
+                cube.ID3D[3] - far.ID3D[3],
+            )
+            if !(off in seen)
+                push!(seen, off)
+                push!(used, off)
+            end
         end
-        
+    end
+    n_used = length(used)
+
+    αTransIndex = OffsetArray(
+        zeros(Int, 2 * max_range + 1, 2 * max_range + 1, 2 * max_range + 1),
+        -max_range:max_range,
+        -max_range:max_range,
+        -max_range:max_range,
+    )
+    for (i, off) in enumerate(used)
+        αTransIndex[off[1], off[2], off[3]] = i
+    end
+    level.αTransIndex = αTransIndex
+
+    αTrans = zeros(CT, nPoles, n_used)
+
+    # Loop over used far directions
+    Threads.@threads for iFarNei = 1:n_used
+        off = used[iFarNei]
+        # Relative vector * cube edge length
+        RabVec = SVector{3,FT}(
+            off[1] * level.cubeEdgel,
+            off[2] * level.cubeEdgel,
+            off[3] * level.cubeEdgel,
+        )
+        Rab = norm(RabVec)
+
         R̂ab = RabVec / Rab
 
         # Spherical Hankel H2 (0 to truncL)
@@ -132,7 +135,7 @@ function cal_alpha_trans_on_level!(
     end
 
     level.αTrans = αTrans
-    level.αTransIndex = all343InFar316
+    return nothing
 end
 
 function spherical_h2l_array(lmax::Int, x::T) where {T<:Real}
@@ -164,7 +167,7 @@ end
 
 Perform translation (Horizontal Pass) for a single level.
 """
-function translate!(level::LevelInfo)
+function translate!(level::LevelInfo; cube_filter = nothing)
     cubes = level.cubes
     aggS = level.aggS
 
@@ -184,11 +187,9 @@ function translate!(level::LevelInfo)
     max_factor = 0.0
 
     Threads.@threads for iCube = 1:length(cubes)
+        cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = cubes[iCube]
         farNeighborIDs = cube.farneighbors
-
-        # Atomic add or just ignore race condition for debug
-        # count_trans += length(farNeighborIDs)
 
         for iFarNei in farNeighborIDs
             farNeiCube = cubes[iFarNei]
@@ -201,10 +202,6 @@ function translate!(level::LevelInfo)
 
             # Apply translation
             factor = view(αTrans, :, idx)
-
-            # Debug magnitude
-            # fmag = maximum(abs.(factor))
-            # if fmag > max_factor; max_factor = fmag; end
 
             src = view(aggS, :, :, iFarNei)
             dest = view(disaggG, :, :, iCube)
