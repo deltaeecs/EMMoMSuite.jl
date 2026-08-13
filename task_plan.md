@@ -466,3 +466,19 @@ setup 14s。`test_mlfma.jl` 断言同步更新为"无远邻层允许空 αTrans"
 ### 后续可选（已记录，非本目标范围）
 - PMCHW matvec 3.4s（N=594）由四遍远场 pass 主导，性能优化另立任务。
 - αTrans 索引仍按 ±(2·near_range+1) 全范围建 OffsetArray（~2.4MB/层），进一步可压缩。
+
+## 既有 RED 门修复（2026-08-13）
+三个既有 RED 门根因定位并修复（`test_pmchw_mlfma_operator.jl` 全文件跑通）：
+1. **GD2A（k1 聚合奇偶 4.5%）与 GD2R（receive corr 0.99974）**：根因是共享 EFIE
+   路径 `aggregate_leaf!`/`disaggregate_leaf!` 的 RWG 三角形求积用 3 点，而 PMCHW
+   路径 `aggregate_leaf_pmchw!`/`_receive_terms` 用 4 点——parity 门测两条实现的
+   一致性，数值差异即求积点数差异（PMCHW 4 点经稠密对照验证更准）。修复：共享路径
+   3 点→4 点统一。修复后 GD2A rel=0.0、GD2R rel=0.0/corr=1.0（机器精度）。
+2. **B2（Zin vs Direct 72% 且 GMRES 不收敛）**：根因是测试求解配置缺陷——默认
+   restart=min(30,N)=30 太小，GMRES 残差停滞在 ~0.25（**稠密矩阵同样不收敛**，
+   cond≈7.9e6；全空间 restart=2N 后 109 次收敛到 5e-15）；matvec 本身相对稠密
+   仅 3e-5。修复：B2 改用全空间 restart=2N，收敛后 Zin 误差 ~0.2%（<5% 门限）。
+   注：N=540 budget_medium 门（strong form + restart 30）本就收敛，不受影响。
+回归：test_mlfma、hybrid_mlfma/aim/pmchw（rel=0.0）、budget_medium（matvec
+7.86e-6 不变）、gate_s_mlfma_medium（1.3e-5/4e-5 不变）、nmuller、
+preconditioners、distributed_gmres 全绿；GD2S/GD2L/GD2U/GD2V 保持既有 Broken。

@@ -132,6 +132,13 @@
     P=2 与 hybrid_pmchw P=4 全部 rel=0.0（逐位一致）、hybrid_preconditioner P=2/P=4
     （施加 rel=0.0、GMRES+Pl 3.5e-11）、distributed_gmres P=2/P=4。既有 RED 门
     GD2A/GD2R/B2 为远场 k1 parity/精度问题（旧近场对照相同），与本改动无关。
+44. 既有 RED 门修复（2026-08-13，新目标）：三个门全部转绿——
+    GD2A/GD2R 根因：共享 EFIE 聚合/解聚 RWG 求积 3 点 vs PMCHW 4 点，
+    统一为 4 点后 parity rel=0.0（机器精度）；B2 根因：默认 restart=30 太小致
+    GMRES 残差停滞（稠密矩阵同样不收敛），改全空间 restart=2N 后收敛，
+    Zin 误差 0.2%<5%。`test_pmchw_mlfma_operator.jl` 全文件跑通；回归
+    （hybrid_pmchw/aim/mlfma、budget_medium、gate_s、nmuller、preconditioners、
+    distributed_gmres）全绿，budget/gate_s 数值与修复前一致。
 
 ### Test Results
 | Test | Expected | Actual | Status |

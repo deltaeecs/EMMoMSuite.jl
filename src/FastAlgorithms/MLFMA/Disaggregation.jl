@@ -219,7 +219,7 @@ function disaggregate_leaf!(
     for b in bases
         if b isa RWGBasis
             push!(element_infos, get_triangles_info(b.mesh, b))
-            push!(gqs, GaussQuadratureInfo(:Triangle, 3, FT))
+            push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
         elseif b isa SWGBasis
             if hasfield(typeof(operator), :permittivities)
                 push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))

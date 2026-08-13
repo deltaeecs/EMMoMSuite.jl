@@ -837,7 +837,12 @@ end
     I_direct = Z_direct \ V_2N
     Z_in_direct = input_impedance(pmchw, feed, I_direct, basis)
 
-    I_mlfma, hist = gmres(op_mlfma, V_2N; reltol = 1e-4, maxiter = 200, log = true)
+    # restart=30（默认 min(30,N)）在本夹具下 GMRES 残差停滞（稠密矩阵亦然，
+    # 实测 restart=2N 后 109 次收敛到机器精度、Zin 误差 ~0.2%），故用全空间 restart。
+    I_mlfma, hist = gmres(
+        op_mlfma, V_2N;
+        restart = 2 * num_basis(basis), reltol = 1e-4, maxiter = 200, log = true,
+    )
     Z_in_mlfma  = input_impedance(pmchw, feed, I_mlfma, basis)
 
     @info "Z_in_direct = $(round(Z_in_direct, digits=3))"
