@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.2.0] - 2026-08-13
+
+### Added
+
+- **MPI 混合并行算子**：`MLFMAOperatorMPI` / `AIMOperatorMPI` / `PMCHWMLFMAOperatorMPI`
+  （近场按 cube/行分区、远场全层按秩分区 + 每层 Allreduce，秩内 `@threads`）；
+  FFTSpectral / Lebedev / PMCHW 分支 MPI 适配；层间插值矩阵线程化。
+- **分布式稠密直接求解**：ScaLAPACK（本机 MinGW/MSMPI）分布式稠密 LU
+  （BLACS + `pzgesv`，库路径自动探测 + 安装指引）。
+- **MPI 分布式预条件**：`DistributedBlockJacobiPreconditioner`（块按秩 1/P 分布）与
+  `DistributedDiagonalPreconditioner`，接入 `distributed_gmres!` 左预条件 `Pl`。
+- **PMCHW 近场原生装配**：按 octree 近邻对直接计算（不再装配全稠密 2N×2N 再提取），
+  支持 MPI cube 分区。
+
+### Fixed
+
+- **既有 RED 门**：GD2A/GD2R（共享 EFIE 聚合/解聚 3→4 点求积统一，parity 机器精度）、
+  B2（GMRES 全空间 restart，Zin 误差 0.2%）。
+- **既有 broken 门**（GD2S/GD2L/GD2U/GD2V）：根因定位为对角实谱 M2L 的距离约束
+  （叶层 far 偏移 <8 失效），门改用有效配置并显式验证阈值；`build_octree` 对越界
+  配置给出 `@warn` 防护。
+- **ScaLAPACK 可移植性**：库自动探测（环境变量 / MSYS2 路径 / PATH），缺失时清晰报错。
+- **AIM 近场校正**与算子 k/eta/factor 一致；预条件块类型稳定化。
+
+### Performance
+
+- PMCHW matvec：N=594 MPI 3.37s → 0.107s（31×）。
+- 远场翻译因子 αTrans：每秩 ~15.7GB → ~21MB（740×）；PMCHW 构造 137s → 10s。
+- ScaLAPACK 分布式 LU：N≥4800 单机反超多线程 OpenBLAS。
+- 端到端每秩峰值内存：17.6GB → 1.3–1.6GB（N=594 PMCHW）。
+
 ## [0.1.1] - 2026-08-09
 
 ### Fixed
