@@ -212,8 +212,6 @@ function translate!(level::LevelInfo; cube_filter = nothing)
         end
     end
 
-    # println("Debug: Level ", level.ID, " Translation Max Factor: ", maximum(abs.(αTrans)))
-    # println("Debug: Level ", level.ID, " Total Interactions: ", count_trans)
 end
 
 end
