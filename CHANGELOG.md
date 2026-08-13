@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.2.1] - 2026-08-13
+
+### Added
+
+- **覆盖率采集套件**（`test/runtests_cov.jl`）：单线程常规运行 2m10s（≤3 分钟门），
+  覆盖 Core / Geometry / BasisFunctions / IntegralEquations / FastAlgorithms /
+  Parallel(MPI) / IO / Materials / Utilities / Solvers / Ports / PostProcessing /
+  Accuracy；最新单次采集可执行行覆盖率 **94.2%**（9726/10323）。
+- **MPI 体积装配覆盖率**：VEFIE/SCFIE × SWG/PWC/PWCHex 并行装配在 P=1 下与串行
+  装配逐项对照（`test_cov_volume_assembly.jl`）。
+- **CI 覆盖率硬门**：coverage job 切换到 `runtests_cov.jl`，并以
+  `scripts/check_coverage.jl 80` 强制 ≥80% 行覆盖，Codecov 与本地口径一致。
+
+### Fixed
+
+- 记录 Julia 1.12 复用未插桩编译缓存导致 `.cov` 不生成的问题及可靠做法
+  （先移开 `~/.julia/compiled/v1.12/EMMoMSuite` 再采集）。
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
