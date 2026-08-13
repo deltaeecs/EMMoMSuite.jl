@@ -1,16 +1,68 @@
 # ScaLAPACKLU.jl — 通过本机 MinGW 的 ScaLAPACK（MSMPI 版）实现分布式稠密 LU
 #
-# 库：C:\\msys64\\mingw64\\bin\\libscalapack.dll（ScaLAPACK 2.2.2，链接 msmpi.dll）
+# 库：自动探测（本机 MSYS2 mingw64/ucrt64/clang64、PATH；ScaLAPACK 2.2.2，链接 msmpi.dll）
 # 接口：BLACS（blacs_gridinit_ 等）+ pzgesv_（复数部分主元 LU + 求解），2D 块循环布局。
-# 可用环境变量 SCALAPACK_LIB_PATH 覆盖库路径。
+# 可移植性：环境变量 SCALAPACK_LIB_PATH 显式指定（最高优先，运行时也生效）；
+# 未指定时依次探测常见 MSYS2 路径与 PATH；找不到时 scalapack_lu_solve 抛清晰错误。
 
 using MPI
 
-const SCALAPACK_LIB = get(
-    ENV,
-    "SCALAPACK_LIB_PATH",
-    "C:\\msys64\\mingw64\\bin\\libscalapack.dll",
-)
+"""
+    _detect_scalapack_lib() → Union{String,Nothing}
+
+模块加载时探测本机 ScaLAPACK 动态库（不加载，仅检查文件存在）：
+1. 环境变量 `SCALAPACK_LIB_PATH`（模块加载时读取；运行时由 `_scalapack_lib` 优先处理）；
+2. 常见 MSYS2 安装路径（mingw64/ucrt64/clang64）与 PATH 中的 `libscalapack`。
+找不到返回 `nothing`（包仍可加载，调用 `scalapack_lu_solve` 时才报错）。
+"""
+function _detect_scalapack_lib()
+    if haskey(ENV, "SCALAPACK_LIB_PATH")
+        p = ENV["SCALAPACK_LIB_PATH"]
+        isempty(p) || return p
+    end
+    names = Sys.iswindows() ? ("libscalapack.dll",) : ("libscalapack.so", "libscalapack.dylib")
+    if Sys.iswindows()
+        for root in ("C:\\msys64", "C:\\msys2", "D:\\msys64", "D:\\msys2")
+            for sub in ("mingw64", "ucrt64", "clang64")
+                p = joinpath(root, sub, "bin", "libscalapack.dll")
+                isfile(p) && return p
+            end
+        end
+    end
+    sep = Sys.iswindows() ? ';' : ':'
+    for dir in split(get(ENV, "PATH", ""), sep)
+        isempty(dir) && continue
+        for name in names
+            p = joinpath(dir, name)
+            isfile(p) && return p
+        end
+    end
+    return nothing
+end
+
+const SCALAPACK_LIB = _detect_scalapack_lib()
+
+"""
+    _scalapack_lib() → String
+
+返回 ScaLAPACK 库路径（运行时优先 `SCALAPACK_LIB_PATH`）；未配置且未探测到时
+抛出带安装指引的清晰错误（不静默 fallback）。
+"""
+function _scalapack_lib()
+    if haskey(ENV, "SCALAPACK_LIB_PATH")
+        p = ENV["SCALAPACK_LIB_PATH"]
+        isempty(p) || return p
+    end
+    SCALAPACK_LIB === nothing && error(
+        "未找到 ScaLAPACK 动态库。请安装 ScaLAPACK 或设置环境变量 SCALAPACK_LIB_PATH 指向库文件。\n" *
+        "  Windows/MSYS2: pacman -S mingw-w64-x86_64-scalapack  (mingw64，MSMPI 版)\n" *
+        "                  或 mingw-w64-ucrt-x86_64-scalapack (ucrt64)\n" *
+        "  Debian/Ubuntu: sudo apt install libscalapack-openmpi-dev\n" *
+        "  也可在启动前指定: SCALAPACK_LIB_PATH=/path/to/libscalapack.so julia --project=. ...\n" *
+        "  无 ScaLAPACK 环境时可用自研 MPI LU（mpi_lu!/mpi_lu_solve!，见 DistributedLU.jl）。",
+    )
+    return SCALAPACK_LIB
+end
 
 """
     ScaLAPACKGrid
@@ -31,7 +83,7 @@ end
 function _blacs_gridinit!(ictxt::Ref{Int32}, nprow::Int32, npcol::Int32)
     layout = Ref{UInt8}(UInt8('R'))
     ccall(
-        (:blacs_gridinit_, SCALAPACK_LIB),
+        (:blacs_gridinit_, _scalapack_lib()),
         Cvoid,
         (Ref{Int32}, Ref{UInt8}, Ref{Int32}, Ref{Int32}),
         ictxt, layout, Ref(nprow), Ref(npcol),
@@ -48,7 +100,7 @@ end
 function _blacs_system_context()
     ictxt = Ref{Int32}(0)
     ccall(
-        (:blacs_get_, SCALAPACK_LIB),
+        (:blacs_get_, _scalapack_lib()),
         Cvoid,
         (Ref{Int32}, Ref{Int32}, Ref{Int32}),
         Ref{Int32}(-1), Ref{Int32}(0), ictxt,
@@ -60,7 +112,7 @@ function _blacs_gridinfo!(ictxt::Int32)
     nprow = Ref{Int32}(0); npcol = Ref{Int32}(0)
     myrow = Ref{Int32}(0); mycol = Ref{Int32}(0)
     ccall(
-        (:blacs_gridinfo_, SCALAPACK_LIB),
+        (:blacs_gridinfo_, _scalapack_lib()),
         Cvoid,
         (Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}),
         Ref(ictxt), nprow, npcol, myrow, mycol,
@@ -69,7 +121,7 @@ function _blacs_gridinfo!(ictxt::Int32)
 end
 
 _blacs_gridexit!(ictxt::Int32) = ccall(
-    (:blacs_gridexit_, SCALAPACK_LIB), Cvoid, (Ref{Int32},), Ref(ictxt)
+    (:blacs_gridexit_, _scalapack_lib()), Cvoid, (Ref{Int32},), Ref(ictxt)
 )
 
 """
@@ -174,7 +226,7 @@ function pzgesv!(Aloc::Matrix{CT}, bloc::Vector{CT}, grid::ScaLAPACKGrid; MB::In
     descb = zeros(Int32, 9)
     info = Ref{Int32}(0)
     ccall(
-        (:descinit_, SCALAPACK_LIB),
+        (:descinit_, _scalapack_lib()),
         Cvoid,
         (Ptr{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}),
         desc, Ref(Int32(N)), Ref(Int32(N)), Ref(Int32(MB)), Ref(Int32(NB)),
@@ -182,7 +234,7 @@ function pzgesv!(Aloc::Matrix{CT}, bloc::Vector{CT}, grid::ScaLAPACKGrid; MB::In
     )
     info[] == 0 || error("descinit failed: info=", info[])
     ccall(
-        (:descinit_, SCALAPACK_LIB),
+        (:descinit_, _scalapack_lib()),
         Cvoid,
         (Ptr{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}),
         descb, Ref(Int32(N)), Ref(nrhs), Ref(Int32(MB)), Ref(Int32(NB)),
@@ -191,7 +243,7 @@ function pzgesv!(Aloc::Matrix{CT}, bloc::Vector{CT}, grid::ScaLAPACKGrid; MB::In
     info[] == 0 || error("descinit(b) failed: info=", info[])
     ipiv = zeros(Int32, N)
     ccall(
-        (:pzgesv_, SCALAPACK_LIB),
+        (:pzgesv_, _scalapack_lib()),
         Cvoid,
         (Ref{Int32}, Ref{Int32}, Ptr{CT}, Ref{Int32}, Ref{Int32}, Ptr{Int32}, Ptr{Int32},
          Ptr{CT}, Ref{Int32}, Ref{Int32}, Ptr{Int32}, Ptr{Int32}),

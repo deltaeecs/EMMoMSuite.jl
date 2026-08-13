@@ -398,10 +398,14 @@ end
 function _receive_terms(
     bf::RWG,
     basis::RWGBasis,
+    tri_info,
+    gq,
+    poles_r̂,
+    poles_θhat,
+    poles_ϕhat,
     field::AbstractArray,
     r0::AbstractVector,
     k::Number,
-    poles::AbstractPolesInfo,
 )
     CT = typeof(complex(one(real(k))))
     FT = real(CT)
@@ -409,13 +413,7 @@ function _receive_terms(
     tm = zero(CT)
     JK = CT(im * k)
 
-    poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]
-    poles_θhat = [p.θhat for p in poles.r̂sθsϕs]
-    poles_ϕhat = [p.ϕhat for p in poles.r̂sθsϕs]
     nPoles = length(poles_r̂)
-
-    tri_info = get_triangles_info(basis.mesh, basis)
-    gq = GaussQuadratureInfo(:Triangle, 4, FT)
     n_qp = length(gq.weight)
 
     for i_supp = 1:2
@@ -479,6 +477,15 @@ function disaggregate_leaf_pmchw_j!(
     leaf_level = octree.levels[octree.nLevels]
     isdefined(leaf_level, :disaggG) || return
 
+    # 预计算一次（原实现在每个基函数调用 _receive_terms 时重建 tri_info/求积/poles，
+    # 是 PMCHW matvec 的主导热点）
+    FT = eltype(leaf_level.cubeEdgel)
+    tri_info = get_triangles_info(basis.mesh, basis)
+    gq = GaussQuadratureInfo(:Triangle, 4, FT)
+    poles_r̂ = [p.r̂ for p in leaf_level.poles.r̂sθsϕs]
+    poles_θhat = [p.θhat for p in leaf_level.poles.r̂sθsϕs]
+    poles_ϕhat = [p.ϕhat for p in leaf_level.poles.r̂sθsϕs]
+
     Threads.@threads for iCube = 1:leaf_level.nCubes
         cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = leaf_level.cubes[iCube]
@@ -489,7 +496,9 @@ function disaggregate_leaf_pmchw_j!(
             bfID = sorted_ids[bfID_sorted]
             bf = basis.functions[bfID]
 
-            te, tm = _receive_terms(bf, basis, field, r0, k, leaf_level.poles)
+            te, tm = _receive_terms(
+                bf, basis, tri_info, gq, poles_r̂, poles_θhat, poles_ϕhat, field, r0, k,
+            )
             y[bfID] += te * factor_EJ
             y[bfID+N] += tm * factor_HJ
         end
@@ -520,6 +529,13 @@ function disaggregate_leaf_pmchw_m!(
     leaf_level = octree.levels[octree.nLevels]
     isdefined(leaf_level, :disaggG) || return
 
+    FT = eltype(leaf_level.cubeEdgel)
+    tri_info = get_triangles_info(basis.mesh, basis)
+    gq = GaussQuadratureInfo(:Triangle, 4, FT)
+    poles_r̂ = [p.r̂ for p in leaf_level.poles.r̂sθsϕs]
+    poles_θhat = [p.θhat for p in leaf_level.poles.r̂sθsϕs]
+    poles_ϕhat = [p.ϕhat for p in leaf_level.poles.r̂sθsϕs]
+
     Threads.@threads for iCube = 1:leaf_level.nCubes
         cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = leaf_level.cubes[iCube]
@@ -530,7 +546,9 @@ function disaggregate_leaf_pmchw_m!(
             bfID = sorted_ids[bfID_sorted]
             bf = basis.functions[bfID]
 
-            te, tm = _receive_terms(bf, basis, field, r0, k, leaf_level.poles)
+            te, tm = _receive_terms(
+                bf, basis, tri_info, gq, poles_r̂, poles_θhat, poles_ϕhat, field, r0, k,
+            )
             y[bfID] += tm * factor_EM
             y[bfID+N] += te * factor_HM
         end

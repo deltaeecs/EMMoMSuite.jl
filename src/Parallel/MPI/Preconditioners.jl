@@ -32,7 +32,7 @@ MPI 分布式块 Jacobi 预条件：块（叶 cube 的基函数行集）按 cube
 每秩只保存并求解自己拥有的块。`apply_mpi_preconditioner!` 施加后 Allreduce。
 """
 struct DistributedBlockJacobiPreconditioner{CT}
-    blocks::Vector{<:Any}              # 每块 LU 分解（本秩拥有）
+    blocks::Vector{LU{CT,Matrix{CT},Vector{Int}}}  # 每块 LU 分解（本秩拥有，类型稳定）
     block_rows::Vector{Vector{Int}}    # 每块的全局行号（本秩拥有）
     comm
 end
@@ -51,7 +51,7 @@ function DistributedBlockJacobiPreconditioner(
     block_rows::Vector{Vector{Int}},
     comm,
 ) where {CT}
-    blocks = Vector{Any}(undef, length(block_rows))
+    blocks = Vector{LU{CT,Matrix{CT},Vector{Int}}}(undef, length(block_rows))
     for (ib, idx) in enumerate(block_rows)
         B = Matrix{CT}(Z_near_local[idx, idx])
         blocks[ib] = lu(B)

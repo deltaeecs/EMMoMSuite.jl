@@ -13,8 +13,16 @@ mpiexec -n 2 julia -t 2 --project=. test/test_scalapack_lu.jl   # ScaLAPACK（�
 mpiexec -n 4 julia -t 2 --project=. test/test_hybrid_preconditioner.jl # MPI 分布式预条件门（BlockJacobi/Diagonal）
 ```
 
-ScaLAPACK 精度门需要本机 MinGW 的 `C:\msys64\mingw64\bin\libscalapack.dll`
-（ScaLAPACK 2.2.2，链接 MSMPI；可用环境变量 `SCALAPACK_LIB_PATH` 覆盖库路径）。
+ScaLAPACK 精度门需要本机 ScaLAPACK 动态库。库路径自动探测（常见 MSYS2
+mingw64/ucrt64/clang64 路径与 PATH），也可用环境变量 `SCALAPACK_LIB_PATH`
+显式指定（最高优先）；未找到时 `scalapack_lu_solve` 会给出安装指引而不是崩溃。
+安装示例（MSYS2，MSMPI 版）：
+```powershell
+pacman -S mingw-w64-x86_64-scalapack      # mingw64（本机验证 2.2.2）
+# 或 mingw-w64-ucrt-x86_64-scalapack      # ucrt64
+```
+无 ScaLAPACK 环境时可改用自研 MPI LU（`mpi_lu!`/`mpi_lu_solve!`，见
+`test/test_distributed_lu.jl`）。
 
 混合效率基准（秩内 FFTW 线程在脚本内设置）：
 

@@ -128,6 +128,36 @@ function build_octree(
     # 10. Precompute Transfer Factors
     compute_translation_factors!(nLevels, levels, k; near_range = near_range)
 
+    # M2L 有效距离校验：对角实谱 M2L 要求叶层 far 对距离 ≥ ~8 倍叶层 cube 边长
+    # （即最小 far 偏移 ≥ 8；实测偏移 ≥8 时叶层 M2L 隔离误差 ≤2%，偏移 5-7 时
+    # 因近场倏逝波分量未被实角谱覆盖而完全失效 >99%）。near_range 过小时叶层
+    # far 对距离不足，提示增大 near_range，避免静默精度损失。
+    leaf_level = levels[nLevels]
+    if leaf_level.nCubes > 0
+        kR_min = Inf
+        n_far = 0
+        for iCube in 1:leaf_level.nCubes
+            cube = leaf_level.cubes[iCube]
+            for fid in cube.farneighbors
+                far = leaf_level.cubes[fid]
+                off = (
+                    cube.ID3D[1] - far.ID3D[1],
+                    cube.ID3D[2] - far.ID3D[2],
+                    cube.ID3D[3] - far.ID3D[3],
+                )
+                R = norm(off) * leaf_level.cubeEdgel
+                kR_min = min(kR_min, k * R)
+                n_far += 1
+            end
+        end
+        min_off = n_far > 0 ? kR_min / (k * leaf_level.cubeEdgel) : Inf
+        if n_far > 0 && min_off < 8.0
+            @warn "MLFMA 叶层远场对最小距离不足：min far offset = $(round(min_off, digits=1)) < 8（即 far 对距离 < 8 倍叶层 cube 边长）。" *
+                  "对角实谱 M2L 在该距离下精度显著下降（近场倏逝波分量未被实角谱覆盖，实测误差 >99%）。" *
+                  "建议增大 near_range（当前 $(near_range)）或减小叶层尺寸，使叶层 far 对最小偏移 ≥ 8。"
+        end
+    end
+
     @info "Octree built successfully."
     return OctreeInfo(nLevels, leafCubeEdgel, bigCubeLowerCoor, levels), leafsIDSorted
 end

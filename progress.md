@@ -139,6 +139,19 @@
     Zin 误差 0.2%<5%。`test_pmchw_mlfma_operator.jl` 全文件跑通；回归
     （hybrid_pmchw/aim/mlfma、budget_medium、gate_s、nmuller、preconditioners、
     distributed_gmres）全绿，budget/gate_s 数值与修复前一致。
+45. 遗留边界修复（2026-08-13，新目标）：
+    - ScaLAPACK 可移植性：自动探测（ENV→MSYS2 路径→PATH）+ 找不到时清晰报错与
+      安装指引；DistributedLU 为显式可选路径；README 文档。
+    - PMCHW matvec 性能：`_receive_terms` 每基函数重建 tri_info/poles/求积的热点
+      改为预计算一次传入；N=594 串行 0.48→0.11s、MPI 3.37→0.107s（31×），
+      rel=0.0 不变。
+    - 远场 SPMD 复制存储量化：每秩数据 ~69MB（占 WS ~5%），αTrans 压缩后非主要压力。
+    - broken 门根因：对角实谱 M2L 在叶层 far 对偏移 <8（距离 <8×cube）时固有失效
+      （倏逝波未覆盖，实测偏移 5-7 rel>0.99）；GD2S/GD2L/GD2U 改用 nr7 真 Pass、
+      GD2V 显式断言阈值行为；build_octree 对最小 far 偏移 <8 给出 @warn。
+    - 预条件 blocks 类型稳定化；AIM 近场校正 eta/factor 与算子一致。
+    回归全绿：test_pmchw_mlfma_operator 无 Broken/Fail、hybrid 门 rel=0.0、
+    budget_medium 7.86e-6（默认无 warn）、test_mlfma、runtests_fast。
 
 ### Test Results
 | Test | Expected | Actual | Status |

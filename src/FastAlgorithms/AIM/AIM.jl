@@ -10,7 +10,7 @@ using ...Geometry
 using ...BasisFunctions
 using ...IntegralEquations
 using ...IntegralEquations.Impedance: get_triangles_info
-using ...IntegralEquations.EFIEModule: efie_interaction!, EFIE
+using ...IntegralEquations.EFIEModule: efie_interaction!, EFIE, efie_from_keta
 
 export AIMOperator, AIMOperatorMPI
 
@@ -238,7 +238,9 @@ function assemble_near_correction(
         push!(get!(cellmap, cellof[m], Int[]), m)
     end
 
-    efie_op = EFIE(op.freq)
+    # 近场校正的 EFIE 核须与算子参数一致（k/eta/factor），否则自定义 eta/factor
+    # 的 EFIE 会出现近场校正因子与远场 jkη 因子不一致。
+    efie_op = efie_from_keta(op.k, op.eta, op.factor)
     C = im * k * op.eta
     Is = Int[]
     Js = Int[]

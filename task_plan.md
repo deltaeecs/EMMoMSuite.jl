@@ -482,3 +482,26 @@ setup 14s。`test_mlfma.jl` 断言同步更新为"无远邻层允许空 αTrans"
 回归：test_mlfma、hybrid_mlfma/aim/pmchw（rel=0.0）、budget_medium（matvec
 7.86e-6 不变）、gate_s_mlfma_medium（1.3e-5/4e-5 不变）、nmuller、
 preconditioners、distributed_gmres 全绿；GD2S/GD2L/GD2U/GD2V 保持既有 Broken。
+
+## 遗留边界修复（2026-08-13，新目标）
+1. **ScaLAPACK 可移植性**：库自动探测（`SCALAPACK_LIB_PATH` 环境变量优先 →
+   常见 MSYS2 mingw64/ucrt64/clang64 路径 → PATH），找不到时 `scalapack_lu_solve`
+   抛带安装指引（Windows pacman / Debian apt）的清晰错误；自研 DistributedLU 作为
+   无库环境的显式可选路径。测试新增探测断言；README 更新安装/配置说明。
+2. **PMCHW matvec 性能**：热点定位为 `_receive_terms` 对每个基函数重建
+   `get_triangles_info`（O(N)）+ poles/求积；改为调用方预计算一次传入。
+   N=594：串行 0.48s→0.11s、MPI 3.37s→**0.107s（31×）**；混合门 rel=0.0 不变。
+3. **远场 SPMD 复制式存储**：量化每秩数据内存仅 ~69MB（αTrans 21MB + 近场 15MB +
+   八叉树/插值 33MB），占 WS（1.3GB）约 5%——αTrans 压缩后已非主要压力，无需进一步改动。
+4. **既有 @test_broken 门（GD2S/GD2L/GD2U/GD2V）**：根因是**对角实谱 M2L 的固有
+   距离约束**——叶层 far 对距离 < 8 倍 cube 边长（最小 far 偏移 <8）时，近场倏逝波
+   分量未被实角谱覆盖，M2L 完全失效（实测偏移 5-7 → rel>0.99，偏移 ≥8 → ≤2%）。
+   nr4 测试配置（far 偏移 5）触发该失效；改用 near_range=7（偏移 ≥8）后门真 Pass；
+   GD2V 保留 nr4 并显式断言阈值行为。代码层：`build_octree` 对最小 far 偏移 <8
+   的配置给出 @warn（防静默精度损失），默认/工程配置不触发。
+5. **小项**：`DistributedBlockJacobiPreconditioner.blocks` 类型稳定化为
+   `Vector{LU{CT,Matrix{CT},Vector{Int}}}`；AIM 近场校正 EFIE 核改用
+   `efie_from_keta(op.k, op.eta, op.factor)`（自定义 eta/factor 时近场与远场一致）。
+回归：test_pmchw_mlfma_operator 全文件真绿（无 Broken/Fail）、hybrid_pmchw P=2/P=4
+rel=0.0、hybrid_mlfma/aim rel=0.0、hybrid_preconditioner 3.5e-11、budget_medium
+7.86e-6（默认无 warn）、test_mlfma、runtests_fast 全过。

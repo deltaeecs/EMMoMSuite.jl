@@ -13,6 +13,17 @@ function main()
     P = MPI.Comm_size(comm)
 
     @testset "ScaLAPACK 分布式 LU 精度门 (P=$P)" begin
+        # 可移植性：库自动探测（存在文件或显式 ENV 指定）
+        lib = EMMoMSuite.Parallel.SCALAPACK_LIB
+        @test lib === nothing || isfile(lib)
+        if lib !== nothing
+            # 显式 SCALAPACK_LIB_PATH 覆盖优先
+            ENV["SCALAPACK_LIB_PATH"] = lib
+            @test EMMoMSuite.Parallel._scalapack_lib() == lib
+            delete!(ENV, "SCALAPACK_LIB_PATH")
+            @test EMMoMSuite.Parallel._scalapack_lib() == lib
+        end
+
         N = 200
         Random.seed!(17)
         A = randn(ComplexF64, N, N) + N * I
