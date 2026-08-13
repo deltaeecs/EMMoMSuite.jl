@@ -159,6 +159,8 @@ end
 - `verbose`: 打印收敛信息（仅 rank 0）
 - `log`: 返回 `(x, history)` 而非仅 `x`
 - `initially_zero`: 若为 `true`，跳过初始 r = b - A*x（节省 1 次 matvec）
+- `Pl`: 左预条件（`nothing` = 不预条件；支持 DistributedBlockJacobiPreconditioner /
+  DistributedDiagonalPreconditioner 及串行预条件回退）
 """
 function distributed_gmres!(
     x           :: AbstractVector{CT},
@@ -171,6 +173,7 @@ function distributed_gmres!(
     verbose     :: Bool  = false,
     log         :: Bool  = false,
     initially_zero :: Bool = false,
+    Pl          :: Any   = nothing,
     kwargs...,       # 兼容旧 API 的额外 kwargs（忽略）
 ) where {CT}
     FT    = real(CT)
@@ -193,6 +196,9 @@ function distributed_gmres!(
     # 全量缓冲（不随 restart 增长，固定 2×N）
     v_gather  = zeros(CT, N)   # Allreduce-gather 缓冲（覆盖写）
     y_matvec  = zeros(CT, N)   # mul! 输出缓冲（覆盖写）
+    # 预条件缓冲（仅 Pl 非空时分配）：z_pre 为预条件后的 Arnoldi 输入，r_full 为残差
+    z_pre  = Pl === nothing ? y_matvec : zeros(CT, N)
+    r_full = Pl === nothing ? y_matvec : zeros(CT, N)
 
     # 分布式 Krylov 基：各列长度 n_local ≈ N/P
     # 内存：(restart+1) * n_local * sizeof(CT) per process
@@ -212,17 +218,28 @@ function distributed_gmres!(
     residuals = FT[]
     sizehint!(residuals, min(maxiter + 3, 500))
 
-    # ── 计算初始残差 r₀ = b - A*x ────────────────────────────────────────────
+    # ── 计算初始残差 r₀ = M⁻¹(b - A*x)（左预条件）────────────────────────────
     if initially_zero
-        # x = 0, r = b
-        r_local = copy(b[local_rows])
+        # x = 0, r = M⁻¹ b
+        if Pl === nothing
+            r_local = copy(b[local_rows])
+        else
+            apply_mpi_preconditioner!(r_full, Pl, b)
+            r_local = r_full[local_rows]
+        end
     else
         mul!(y_matvec, A, x)
         @. y_matvec = b - y_matvec
-        r_local = y_matvec[local_rows]   # copy（UnitRange 索引）
+        if Pl === nothing
+            r_local = y_matvec[local_rows]   # copy（UnitRange 索引）
+        else
+            apply_mpi_preconditioner!(r_full, Pl, y_matvec)
+            r_local = r_full[local_rows]
+        end
     end
 
-    b_norm = sqrt(_dist_norm2(b[local_rows], comm))
+    b_norm = Pl === nothing ? sqrt(_dist_norm2(b[local_rows], comm)) :
+             sqrt(_dist_norm2(r_local, comm))
     r_norm = sqrt(_dist_norm2(r_local, comm))
     tol    = max(FT(reltol) * b_norm, FT(abstol))
 
@@ -261,15 +278,20 @@ function distributed_gmres!(
             j          += 1
             iter_total += 1
 
-            # ─ Arnoldi: w = A * V[j] ─────────────────────────────────────
+            # ─ Arnoldi: w = M⁻¹ * (A * V[j])（左预条件）──────────────────
             # Step 1: gather 分布式 V[j] → 全量 v_gather（Allreduce 方式）
             _allreduce_gather!(v_gather, V[j], local_rows, comm)
 
             # Step 2: 列分区 matvec（内含 Allreduce，结果全量复制到所有进程）
             mul!(y_matvec, A, v_gather)
 
-            # Step 3: 取本地行作为 w_local（view，修改 in-place 安全）
-            w_local = view(y_matvec, local_rows)
+            # Step 3: 左预条件 M⁻¹（分布式施加；无预条件时为恒等），取本地行
+            if Pl === nothing
+                w_local = view(y_matvec, local_rows)
+            else
+                apply_mpi_preconditioner!(z_pre, Pl, y_matvec)
+                w_local = view(z_pre, local_rows)
+            end
 
             # ─ Modified Gram-Schmidt 正交化 ────────────────────────────────
             for i in 1:j
@@ -322,7 +344,12 @@ function distributed_gmres!(
         if !converged && iter_total < maxiter
             mul!(y_matvec, A, x)
             @. y_matvec = b - y_matvec
-            r_local = y_matvec[local_rows]
+            if Pl === nothing
+                r_local = y_matvec[local_rows]
+            else
+                apply_mpi_preconditioner!(r_full, Pl, y_matvec)
+                r_local = r_full[local_rows]
+            end
             r_norm  = sqrt(_dist_norm2(r_local, comm))
             push!(residuals, r_norm)
             if rank == 0 && verbose

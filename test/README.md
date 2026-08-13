@@ -1,5 +1,29 @@
 # EMMoMSuite Test Configuration
 
+## MPI/混合并行测试
+
+以下测试需要 MPI 启动器（MSMPI），不能并入常规套件：
+
+```powershell
+mpiexec -n 2 julia -t 2 --project=. test/test_hybrid_mlfma.jl   # MLFMA MPI×线程精度门
+mpiexec -n 2 julia -t 2 --project=. test/test_hybrid_aim.jl     # AIM  MPI×线程精度门
+mpiexec -n 2 julia -t 2 --project=. test/test_hybrid_pmchw.jl   # PMCHW MPI×线程精度门
+mpiexec -n 4 julia -t 2 --project=. test/test_distributed_lu.jl # 分布式稠密 LU 精度门
+mpiexec -n 2 julia -t 2 --project=. test/test_scalapack_lu.jl   # ScaLAPACK（本机 MinGW/MSMPI）分布式稠密 LU 精度门
+mpiexec -n 4 julia -t 2 --project=. test/test_hybrid_preconditioner.jl # MPI 分布式预条件门（BlockJacobi/Diagonal）
+```
+
+ScaLAPACK 精度门需要本机 MinGW 的 `C:\msys64\mingw64\bin\libscalapack.dll`
+（ScaLAPACK 2.2.2，链接 MSMPI；可用环境变量 `SCALAPACK_LIB_PATH` 覆盖库路径）。
+
+混合效率基准（秩内 FFTW 线程在脚本内设置）：
+
+```powershell
+mpiexec -n 2 julia -t 4 --project=. benchmark/benchmark_hybrid_mlfma.jl 2.0 24 48 40
+mpiexec -n 2 julia -t 4 --project=. benchmark/benchmark_hybrid_aim.jl   2.0 24 48 40
+mpiexec -n 4 julia -t 2 --project=. benchmark/benchmark_scalapack_lu.jl 9600   # 分布式稠密 LU（ScaLAPACK）效率基准
+```
+
 ## Test Tiers
 
 EMMoMSuite 测试套件分为三个层次，以平衡速度和覆盖率：
