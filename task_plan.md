@@ -344,6 +344,10 @@ test_mlfma ✓、test_aim_operator 113,264 ✓、test_fft_interp 47 ✓；
 
 ## 分布式稠密 LU（边界完成，2026-08-12）
 
+> **2026-08-13 决策**：自研 1D 行分块 DistributedLU 因性能不足（BLAS1 级、单机远慢于
+> 多线程 LAPACK/ScaLAPACK）已**移除**，不保留在代码库与 git 历史中；分布式稠密直接
+> 求解仅保留 ScaLAPACK（本地 MinGW 库）路径。以下为该实现的历史记录，供决策追溯。
+
 ### 外部库调研结论（本环境实测）
 - **ScaLAPACK**：Julia 注册表无绑定（仅 `SCALAPACK_jll` 二进制）；且其内嵌 `mpif_jll`
   的 MPI 与工程当前 MSMPI 运行时冲突（BLACS 无法共享我们的 communicator），需整体切换
@@ -408,7 +412,7 @@ test_mlfma ✓、test_aim_operator 113,264 ✓、test_fft_interp 47 ✓；
 
 结论更新：ScaLAPACK 不再是"被堵死"——本地 MinGW 库是可行的分布式稠密 LU 路径，
 精度与串行一致（rel≈6e-16），单机大用例（N≥4800）已优于多线程 OpenBLAS；
-`DistributedLU.jl`（自研 1D）保留为无 ScaLAPACK 环境的回退/多节点唯一选项。
+自研 1D DistributedLU 因性能不足已移除（2026-08-13），分布式稠密直接求解仅此路径。
 注意：MinGW OpenBLAS 的 OpenMP 线程数对耗时影响大（OMP_NUM_THREADS 需按核数/秩数调），
 大 N 时建议不设 OMP（默认表现最优）；NB=128 在大 N 略优于 64，默认保持 64。
 
@@ -484,10 +488,10 @@ setup 14s。`test_mlfma.jl` 断言同步更新为"无远邻层允许空 αTrans"
 preconditioners、distributed_gmres 全绿；GD2S/GD2L/GD2U/GD2V 保持既有 Broken。
 
 ## 遗留边界修复（2026-08-13，新目标）
-1. **ScaLAPACK 可移植性**：库自动探测（`SCALAPACK_LIB_PATH` 环境变量优先 →
+   1. **ScaLAPACK 可移植性**：库自动探测（`SCALAPACK_LIB_PATH` 环境变量优先 →
    常见 MSYS2 mingw64/ucrt64/clang64 路径 → PATH），找不到时 `scalapack_lu_solve`
-   抛带安装指引（Windows pacman / Debian apt）的清晰错误；自研 DistributedLU 作为
-   无库环境的显式可选路径。测试新增探测断言；README 更新安装/配置说明。
+   抛带安装指引（Windows pacman / Debian apt）的清晰错误（自研 1D DistributedLU
+   因性能不足已移除，不再作为回退）。测试新增探测断言；README 更新安装/配置说明。
 2. **PMCHW matvec 性能**：热点定位为 `_receive_terms` 对每个基函数重建
    `get_triangles_info`（O(N)）+ poles/求积；改为调用方预计算一次传入。
    N=594：串行 0.48s→0.11s、MPI 3.37s→**0.107s（31×）**；混合门 rel=0.0 不变。

@@ -59,7 +59,7 @@ function _scalapack_lib()
         "                  或 mingw-w64-ucrt-x86_64-scalapack (ucrt64)\n" *
         "  Debian/Ubuntu: sudo apt install libscalapack-openmpi-dev\n" *
         "  也可在启动前指定: SCALAPACK_LIB_PATH=/path/to/libscalapack.so julia --project=. ...\n" *
-        "  无 ScaLAPACK 环境时可用自研 MPI LU（mpi_lu!/mpi_lu_solve!，见 DistributedLU.jl）。",
+        "  分布式稠密直接求解仅此路径（自研 1D MPI LU 因性能不足已移除）。",
     )
     return SCALAPACK_LIB
 end

@@ -83,11 +83,11 @@
     P=2 rel=0.0）；Lebedev 验证（P=2 rel=0.0）；PMCHWMLFMAOperatorMPI（四遍分区远场 +
     独立 y_pass，P=2 rel=7.5e-17）；compute_interpolation_matrices! 线程化。
     回归：MLFMA/AIM/FFT 全绿；PMCHW 仅既有 RED 门 GD2A（k1 聚合奇偶）失败，与本任务无关。
-36. 分布式稠密 LU（边界完成）：调研 ScaLAPACK（无绑定、JLL 内嵌 MPI 与 MSMPI 冲突）与
-    Pardiso（MKL 回退不可用，需许可库）后，实现原生 MPI 1D 行分块 LU（DistributedLU.jl）；
+36. 分布式稠密 LU（边界完成，**已移除 2026-08-13**）：调研 ScaLAPACK（无绑定、JLL 内嵌 MPI 与 MSMPI 冲突）与
+     Pardiso（MKL 回退不可用，需许可库）后，实现原生 MPI 1D 行分块 LU（DistributedLU.jl）；
     P=2/P=4 门 rel=6.9e-16（对角占优）与 2.3e-14（主元压力）通过；N=300 分解 0.25/0.26s。
     Pardiso 依赖已移除。
-37. DistributedLU 效率优化：主元行 Bcast + 旧行 k 点到点 + 逐行融合广播 axpy（弃 strided ger!）；
+37. DistributedLU 效率优化（**已移除 2026-08-13**）：主元行 Bcast + 旧行 k 点到点 + 逐行融合广播 axpy（弃 strided ger!）；
     封装 DistributedDenseLU（mpi_lu/ldiv!）；N=600 分解 0.04s(P2)/0.02s(P4)、N=1200 0.54/0.22s，
     较旧版快一个量级；门全绿（6.9e-16/2.3e-14/7.0e-16）。
 38. 效率对比与 ScaLAPACK 调研：OpenBLAS 多线程 N=1200 T=4 为 0.024s，原生 MPI 分布式 LU P=4
@@ -141,7 +141,7 @@
     distributed_gmres）全绿，budget/gate_s 数值与修复前一致。
 45. 遗留边界修复（2026-08-13，新目标）：
     - ScaLAPACK 可移植性：自动探测（ENV→MSYS2 路径→PATH）+ 找不到时清晰报错与
-      安装指引；DistributedLU 为显式可选路径；README 文档。
+      安装指引；自研 1D DistributedLU 因性能不足已移除（不再作为回退）；README 文档。
     - PMCHW matvec 性能：`_receive_terms` 每基函数重建 tri_info/poles/求积的热点
       改为预计算一次传入；N=594 串行 0.48→0.11s、MPI 3.37→0.107s（31×），
       rel=0.0 不变。
@@ -168,7 +168,6 @@
 | AIM 混合精度门 | rel < 1e-10 | test_hybrid_aim.jl（P=2,T=2）rel = 0.0 | pass |
 | 混合效率门（MLFMA/AIM 大用例） | hybrid < 单线程 | 2×4 全指标优于 1×1（见上表） | pass |
 | ScaLAPACK 分布式 LU 精度门 | rel < 1e-8 | test_scalapack_lu.jl P=2 rel=6.35e-16；P=4 rel=6.24e-16 | pass |
-| 分布式 LU 回归 | 全绿 | test_distributed_lu.jl P=4 对角占优 6.9e-16 / 主元压力 2.3e-14 | pass |
 
 ### Errors
 | Error | Resolution |
