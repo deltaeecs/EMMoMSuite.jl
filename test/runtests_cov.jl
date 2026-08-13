@@ -12,4 +12,7 @@ using Test
     include("test_cov_ports.jl")
     include("test_cov_geometry.jl")
     include("test_cov_post.jl")
+    include("test_pmchw.jl")
+    include("test_nmuller.jl")
+    include("test_pmchw_operator_shell.jl")
 end
