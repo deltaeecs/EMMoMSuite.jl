@@ -24,4 +24,6 @@ using Test
     include("test_cov_scfie.jl")
     include("test_cov_vefie.jl")
     include("test_cov_io.jl")
+    include("test_pmchw_excitation.jl")
+    include("test_scfie_delta_gap.jl")
 end
