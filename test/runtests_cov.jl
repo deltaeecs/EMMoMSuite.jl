@@ -11,4 +11,5 @@ using Test
     include("test_cov_small.jl")
     include("test_cov_ports.jl")
     include("test_cov_geometry.jl")
+    include("test_cov_post.jl")
 end
