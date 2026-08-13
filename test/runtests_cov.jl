@@ -28,4 +28,5 @@ using Test
     include("test_scfie_delta_gap.jl")
     include("test_cov_ie.jl")
     include("test_cov_abs.jl")
+    include("test_cov_fa.jl")
 end
