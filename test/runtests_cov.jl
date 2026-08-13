@@ -18,4 +18,6 @@ using Test
     include("test_mlfma.jl")
     include("test_aim_operator.jl")
     include("test_cov_basis.jl")
+    include("test_preconditioners.jl")
+    include("test_cov_solvers.jl")
 end
