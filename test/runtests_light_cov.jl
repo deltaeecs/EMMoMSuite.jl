@@ -1,5 +1,6 @@
 # runtests_light_cov.jl
 # 轻量覆盖率测试套件，跳过 MLFMA 和大型装配（覆盖率 instrumentation 下过慢）。
+# 注意：CI 覆盖率采集已切换到 runtests_cov.jl；本文件保留为轻量备选。
 # 可通过以下方式运行:
 #   julia --project=EMMoMSuite --code-coverage=user --startup-file=no EMMoMSuite/test/runtests_light_cov.jl
 #

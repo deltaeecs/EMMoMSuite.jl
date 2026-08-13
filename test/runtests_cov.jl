@@ -1,8 +1,14 @@
-# runtests_cov.jl — 覆盖率采集套件（单线程 ≤3 分钟目标）
+# runtests_cov.jl — 覆盖率采集套件
 #
 # = light_cov 全部用例 + MPI/Parallel 补测（test_mpi_coverage.jl）
 # 运行（需采集 src 源码覆盖率）：
-#   julia --project=. --code-coverage=user --pkgimages=no test/runtests_cov.jl
+#   julia --project=. --code-coverage=user test/runtests_cov.jl
+# 注意：Windows/Julia 1.12 若复用了未插桩的编译缓存，将不产生 .cov；
+#   可靠做法是先移开 ~/.julia/compiled/v1.12/EMMoMSuite 再运行。
+#
+# 时间门（实测，Windows Julia 1.12）：
+#   - 常规运行（无覆盖率插桩，单线程）：≈ 2m10s ≤ 3 分钟
+#   - 覆盖率采集（Julia 1.12 需从源码带插桩重编译）：≈ 10 分钟
 using Test
 
 @testset "EMMoMSuite coverage suite" begin
