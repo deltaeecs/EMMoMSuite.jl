@@ -17,4 +17,5 @@ using Test
     include("test_pmchw_operator_shell.jl")
     include("test_mlfma.jl")
     include("test_aim_operator.jl")
+    include("test_cov_basis.jl")
 end
