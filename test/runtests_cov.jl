@@ -20,4 +20,5 @@ using Test
     include("test_cov_basis.jl")
     include("test_preconditioners.jl")
     include("test_cov_solvers.jl")
+    include("test_cov_core.jl")
 end
