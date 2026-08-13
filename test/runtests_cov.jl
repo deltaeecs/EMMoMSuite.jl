@@ -30,4 +30,7 @@ using Test
     include("test_cov_abs.jl")
     include("test_cov_fa.jl")
     include("test_cov_post2.jl")
+    include("test_cov_volume_assembly.jl")
+    include("test_cov_accuracy.jl")
+    include("test_cov_misc.jl")
 end
