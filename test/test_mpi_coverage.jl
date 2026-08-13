@@ -138,33 +138,39 @@ end
     @test EMMoMSuite.Parallel.numroc(200, 64, 0, 0, 1) == 200
     @test EMMoMSuite.Parallel.numroc(1, 64, 0, 0, 1) == 1
     @test EMMoMSuite.Parallel.numroc(0, 64, 0, 0, 1) == 0
-    N = 8
-    A = randn(ComplexF64, N, N) + N * I
-    grid = EMMoMSuite.Parallel.init_grid(comm; MB = 4, NB = 4)
-    grid = EMMoMSuite.Parallel.ScaLAPACKGrid(
-        grid.ictxt, grid.nprow, grid.npcol, grid.myrow, grid.mycol, 4, 4, N,
-    )
-    Aloc = EMMoMSuite.Parallel.distribute(A, grid; MB = 4, NB = 4)
-    @test size(Aloc, 1) == N
-    @test size(Aloc, 2) == N
-    # 分发往返：本地块重新映射回全局应等于 A
-    Atest = zeros(ComplexF64, N, N)
-    myrow = Int(grid.myrow); mycol = Int(grid.mycol)
-    lr = 1
-    for bi in 1:cld(N, 4)
-        (bi - 1) % grid.nprow == myrow || continue
-        i0 = (bi - 1) * 4 + 1
-        nrows = min(4, N - i0 + 1)
-        lc = 1
-        for bj in 1:cld(N, 4)
-            (bj - 1) % grid.npcol == mycol || continue
-            j0 = (bj - 1) * 4 + 1
-            ncols = min(4, N - j0 + 1)
-            Atest[i0:i0+nrows-1, j0:j0+ncols-1] .= Aloc[lr:lr+nrows-1, lc:lc+ncols-1]
-            lc += ncols
+
+    lib = EMMoMSuite.Parallel.SCALAPACK_LIB
+    if lib === nothing
+        @test_skip "ScaLAPACK 动态库未安装（无 SCALAPACK_LIB_PATH），跳过 BLACS 网格测试"
+    else
+        N = 8
+        A = randn(ComplexF64, N, N) + N * I
+        grid = EMMoMSuite.Parallel.init_grid(comm; MB = 4, NB = 4)
+        grid = EMMoMSuite.Parallel.ScaLAPACKGrid(
+            grid.ictxt, grid.nprow, grid.npcol, grid.myrow, grid.mycol, 4, 4, N,
+        )
+        Aloc = EMMoMSuite.Parallel.distribute(A, grid; MB = 4, NB = 4)
+        @test size(Aloc, 1) == N
+        @test size(Aloc, 2) == N
+        # 分发往返：本地块重新映射回全局应等于 A
+        Atest = zeros(ComplexF64, N, N)
+        myrow = Int(grid.myrow); mycol = Int(grid.mycol)
+        lr = 1
+        for bi in 1:cld(N, 4)
+            (bi - 1) % grid.nprow == myrow || continue
+            i0 = (bi - 1) * 4 + 1
+            nrows = min(4, N - i0 + 1)
+            lc = 1
+            for bj in 1:cld(N, 4)
+                (bj - 1) % grid.npcol == mycol || continue
+                j0 = (bj - 1) * 4 + 1
+                ncols = min(4, N - j0 + 1)
+                Atest[i0:i0+nrows-1, j0:j0+ncols-1] .= Aloc[lr:lr+nrows-1, lc:lc+ncols-1]
+                lc += ncols
+            end
+            lr += nrows
         end
-        lr += nrows
+        @test norm(Atest - A) / norm(A) < 1e-12
+        EMMoMSuite.Parallel._blacs_gridexit!(grid.ictxt)
     end
-    @test norm(Atest - A) / norm(A) < 1e-12
-    EMMoMSuite.Parallel._blacs_gridexit!(grid.ictxt)
 end
