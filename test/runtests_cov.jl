@@ -29,4 +29,5 @@ using Test
     include("test_cov_ie.jl")
     include("test_cov_abs.jl")
     include("test_cov_fa.jl")
+    include("test_cov_post2.jl")
 end
