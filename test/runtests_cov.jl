@@ -27,4 +27,5 @@ using Test
     include("test_pmchw_excitation.jl")
     include("test_scfie_delta_gap.jl")
     include("test_cov_ie.jl")
+    include("test_cov_abs.jl")
 end
