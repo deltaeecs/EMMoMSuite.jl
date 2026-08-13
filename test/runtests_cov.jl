@@ -23,4 +23,5 @@ using Test
     include("test_cov_core.jl")
     include("test_cov_scfie.jl")
     include("test_cov_vefie.jl")
+    include("test_cov_io.jl")
 end
