@@ -87,8 +87,10 @@ LinearAlgebra.ldiv!(P::LUPreconditioner, x) = (x .= P.F \ x)
     # Note: build_octree calls compute_interpolation_matrices!
     
     # Translation factors
-    # build_octree calls compute_translation_factors!
-    @test !isempty(level2.αTrans)
+    # build_octree calls compute_translation_factors!；αTrans 只保存实际远邻偏移列，
+    # 无 farneighbors 的层（小八叉树层级 2）允许为空表（translate! 语义不变）。
+    @test isdefined(level2, :αTrans)
+    @test isdefined(level2, :αTransIndex)
     
     # 4. Aggregation
     operator = MockOperator(1.0) # k=1.0

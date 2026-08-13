@@ -8,6 +8,7 @@ using ....Geometry
 using ....BasisFunctions
 using ....IntegralEquations
 using ..Level
+using ..Interpolation
 
 using ....IntegralEquations.Impedance: get_triangle_info, get_triangles_info
 using ....IntegralEquations.VEFIEModule: get_tetrahedra_info
@@ -57,7 +58,11 @@ end
 `θϕCSCT`（插值矩阵转置）作用在展平的分量上；对传统两段式用
 `θCSCT`、`ϕCSCT` 依次反插值，累加到 `childLevel.disaggG`。
 """
-function disaggregate_downward!(parentLevel::LevelInfo, childLevel::LevelInfo)
+function disaggregate_downward!(
+    parentLevel::LevelInfo,
+    childLevel::LevelInfo;
+    child_filter = nothing,
+)
     FT = eltype(parentLevel.cubeEdgel)
     CT = Complex{FT}
 
@@ -75,12 +80,47 @@ function disaggregate_downward!(parentLevel::LevelInfo, childLevel::LevelInfo)
 
     phaseShift = parentLevel.phaseShift2Kids
 
+    if interp isa FFTInterpInfo
+        # FFT 路径：逐子实例做 θ 步（Lagrange 转置），再批量 φ FFT 反插值。
+        # MPI 适配：只收集/写本秩拥有的子盒（child_filter），与 Lagrange 路径一致，
+        # 由外层下向 Allreduce 汇总（避免复制式写全部子盒导致的重复求和）。
+        nθc, M1, M2 = interp.nθ, interp.M1, interp.M2
+        owned = Tuple{Int,Int,Int}[]   # (childID, parentIdx, childIn8)
+        for iCube = 1:parentLevel.nCubes
+            parentCube = parentLevel.cubes[iCube]
+            for iKid = 1:length(parentCube.kidsInterval)
+                childID = parentCube.kidsInterval[iKid]
+                child_filter !== nothing && !child_filter(childID) && continue
+                push!(owned, (childID, iCube, parentCube.kidsIn8[iKid]))
+            end
+        end
+        nOwned = length(owned)
+        if nOwned > 0
+            Temp = Array{ComplexF64}(undef, nθc * M2, 2, nOwned)
+            for (oi, (_, iCube, childIn8)) in enumerate(owned)
+                disaggParent = view(parentDisaggG, :, :, iCube)
+                shift = view(phaseShift, :, childIn8)
+                @views Temp[:, :, oi] .= interp.θCSCT * (shift .* disaggParent)
+            end
+            childT = fft_anterp_phi_batch!(
+                Array{ComplexF64}(undef, nθc * M1, 2, nOwned),
+                Temp,
+                interp,
+            )
+            for (oi, (childID, _, _)) in enumerate(owned)
+                @views childDisaggG[:, :, childID] .+= childT[:, :, oi]
+            end
+        end
+        return
+    end
+
     Threads.@threads for iCube = 1:parentLevel.nCubes
         parentCube = parentLevel.cubes[iCube]
         disaggParent = view(parentDisaggG, :, :, iCube)
 
         for iKid = 1:length(parentCube.kidsInterval)
             childID = parentCube.kidsInterval[iKid]
+            child_filter !== nothing && !child_filter(childID) && continue
             childIn8 = parentCube.kidsIn8[iKid]
 
             shift = view(phaseShift, :, childIn8)
@@ -90,7 +130,15 @@ function disaggregate_downward!(parentLevel::LevelInfo, childLevel::LevelInfo)
                 @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
             end
 
-            childVal = if hasfield(typeof(interp), :θϕCSC)
+            childVal = if interp isa FFTInterpInfo
+                # FFT 谱反插值：θ 方向 Lagrange 转置，φ 方向 FFT 下采样（父层 M2 → 子层 M1）
+                temp = interp.θCSCT * shiftedParent
+                out = Matrix{eltype(shiftedParent)}(undef, interp.nθ * interp.M1, 2)
+                for pol = 1:2
+                    @views fft_anterp_phi!(out[:, pol], temp[:, pol], interp)
+                end
+                out
+            elseif hasfield(typeof(interp), :θϕCSC)
                 # Lebedev 一步反插值：θϕCSCT 为插值矩阵的转置（伴随算子）
                 reshape(interp.θϕCSCT * vec(shiftedParent), nPolesChild, 2)
             else
@@ -171,7 +219,7 @@ function disaggregate_leaf!(
     for b in bases
         if b isa RWGBasis
             push!(element_infos, get_triangles_info(b.mesh, b))
-            push!(gqs, GaussQuadratureInfo(:Triangle, 3, FT))
+            push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
         elseif b isa SWGBasis
             if hasfield(typeof(operator), :permittivities)
                 push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))

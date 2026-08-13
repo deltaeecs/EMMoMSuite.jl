@@ -9,6 +9,7 @@ using ....BasisFunctions
 using ....IntegralEquations
 using ..Level
 using ..Octree
+using ..Interpolation
 
 using ....IntegralEquations.Impedance: get_triangle_info, get_triangles_info
 using ....IntegralEquations.VEFIEModule: get_tetrahedra_info
@@ -105,7 +106,7 @@ function aggregate_leaf!(
     for b in bases
         if b isa RWGBasis
             push!(element_infos, get_triangles_info(b.mesh, b))
-            push!(gqs, GaussQuadratureInfo(:Triangle, 3, FT))
+            push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
         elseif b isa SWGBasis
             if hasfield(typeof(operator), :permittivities)
                 push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))
@@ -374,7 +375,11 @@ e^{{\\rm j}k \\hat{k} \\cdot (r_c - r_p)}\\, \\bm{\\Gamma}^{l-1,l}\\,
 对 Lebedev 一步插值，`Γ` 的 `θϕCSC` 直接作用在展平的 (θ, φ) 分量上；
 对传统两段式，先 `ϕCSC` 再 `θCSC`。最终写入 `parentLevel.aggS`。
 """
-function aggregate_upward!(parentLevel::LevelInfo, childLevel::LevelInfo)
+function aggregate_upward!(
+    parentLevel::LevelInfo,
+    childLevel::LevelInfo;
+    cube_filter = nothing,
+)
     FT = eltype(parentLevel.cubeEdgel)
     CT = Complex{FT}
 
@@ -394,7 +399,18 @@ function aggregate_upward!(parentLevel::LevelInfo, childLevel::LevelInfo)
 
     phaseShift = parentLevel.phaseShiftFromKids
 
+    # FFT 路径：先对所有子盒做一次批量 φ FFT 插值，循环内只做 θ 步
+    childPhi = nothing
+    if interp isa FFTInterpInfo
+        childPhi = fft_interp_phi_batch!(
+            Array{ComplexF64}(undef, interp.nθ * interp.M2, 2, childLevel.nCubes),
+            childAggS,
+            interp,
+        )
+    end
+
     Threads.@threads for iCube = 1:nCubesParent
+        cube_filter !== nothing && !cube_filter(iCube) && continue
         parentCube = parentLevel.cubes[iCube]
 
         for iKid = 1:length(parentCube.kidsInterval)
@@ -403,7 +419,10 @@ function aggregate_upward!(parentLevel::LevelInfo, childLevel::LevelInfo)
 
             aggChild = view(childAggS, :, :, childID)
 
-            aggInterp = if hasfield(typeof(interp), :θϕCSC)
+            aggInterp = if interp isa FFTInterpInfo
+                # FFT 谱插值：φ 步已批量完成，这里只做 θ 方向 Lagrange
+                interp.θCSC * view(childPhi, :, :, childID)
+            elseif hasfield(typeof(interp), :θϕCSC)
                 # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
                 reshape(interp.θϕCSC * vec(aggChild), nPolesParent, 2)
             else

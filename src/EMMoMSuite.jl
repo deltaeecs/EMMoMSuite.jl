@@ -237,7 +237,10 @@ export FastAlgorithms,
     MLFMAOperatorMPI,
     PMCHWMLFMAErrorBudget,
     PMCHWMLFMAOperator,
+    PMCHWMLFMAOperatorMPI,
     assemble_near_field_pmchw
+export AIMOperator
+export AIMOperatorMPI
 
 # Re-export Parallel symbols
 include("Parallel/Parallel.jl")

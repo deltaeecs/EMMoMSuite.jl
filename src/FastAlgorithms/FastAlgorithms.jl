@@ -12,10 +12,14 @@ module FastAlgorithms
 
 include("MLFMA/MLFMA.jl")
 include("Lebedev/Lebedev.jl")
+include("AIM/AIM.jl")
 
 using .MLFMA
 using .Lebedev
+using .AIM
 
-export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, assemble_near_field_pmchw
+export MLFMA, Lebedev, MLFMAOperator, get_leaf_intervals, PMCHWMLFMAErrorBudget, PMCHWMLFMAOperator, PMCHWMLFMAOperatorMPI, assemble_near_field_pmchw
+export AIMOperator
+export AIMOperatorMPI
 
 end

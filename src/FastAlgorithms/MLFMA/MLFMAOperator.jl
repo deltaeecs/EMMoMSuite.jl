@@ -913,8 +913,13 @@ function MLFMAOperatorMPI(
     basis::AbstractBasisFunction,
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
+    interp_method::Val = Val(:Lagrange2Step),
+    near_range::Int = 4,
 )
-    return MLFMAOperatorMPI(operator, [basis], leafCubeEdgel; comm = comm)
+    return MLFMAOperatorMPI(
+        operator, [basis], leafCubeEdgel;
+        comm = comm, interp_method = interp_method, near_range = near_range,
+    )
 end
 
 function MLFMAOperatorMPI(
@@ -922,6 +927,8 @@ function MLFMAOperatorMPI(
     bases::Vector{<:AbstractBasisFunction},
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
+    interp_method::Val = Val(:Lagrange2Step),
+    near_range::Int = 4,
 )
     rank     = MPI.Comm_rank(comm)
     n_procs  = MPI.Comm_size(comm)
@@ -931,7 +938,10 @@ function MLFMAOperatorMPI(
     bf_centers      = reduce(hcat, bf_centers_list)
 
     lambda = Constants.c0 / operator.freq
-    octree, sorted_ids = build_octree(bf_centers, leafCubeEdgel; λ = lambda)
+    octree, sorted_ids = build_octree(
+        bf_centers, leafCubeEdgel; λ = lambda,
+        near_range = near_range, interp_method = interp_method,
+    )
 
     N = size(bf_centers, 2)
     inv_sorted_ids = zeros(Int, N)
@@ -1017,37 +1027,45 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperatorMPI, x::AbstractV
     mul!(y_near, A.Z_near_local, x)
     MPI.Allreduce!(y_near, +, A.comm)
 
-    # ── Step 2: Far-Field (Phase 15.3 — partitioned leaf aggregation/disagg) ──
+    # ── Step 2: Far-Field（全层按秩分区：聚合/转移/反聚合 + 每层 Allreduce）──
     cube_filter = n_procs > 1 ? (i -> (i - 1) % n_procs == rank) : nothing
+    nLevels = A.octree.nLevels
 
-    # 2.1 Partial leaf aggregation: each rank fills only its assigned cubes
-    leaf_level = A.octree.levels[A.octree.nLevels]
+    # 2.1 叶层聚合（分区）+ Allreduce 完整叶 aggS
+    leaf_level = A.octree.levels[nLevels]
     aggregate_leaf!(leaf_level, A.bases, A.basis_offsets, A.operator, x, A.sorted_ids;
                     cube_filter = cube_filter)
-    # Sum partial leaf aggS from all ranks → complete leaf aggS on every rank
     MPI.Allreduce!(leaf_level.aggS, +, A.comm)
 
-    # 2.2 Upward pass — SPMD (all ranks now have identical complete leaf aggS)
-    for levelID = (A.octree.nLevels - 1):-1:2
+    # 2.2 向上聚合（每层按父盒归属分区）+ Allreduce aggS（供上一级使用）
+    for levelID = (nLevels - 1):-1:2
         parentLevel = A.octree.levels[levelID]
         childLevel  = A.octree.levels[levelID + 1]
-        aggregate_upward!(parentLevel, childLevel)
+        aggregate_upward!(parentLevel, childLevel; cube_filter = cube_filter)
+        MPI.Allreduce!(parentLevel.aggS, +, A.comm)
     end
 
-    # 2.3 Translation — SPMD (deterministic; all ranks compute same disaggG)
-    for levelID = 2:A.octree.nLevels
+    # 2.3 转移（每层按盒归属分区）：写本地 disaggG（保持部分，避免与下向 Allreduce 重复求和）
+    for levelID = 2:nLevels
         level = A.octree.levels[levelID]
-        translate!(level)
+        translate!(level; cube_filter = cube_filter)
+    end
+    # 顶层（level 2）作为下向第一级的父层，需要完整 disaggG（仅此层在转移后 Allreduce）
+    if nLevels >= 2
+        MPI.Allreduce!(A.octree.levels[2].disaggG, +, A.comm)
     end
 
-    # 2.4 Disaggregation downward — SPMD
-    for levelID = 2:(A.octree.nLevels - 1)
+    # 2.4 向下反聚合（每层按子盒归属分区）：父层完整，子层 += 本地贡献后 Allreduce（除叶层）
+    for levelID = 2:(nLevels - 1)
         parentLevel = A.octree.levels[levelID]
         childLevel  = A.octree.levels[levelID + 1]
-        disaggregate_downward!(parentLevel, childLevel)
+        disaggregate_downward!(parentLevel, childLevel; child_filter = cube_filter)
+        if levelID + 1 < nLevels
+            MPI.Allreduce!(childLevel.disaggG, +, A.comm)
+        end
     end
 
-    # 2.5 Partial leaf disaggregation: each rank collects only its assigned cubes
+    # 2.5 叶层反聚合（分区，消费本地叶 disaggG）+ Allreduce y_far
     y_far = zeros(CT, N)
     disaggregate_leaf!(leaf_level, A.bases, A.basis_offsets, A.operator, y_far, A.sorted_ids;
                        cube_filter = cube_filter)

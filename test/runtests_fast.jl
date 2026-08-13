@@ -33,6 +33,14 @@ using Test
         include("test_io.jl")
         include("test_lebedev.jl")
     end
+
+    @testset "Fast Algorithms (P1 FFT 谱插值)" begin
+        include("test_fft_interp.jl")
+    end
+
+    @testset "Fast Algorithms (P3 AIM/IE-FFT)" begin
+        include("test_aim_operator.jl")
+    end
     
     @testset "Ports" begin
         include("test_ports.jl")
