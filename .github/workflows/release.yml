@@ -1,0 +1,128 @@
+name: Auto Release & Register
+
+# 版本发布自动化（合并即发布）：
+# 1) Project.toml 的 version 合入 master 后，自动创建 vX.Y.Z tag 并推送，同时生成 GitHub Release（幂等，已打过 tag 则跳过）
+# 2) 若该版本尚未注册进 Julia General registry、且无待处理注册 PR，则自动以维护者身份
+#    评论 `@JuliaRegistrator register`，触发官方注册流程。
+#
+# 前置条件（一次性，仓库管理员操作）：
+# - 安装 JuliaRegistrator GitHub App 到本仓库：https://github.com/apps/julia-registrator
+#   （官方要求注册 bot 必须安装；未安装时评论触发无效）
+# - 在 deltaeecs 账号下创建经典 PAT（scope: public_repo），
+#   存入仓库 Secret：REGISTRATOR_TOKEN
+#   （Registrator 只响应仓库 collaborator 的评论，github-actions[bot] 不被认可）
+#
+# 注意：
+# - GITHUB_TOKEN 创建的 tag 不会触发其他按 tag 触发的 workflow（GitHub 防递归设计），
+#   如需按 tag 构建文档，请改用 SSH deploy key 或 PAT。
+# - 注册 PR 在 General 侧的合并由 registry 自动完成（版本更新通常约 15 分钟）。
+
+on:
+  push:
+    branches: [master]
+    paths: [Project.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  REG_TOKEN: ${{ secrets.REGISTRATOR_TOKEN }}
+
+jobs:
+  release-and-register:
+    if: github.repository == 'deltaeecs/EMMoMSuite.jl'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Analyze version state
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Project.toml | head -n 1 | tr -d '[:space:]')"
+          if [ -z "${VERSION}" ]; then
+            echo "::error::Could not parse version from Project.toml"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "== EMMoMSuite ${VERSION} (${TAG}) =="
+
+          # 稳定版本（禁止预发布/构建元数据自动注册）
+          if echo "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # tag 是否已存在
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 该版本是否已注册进 General registry
+          REGISTERED="$(gh api repos/JuliaRegistries/General/contents/E/EMMoMSuite/Versions.toml \
+            --jq '.content' 2>/dev/null | base64 -d 2>/dev/null | grep -F "[\"${VERSION}\"]" || true)"
+          if [ -n "${REGISTERED}" ]; then
+            echo "registered=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${VERSION} already registered in General, will skip registration."
+          else
+            echo "registered=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # General 中是否有待处理的注册 PR
+          PENDING="$(gh api "search/issues?q=repo:JuliaRegistries/General+is:pr+is:open+EMMoMSuite+${VERSION}" \
+            --jq '.total_count' 2>/dev/null || echo 0)"
+          echo "pending_pr=${PENDING}" >> "$GITHUB_OUTPUT"
+          echo "Pending registration PRs: ${PENDING}"
+
+      - name: Create tag and release
+        if: steps.ver.outputs.tag_exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "EMMoMSuite ${VERSION}"
+          git push origin "${TAG}"
+          gh release create "${TAG}" --title "EMMoMSuite ${VERSION}" --generate-notes
+          echo "Tag ${TAG} pushed and release created."
+
+      - name: Trigger JuliaRegistrator
+        if: >-
+          steps.ver.outputs.stable == 'true' &&
+          steps.ver.outputs.registered == 'false' &&
+          steps.ver.outputs.pending_pr == '0' &&
+          env.REG_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.REGISTRATOR_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          echo "Registering EMMoMSuite v${VERSION} (commit ${GITHUB_SHA}) ..."
+          URL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -f body='@JuliaRegistrator register' \
+            -H 'Accept: application/vnd.github+json' \
+            --jq '.html_url')"
+          echo "Trigger comment posted: ${URL}"
+
+      - name: Warn when registration skipped (missing token)
+        if: >-
+          steps.ver.outputs.stable == 'true' &&
+          steps.ver.outputs.registered == 'false' &&
+          steps.ver.outputs.pending_pr == '0' &&
+          env.REG_TOKEN == ''
+        run: |
+          echo "::warning::v${{ steps.ver.outputs.version }} 未注册且无待处理 PR，但未配置 REGISTRATOR_TOKEN secret，跳过自动注册。"
+          echo "请创建 PAT（scope: public_repo）并存入仓库 Secret REGISTRATOR_TOKEN，同时确认已安装 JuliaRegistrator App。"
