@@ -110,10 +110,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REGISTRATOR_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
           echo "Registering EMMoMSuite v${VERSION} (commit ${GITHUB_SHA}) ..."
+          # 附带 Release notes（含 "changelog" 字样），满足 General AutoMerge
+          # 对破坏性变更需提供 release notes 的准则；内容指向自动生成的 GitHub Release。
+          printf '@JuliaRegistrator register\n\nRelease notes:\nSee the changelog at https://github.com/%s/releases/tag/%s\n' \
+            "${GITHUB_REPOSITORY}" "${TAG}" > register_body.txt
           URL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-            -f body='@JuliaRegistrator register' \
+            -F "body=@register_body.txt" \
             -H 'Accept: application/vnd.github+json' \
             --jq '.html_url')"
           echo "Trigger comment posted: ${URL}"
