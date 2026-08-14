@@ -6,11 +6,12 @@ name: Auto Release & Register
 #    评论 `@JuliaRegistrator register`，触发官方注册流程。
 #
 # 前置条件（一次性，仓库管理员操作）：
-# - 安装 JuliaRegistrator GitHub App 到本仓库：https://github.com/apps/julia-registrator
-#   （官方要求注册 bot 必须安装；未安装时评论触发无效）
-# - 在 deltaeecs 账号下创建经典 PAT（scope: public_repo），
-#   存入仓库 Secret：REGISTRATOR_TOKEN
-#   （Registrator 只响应仓库 collaborator 的评论，github-actions[bot] 不被认可）
+# - 创建经典 PAT（scope: public_repo）并存入仓库 Secret：REGISTRATOR_TOKEN。
+#   评论必须由仓库 collaborator 发出（github-actions[bot] 不被认可），
+#   因此用 PAT 以仓库所有者身份代发评论。
+# - 无需安装任何 GitHub App：JuliaRegistrator 机器人全局监听 @JuliaRegistrator register
+#   评论并直接在 General 创建注册 PR（本仓库 v0.1.2 即如此注册成功）。
+#   注：github.com/apps/julia-registrator 已不存在（404），旧版 App 安装流程已废弃。
 #
 # 注意：
 # - GITHUB_TOKEN 创建的 tag 不会触发其他按 tag 触发的 workflow（GitHub 防递归设计），
@@ -125,4 +126,4 @@ jobs:
           env.REG_TOKEN == ''
         run: |
           echo "::warning::v${{ steps.ver.outputs.version }} 未注册且无待处理 PR，但未配置 REGISTRATOR_TOKEN secret，跳过自动注册。"
-          echo "请创建 PAT（scope: public_repo）并存入仓库 Secret REGISTRATOR_TOKEN，同时确认已安装 JuliaRegistrator App。"
+          echo "请创建 PAT（scope: public_repo）并存入仓库 Secret REGISTRATOR_TOKEN。"
