@@ -9,6 +9,10 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── LTS 门禁：Fast Tests（Julia 1.10 × 3 平台）─────────────────────────────
+  # Julia 1.12 存在已知多线程/覆盖率性能回归（JuliaLang/julia#59355、#60241、
+  # #59936），Fast Tests 在 1.12 上比 1.10 慢 4~5 倍（Windows 21min vs 4.5min）。
+  # 合并门禁以 LTS 1.10 为准；1.12 在 test-fast-latest 单独做非阻塞覆盖。
   test-fast:
     name: Fast Tests - Julia ${{ matrix.version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -16,20 +20,11 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.10'  # LTS —— 必需门禁（分支保护只要求 1.10 三平台）
-          - '1'     # 最新稳定（1.12.x），仅 ubuntu 非阻塞覆盖
+          - '1.10'
         os:
           - ubuntu-latest
           - windows-latest
           - macOS-latest
-        exclude:
-          # Julia 1.12 存在已知多线程/覆盖率性能回归（JuliaLang/julia#59355、#60241、
-          # #59936），Fast Tests 在 1.12 上比 1.10 慢 4~5 倍（Windows 21min vs 4.5min）。
-          # 1.12 保留 ubuntu 单机做非阻塞兼容性覆盖；合并门禁以 LTS 1.10 为准。
-          - version: '1'
-            os: windows-latest
-          - version: '1'
-            os: macOS-latest
     
     steps:
       - uses: actions/checkout@v4
@@ -51,16 +46,40 @@ jobs:
         run: julia --project=. --color=yes --code-coverage=user test/runtests_fast.jl
         env:
           JULIA_NUM_THREADS: 2
+
+  # ── 最新稳定（Julia 1.12）兼容性覆盖：ubuntu 单机，非必需检查 ─────────────
+  test-fast-latest:
+    name: Fast Tests - Julia latest (1.12) - ubuntu (informational)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: '1'
+      
+      - uses: actions/cache@v3
+        with:
+          path: ~/.julia
+          key: ${{ runner.os }}-julia-1-${{ hashFiles('**/Project.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-julia-1-
+      
+      - uses: julia-actions/julia-buildpkg@v1
+      
+      - name: Run fast tests
+        run: julia --project=. --color=yes --code-coverage=user test/runtests_fast.jl
+        env:
+          JULIA_NUM_THREADS: 2
       
       - uses: julia-actions/julia-processcoverage@v1
-        if: matrix.os == 'ubuntu-latest' && matrix.version == '1'
       
       - uses: codecov/codecov-action@v5
-        if: matrix.os == 'ubuntu-latest' && matrix.version == '1'
         with:
           files: lcov.info
           flags: fast-tests
-          name: fast-tests-${{ matrix.os }}
+          name: fast-tests-ubuntu-latest
           token: ${{ secrets.CODECOV_TOKEN }}
   
   test-medium:
@@ -73,7 +92,7 @@ jobs:
       
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1.10'  # LTS（规避 1.12 覆盖率回归，原 22min -> 约 6min）
+          version: '1.10'
       
       - uses: julia-actions/julia-buildpkg@v1
       
@@ -86,14 +105,14 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    needs: [test-fast, test-medium]
+    needs: test-fast  # 与 test-medium 并行，缩短合并等待
     
     steps:
       - uses: actions/checkout@v4
       
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1.10'  # LTS（规避 1.12 覆盖率回归，原 22min -> 约 6min）
+          version: '1.10'
       
       - uses: julia-actions/julia-buildpkg@v1
       
