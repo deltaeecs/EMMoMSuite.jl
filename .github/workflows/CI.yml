@@ -73,7 +73,7 @@ jobs:
       
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1'
+          version: '1.10'  # LTS（规避 1.12 覆盖率回归，原 22min -> 约 6min）
       
       - uses: julia-actions/julia-buildpkg@v1
       
@@ -93,7 +93,7 @@ jobs:
       
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1'
+          version: '1.10'  # LTS（规避 1.12 覆盖率回归，原 22min -> 约 6min）
       
       - uses: julia-actions/julia-buildpkg@v1
       
