@@ -570,7 +570,7 @@ function interpolationCSCMatCal(
         end
     end
 
-    rawIDϕs = repeat(collect(IT, 1:ntempSample); inner = nlocalInterp)
+    rawIDϕs = repeat(collect(IT, 1:ntempSample); inner = nlocalInterpPhi)
     interWGlobalϕs = repeat(interWϕs, inner = (1, ntXθs))
     interpϕCSC = sparse(rawIDϕs, view(interIDGlobalϕs, :), view(interWGlobalϕs, :))
 
@@ -586,8 +586,8 @@ function interpolationCSCMatCal(
     halfnpϕ = npXϕs ÷ 2
     for ipϕ = 1:npXϕs
         for ipθ = 1:npXθs
-            inGlobalIDs = zeros(IT, nlocalInterp)
-            for jInter = 1:nlocalInterp
+            inGlobalIDs = zeros(IT, nlocalInterpTheta)
+            for jInter = 1:nlocalInterpTheta
                 interIDθ = interIDθs[jInter, ipθ]
                 targetIdxInTempSampleIndexes = [interIDθ, ipϕ]
 
@@ -610,7 +610,7 @@ function interpolationCSCMatCal(
         end
     end
 
-    rawIDθs = repeat(collect(IT, 1:npSample); inner = nlocalInterp)
+    rawIDθs = repeat(collect(IT, 1:npSample); inner = nlocalInterpTheta)
     interWGlobalθs = repeat(interWθs; outer = (1, npXϕs))
     interpθCSC = sparse(rawIDθs, view(interIDGlobalθs, :), view(interWGlobalθs, :))
 
