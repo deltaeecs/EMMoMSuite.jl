@@ -242,3 +242,27 @@ end
     @test err_phys < 1e-8
     @test err_sorted_rhs > 1e-1
 end
+
+@testset "issue #20: interpolationCSCMatCal honours clamped per-direction order" begin
+    Interp = EMMoMSuite.FastAlgorithms.MLFMA.Interpolation
+
+    # A parent level can have fewer directional samples than the default interpolation
+    # order (nInterp = 6) when the octree is deep (fine leaf boxes). In that case the code
+    # clamps the order per-direction (nlocalInterpTheta / nlocalInterpPhi), but it used to
+    # keep sizing/indexing the sparse arrays with the *un-clamped* nlocalInterp, which
+    # crashed with a BoundsError in the θ step (or a sparse length-mismatch in φ).
+    parentL, parentPoles = Interp.levelIntegralInfoCal(0.02; λ = 1.0)  # L=4 -> nθ=5 (<6), nφ=10
+    childL,  childPoles  = Interp.levelIntegralInfoCal(0.01; λ = 1.0)  # L=3 -> nθ=4, nφ=8
+
+    @test parentL ≤ 4                                   # θ order is clamped (< 6)
+    @test length(parentPoles.Xθs) < 6
+    info = Interp.interpolationCSCMatCal(parentPoles, childPoles, 6)   # must not throw
+    @test info isa Interp.LagrangeInterpInfo
+
+    # φ-clamped path (issue #20's reported symptom): too-fine parent with nφ < 6.
+    phiParentL, phiParentPoles = Interp.levelIntegralInfoCal(0.001; λ = 1.0)
+    phiChildL,  phiChildPoles  = Interp.levelIntegralInfoCal(0.0005; λ = 1.0)
+    @test length(phiParentPoles.Xϕs) < 6
+    info2 = Interp.interpolationCSCMatCal(phiParentPoles, phiChildPoles, 6)
+    @test info2 isa Interp.LagrangeInterpInfo
+end

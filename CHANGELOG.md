@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [0.2.1] - 2026-08-13
+## [0.2.1] - 2026-08-27
 
 ### Added
 
@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **MLFMA 插值（issue #20）**：`interpolationCSCMatCal` 构建两层插值矩阵时，当父层方向采样数
+  小于默认插值阶（`nInterp = 6`）会按方向把阶数钳制为
+  `nlocalInterpTheta`/`nlocalInterpPhi`（θ 为 `L+1`、φ 为 `2(L+1)`），但函数仍用**未钳制的
+  `nlocalInterp`** 去定尺寸/索引稀疏数组，导致精细八叉树（如 `leafCubeEdgel = 1e-3`）下
+  `MLFMAOperator` 崩溃（θ 步 `BoundsError`；更细叶子下 φ 步稀疏长度不匹配）。修复为统一使用
+  钳制值（`rawIDϕs`→`nlocalInterpPhi`、`rawIDθs`→`nlocalInterpTheta`，以及 θ 邻域循环的
+  `inGlobalIDs`/`for jInter` 上界），并新增回归测试覆盖 θ/φ 两条钳制路径。
 - 记录 Julia 1.12 复用未插桩编译缓存导致 `.cov` 不生成的问题及可靠做法
   （先移开 `~/.julia/compiled/v1.12/EMMoMSuite` 再采集）。
 
