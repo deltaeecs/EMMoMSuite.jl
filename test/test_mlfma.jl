@@ -307,3 +307,50 @@ end
     @test length(y) == length(x)
     @test all(isfinite, y)
 end
+
+@testset "issue #22 #3: adaptive per-level near_range" begin
+    OB = EMMoMSuite.FastAlgorithms.MLFMA.OctreeBuilder
+
+    # Calibration: GD2V gate fixture (λ=1, w=0.1 → L=9) must reproduce
+    # the empirically passing near_range=7 (kR_min = 8·kw ≈ 5.03 ≥ 0.55·L = 4.95)
+    @test OB.adaptive_near_range(1.0, 0.1, 9) == 7
+    # issue-#22 bench leaf (λ=0.3, w=0.06 → L=12): kR_min = 6·kw ≈ 7.54 ≥ 6.6
+    @test OB.adaptive_near_range(0.3, 0.06, 12) == 5
+    # floor at 1 for electrically large cubes
+    @test OB.adaptive_near_range(1.0, 2.0, 9) == 1
+
+    freq = 300e6
+    mesh = generate_sphere_mesh(0.5, 6, 12)
+    basis = RWGBasis(mesh)
+    efie = EFIE(freq)
+    centers = reduce(hcat, [bf.center for bf in basis.functions])
+
+    # Default (adaptive): every level's smallest far pair must satisfy
+    # kR_min ≥ 0.55·L — correct M2L by construction (problem 3)
+    octree, _ = build_octree(centers, 0.1; λ = 1.0)
+    k = 2π
+    for levelID = 2:octree.nLevels
+        level = octree.levels[levelID]
+        kR_min = Inf
+        for cube in level.cubes, fid in cube.farneighbors
+            far = level.cubes[fid]
+            off = (cube.ID3D[1] - far.ID3D[1],
+                   cube.ID3D[2] - far.ID3D[2],
+                   cube.ID3D[3] - far.ID3D[3])
+            kR_min = min(kR_min, k * norm(off) * level.cubeEdgel)
+        end
+        @test kR_min ≥ 0.55 * level.L - 1e-9
+    end
+
+    # Explicit near_range is still honored: leaf neighbors within ±near_range
+    oct2, _ = build_octree(centers, 0.1; λ = 1.0, near_range = 1)
+    leaf = oct2.levels[oct2.nLevels]
+    maxoff = 0
+    for cube in leaf.cubes, n in cube.neighbors
+        off = max(abs(cube.ID3D[1] - leaf.cubes[n].ID3D[1]),
+                  abs(cube.ID3D[2] - leaf.cubes[n].ID3D[2]),
+                  abs(cube.ID3D[3] - leaf.cubes[n].ID3D[3]))
+        maxoff = max(maxoff, off)
+    end
+    @test maxoff ≤ 1
+end

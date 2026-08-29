@@ -207,6 +207,50 @@ phis = [0.0, π / 2]
 _, _, rcs = radarCrossSection(theta, phis, I, basis)
 ```
 
+### Unified mesh: cross-path numerical comparison (and MLFMA preconditioning)
+
+Different mesh generators (the analytic UV sphere `generate_sphere_mesh` vs
+Gmsh `generate_gmsh_sphere`) produce different topologies, so their results
+cannot be compared point-by-point. For cross-path comparisons (dense vs MLFMA
+vs PMCHW) always use **one single mesh** — generate it once via the Gmsh path
+and feed it to every path:
+
+```julia
+using EMMoMSuite
+using LinearAlgebra
+
+freq = 300e6
+set_frequency!(freq)
+
+# One mesh, shared by all paths
+mesh = generate_gmsh_sphere(0.5; mesh_size = 0.12)
+basis = RWGBasis(mesh)
+op = EFIE(freq)
+src = PlaneWave(freq, π / 2, π, [0.0, 0.0, 1.0])
+V = excitation_vector(op, src, basis)
+
+# Dense path
+Z = assemble_impedance_matrix(op, basis)
+I_dense = Z \ V
+
+# MLFMA path (same mesh); precondition with the per-cube block-Jacobi
+# scheme instead of an O(N³) dense factorization of Z_near
+using EMMoMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite.Solvers: BlockJacobiPreconditioner
+mlfma = MLFMAOperator(op, basis, 0.2)
+P = BlockJacobiPreconditioner(mlfma)
+solver = GMRESSolver(restart = 20, maxiter = 300, tol = 1e-4)
+I_mlfma = solve!(solver, mlfma, V; Pl = P)
+
+rel = norm(I_mlfma - I_dense) / norm(I_dense)
+```
+
+MLFMA notes: by default `MLFMAOperator` selects `near_range = nothing`, a
+per-level **adaptive** near-field radius that guarantees real-spectrum M2L
+convergence (`kR_min ≥ 0.55·L` on every level, see `?adaptive_near_range`);
+an explicit `Int` pins the radius. The direct near-field matrix grows as
+`(2nr+1)³` per cube — pair larger radii with `BlockJacobiPreconditioner`.
+
 ### Release chain: accuracy / performance / reporting in one pipeline
 
 If your goal is not a single operator solve but reproducing the project's current regression-validation chain, prefer the two entry points below.

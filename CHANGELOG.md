@@ -90,6 +90,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **MLFMA 近场半径自适应（issue #22 问题 3）**：`build_octree` / `MLFMAOperator` /
+  `MLFMAOperatorMPI` 的 `near_range` 默认值改为 `nothing`（逐层自适应，按
+  `adaptive_near_range` 保证每层最小远对 `kR_min ≥ 0.55·L`，实谱 M2L 浮点收敛；
+  经 GD2V 门校准），显式 `Int` 仍被尊重；叶层 kR 距离校验阈值由绝对「偏移 ≥ 8」
+  改为相对「kR_min ≥ 0.55·L」，避免静默精度损失。问题 3 的性能型根治
+  （shifted expansion 恢复标准 189 交互列表）另行立项。
+- **RCS 静默 -Inf（issue #22 问题 2）**：`radarCrossSection` 全局 `k0` 未设置
+  （默认 0）时不再静默返回全 `-Inf` dBsm，改为抛出可行动错误。
+
+### Changed
+
+- **MLFMA matvec 分配（issue #22 问题 1）**：`MLFMAOperator` 构造时预计算
+  单元几何与求积数据（`element_cache`），`aggregate_leaf!` / `disaggregate_leaf!`
+  不再每次 `mul!` 重建；`aggregate_upward!` / `disaggregate_downward!` 的
+  per-(盒,kid) 临时数组改为按线程 scratch 复用。
+- **MLFMA 预条件用法（issue #22 问题 4）**：`MLFMAOperator` 文档示例改用
+  `BlockJacobiPreconditioner`（按盒分块并行 LU）替代 `lu(Z_near)`（O(N³)）。
+- **统一网格对比（issue #22 问题 5）**：README（中/英）新增「统一网格：跨路径
+  数值对比」指引（Gmsh 路径生成一份网格供稠密/MLFMA/PMCHW 共用），并新增
+  同网格稠密 vs MLFMA parity 回归测试。
+
 ### Changed
 
 - **License**: 项目许可证从 MIT 切换为 GPL-3.0-only，与原 MoM 系列包（`MoM_Basics` / `MoM_Kernels` / `MoM_AllinOne` / `MoM_MPI` / `MoM_Lebedev` / `MoM_Visualizing`）保持一致；MIT LICENSE 已从 git 历史中移除。

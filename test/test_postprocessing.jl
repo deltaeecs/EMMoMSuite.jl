@@ -4,6 +4,8 @@ using EMMoMSuite.PostProcessing
 using EMMoMSuite.Geometry
 using EMMoMSuite.Utilities.Parameters
 using EMMoMSuite.BasisFunctions
+using EMMoMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite.Solvers: BlockJacobiPreconditioner, GMRESSolver
 using StaticArrays
 using LinearAlgebra
 
@@ -434,4 +436,31 @@ end
     _, rcs_total, rcs_dB = radarCrossSection(θs, ϕs, I_dummy, basis)
     @test all(isfinite, rcs_dB)
     @test all(rcs_total .>= 0)
+end
+
+@testset "issue #22 #5: same-mesh cross-path comparison (gmsh)" begin
+    # Problem 5: numerical comparison across solver paths must happen on ONE mesh.
+    # A single gmsh-generated mesh feeds both the dense and the MLFMA path here.
+    mesh = generate_gmsh_sphere(0.5; mesh_size = 0.15)
+    basis = RWGBasis(mesh)
+    freq = 300e6
+    efie = EFIE(freq)
+    set_frequency!(freq)
+
+    pw = PlaneWave(freq, π / 2, π, [1.0, 0.0, 0.0])
+    V = excitation_vector(efie, pw, basis)
+
+    # Path 1: dense direct solve
+    Z = assemble_impedance_matrix(efie, basis)
+    I_dense = Z \ V
+
+    # Path 2: MLFMA iterative solve on the SAME mesh
+    op = MLFMAOperator(efie, basis, 0.2)
+    P = BlockJacobiPreconditioner(op)
+    solver = GMRESSolver(restart = 20, maxiter = 300, tol = 1e-4, verbose = false)
+    I_mlfma = solve!(solver, op, V; Pl = P)
+
+    rel = norm(I_mlfma - I_dense) / norm(I_dense)
+    @info "issue #22 #5 same-mesh dense vs MLFMA (gmsh sphere)" rel
+    @test rel < 0.05
 end

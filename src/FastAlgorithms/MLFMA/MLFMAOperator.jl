@@ -87,6 +87,15 @@ Far-field interactions are computed using:
   - Typical: 0.25λ to 0.5λ (balance accuracy vs efficiency)
   - Smaller → more cubes, higher memory, better accuracy
   - Larger → fewer cubes, lower memory, lower accuracy
+- `interp_method`: `Val(:Lagrange2Step)` (default), `Val(:LbTrained1Step)` or
+  `Val(:FFTSpectral)`
+- `near_range`: Near-field radius in cube offsets per level. `nothing` (default)
+  selects a per-level **adaptive** radius that guarantees real-spectrum M2L
+  convergence (`kR_min ≥ 0.55·L`, issue #22 problem 3); an explicit `Int` pins
+  the radius for all levels (a too-small value makes the diagonal M2L
+  inaccurate — a warning is emitted at construction). Note the direct
+  near-field matrix grows as `(2nr+1)³` per cube — pair larger radii with
+  `BlockJacobiPreconditioner`.
 
 # Usage
 
@@ -186,7 +195,7 @@ function MLFMAOperator(
     basis::AbstractBasisFunction,
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     return MLFMAOperator(operator, [basis], leafCubeEdgel, interp_method, near_range)
 end
@@ -196,7 +205,7 @@ function MLFMAOperator(
     bases::Vector{<:AbstractBasisFunction},
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     # 1. Build Octree
     # Concatenate centers from all bases
@@ -982,7 +991,7 @@ function MLFMAOperatorMPI(
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     return MLFMAOperatorMPI(
         operator, [basis], leafCubeEdgel;
@@ -996,7 +1005,7 @@ function MLFMAOperatorMPI(
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     rank     = MPI.Comm_rank(comm)
     n_procs  = MPI.Comm_size(comm)

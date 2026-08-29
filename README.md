@@ -207,6 +207,47 @@ phis = [0.0, π / 2]
 _, _, rcs = radarCrossSection(theta, phis, I, basis)
 ```
 
+### 统一网格：跨路径数值对比（含 MLFMA 预条件）
+
+不同网格生成器（解析 UV 球 `generate_sphere_mesh` vs Gmsh `generate_gmsh_sphere`）
+产出的网格拓扑不同，数值结果不可逐点对比。跨路径（稠密 vs MLFMA vs PMCHW）
+数值对比请**始终使用同一份网格**——推荐用 Gmsh 路径生成一份网格后喂给所有路径：
+
+```julia
+using EMMoMSuite
+using LinearAlgebra
+
+freq = 300e6
+set_frequency!(freq)
+
+# 一份网格，所有路径共用
+mesh = generate_gmsh_sphere(0.5; mesh_size = 0.12)
+basis = RWGBasis(mesh)
+op = EFIE(freq)
+src = PlaneWave(freq, π / 2, π, [0.0, 0.0, 1.0])
+V = excitation_vector(op, src, basis)
+
+# 稠密路径
+Z = assemble_impedance_matrix(op, basis)
+I_dense = Z \ V
+
+# MLFMA 路径（同一 mesh）；预条件用按盒分块的 BlockJacobi，
+# 避免对 Z_near 做 O(N³) 的整体稠密分解
+using EMMoMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite.Solvers: BlockJacobiPreconditioner
+mlfma = MLFMAOperator(op, basis, 0.2)
+P = BlockJacobiPreconditioner(mlfma)
+solver = GMRESSolver(restart = 20, maxiter = 300, tol = 1e-4)
+I_mlfma = solve!(solver, mlfma, V; Pl = P)
+
+rel = norm(I_mlfma - I_dense) / norm(I_dense)
+```
+
+MLFMA 说明：`MLFMAOperator` 默认 `near_range = nothing`，按层自适应选取近场半径，
+保证每层最小远对距离 `kR_min ≥ 0.55·L`（实谱 M2L 浮点收敛条件，见
+`?adaptive_near_range`）；也可显式传 `Int` 固定。注意直接近场矩阵按 `(2nr+1)³`
+每盒增长，较大半径请配合 `BlockJacobiPreconditioner` 使用。
+
 ### 发布链：精度 / 性能 / 报告一体化
 
 如果你的目标不是单个算子求解，而是复现项目当前的回归验证链，建议优先走下面两个入口。
