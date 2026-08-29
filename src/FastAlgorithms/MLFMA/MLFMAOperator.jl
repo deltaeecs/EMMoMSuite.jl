@@ -89,13 +89,13 @@ Far-field interactions are computed using:
   - Larger → fewer cubes, lower memory, lower accuracy
 - `interp_method`: `Val(:Lagrange2Step)` (default), `Val(:LbTrained1Step)` or
   `Val(:FFTSpectral)`
-- `near_range`: Near-field radius in cube offsets per level. `nothing` (default)
-  selects a per-level **adaptive** radius that guarantees real-spectrum M2L
-  convergence (`kR_min ≥ 0.55·L`, issue #22 problem 3); an explicit `Int` pins
-  the radius for all levels (a too-small value makes the diagonal M2L
-  inaccurate — a warning is emitted at construction). Note the direct
-  near-field matrix grows as `(2nr+1)³` per cube — pair larger radii with
-  `BlockJacobiPreconditioner`.
+- `near_range`: Near-field radius in cube offsets, uniform for the whole tree.
+  `nothing` (default) derives an **adaptive** radius from the leaf level that
+  guarantees real-spectrum M2L convergence (`kR_min ≥ 0.55·L_leaf`, issue #22
+  problem 3); an explicit `Int` pins the radius (a too-small value makes the
+  diagonal M2L inaccurate — a warning is emitted at construction). Note the
+  direct near-field matrix grows as `(2nr+1)³` per cube — pair larger radii
+  with `BlockJacobiPreconditioner`.
 
 # Usage
 

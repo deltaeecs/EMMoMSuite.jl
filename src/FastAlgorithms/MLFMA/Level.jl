@@ -43,7 +43,8 @@ end
 """
     adaptive_near_range(λ, cubeEdgel, L; kr_factor = 0.55) -> Int
 
-Per-level adaptive near-field radius (issue #22, problem 3).
+Tree-uniform adaptive near-field radius derived from the leaf level
+(issue #22, problem 3).
 
 The real-spectrum M2L series `Σ (2l+1)(-j)^l h_l⁽²⁾(kR) P_l(k̂·R̂)` contains
 `h_l⁽²⁾(kR)` terms that grow with `l` until `l ≈ kR`; the series only converges
@@ -52,12 +53,15 @@ in floating point once the smallest far-pair distance satisfies
 (λ = 1, w = 0.1 → L = 9): `kr_factor = 0.55` reproduces the passing
 `near_range = 7`, while `near_range = 4` (kR_min/L ≈ 0.35) fails.
 
-Since the smallest far-pair offset equals `near_range + 1`, the per-level
-radius is
+The near/far list tiling of the octree requires ONE radius for the whole tree
+(the child-level exclusion window must fall inside the parent-level neighbor
+window), so the radius is derived from the **leaf** level — the smallest `w`,
+hence the binding constraint — and applied uniformly:
 
-    near_range = max(1, ceil(kr_factor · L / (k·w)) − 1),   k = 2π/λ
+    near_range = max(1, ceil(kr_factor · L_leaf / (k·w_leaf)) − 1),   k = 2π/λ
 
-The leaf level (smallest `w`, hence the strictest constraint) is binding.
+Coarser levels then satisfy the criterion with a growing margin
+(kR_min(ℓ) scales with `w_ℓ` while `L_ℓ` grows sublinearly).
 """
 function adaptive_near_range(
     λ::Real,

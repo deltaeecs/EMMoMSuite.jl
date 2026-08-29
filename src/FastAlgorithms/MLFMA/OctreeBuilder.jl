@@ -42,13 +42,14 @@ Construct the hierarchical Octree structure for the Multilevel Fast Multipole Al
 - `leafnodes`: A `3 \\times N` matrix of basis function centers.
 - `leafCubeEdgel`: Target edge length for leaf cubes (typically \$\\approx 0.25\\lambda\$).
 - `λ`: Wavelength (used for wavenumber \$k\$ calculation).
-- `near_range`: Near-field radius in cube offsets per level.
-  `nothing` (default) selects a **per-level adaptive** radius that guarantees
-  real-spectrum M2L convergence (`kR_min ≥ 0.55·L` on every level, calibrated on
-  gate GD2V); an explicit `Int` pins the same radius for all levels (backward
-  compatible — a too-small value makes the diagonal M2L inaccurate and triggers
-  a warning). Larger radii grow the direct near-field matrix as `(2nr+1)³`
-  per cube — pair with `BlockJacobiPreconditioner`.
+- `near_range`: Near-field radius in cube offsets, uniform for the whole tree.
+  `nothing` (default) derives an **adaptive** radius from the leaf level that
+  guarantees real-spectrum M2L convergence (`kR_min ≥ 0.55·L_leaf` — the leaf
+  has the smallest `w` and is the binding level; calibrated on gate GD2V). An
+  explicit `Int` pins the radius (backward compatible — a too-small value makes
+  the diagonal M2L inaccurate and triggers a warning). Larger radii grow the
+  direct near-field matrix as `(2nr+1)³` per cube — pair with
+  `BlockJacobiPreconditioner`.
 
 # Returns
 - `OctreeInfo`: The constructed octree data structure containing all levels and precomputed data.
@@ -75,6 +76,14 @@ function build_octree(
         end
     end
 
+    # 1.5 Tree-uniform near radius derived from the LEAF level (issue #22 #3).
+    # The near/far list tiling requires ONE radius for the whole tree, and the
+    # leaf level (smallest w) is the binding constraint for real-spectrum M2L
+    # convergence: kR_min = (nr+1)·k·w_leaf ≥ 0.55·L_leaf.
+    L_leaf = max(Interpolation.truncationLCal(leafCubeEdgelUsed; λ = λ), L_min)
+    nr_tree = near_range === nothing ?
+        adaptive_near_range(λ, leafCubeEdgelUsed, L_leaf) : near_range
+
     # 2. Create Leaf Level
     leafLevel, leafsIDSorted = setLevelInfo!(
         nLevels,
@@ -83,7 +92,7 @@ function build_octree(
         bigCubeLowerCoor;
         λ = λ,
         L_min = L_min,
-        near_range = near_range,
+        near_range = nr_tree,
         interp_method = interp_method,
     )
 
@@ -104,7 +113,7 @@ function build_octree(
             bigCubeLowerCoor;
             λ = λ,
             L_min = L_min,
-            near_range = near_range,
+            near_range = nr_tree,
             interp_method = interp_method,
         )
         levels[ilevel] = level
@@ -132,8 +141,8 @@ function build_octree(
     k = 2π / λ
     compute_shift_factors!(nLevels, levels, k)
 
-    # 10. Precompute Transfer Factors (per-level adaptive near radius unless pinned)
-    compute_translation_factors!(nLevels, levels, k; near_range = near_range)
+    # 10. Precompute Transfer Factors (tree-uniform near radius, leaf-derived)
+    compute_translation_factors!(nLevels, levels, k; near_range = nr_tree)
 
     # M2L 有效距离校验（issue #22 问题 3）：对角实谱 M2L 的浮点收敛要求
     # 叶层最小 far 对距离 kR_min ≥ kr_factor·L（kr_factor = 0.55，经 GD2V 门校准）。
@@ -158,11 +167,9 @@ function build_octree(
             end
         end
         if n_far > 0 && kR_min < 0.55 * leaf_level.L
-            nr_eff = near_range === nothing ?
-                adaptive_near_range(λ, leaf_level.cubeEdgel, leaf_level.L) : near_range
             @warn "MLFMA 叶层远场对最小距离不足：kR_min = $(round(kR_min, digits = 2)) < " *
                   "0.55·L（L = $(leaf_level.L)）。对角实谱 M2L 在该距离下精度显著下降" *
-                  "（近场倏逝波分量未被实角谱覆盖）。当前 near_range = $(repr(nr_eff))；" *
+                  "（近场倏逝波分量未被实角谱覆盖）。当前 near_range = $(repr(nr_tree))；" *
                   "建议增大 near_range 或减小叶层尺寸，使叶层最小 far 偏移满足 " *
                   "kR_min ≥ 0.55·L。"
         end
@@ -226,22 +233,8 @@ function setLevelInfo!(
     kidsSlice = [kidsIntervals[i]:(kidsIntervals[i+1]-1) for i = 1:nCubes]
     cubesID3D = nodesInCubeID3D[kidsIntervals[1:(end-1)], 1:3]
 
-    # Truncation number first: the adaptive near-field radius depends on it
-    # (issue #22, problem 3 — real-spectrum M2L convergence requires
-    #  kR_min ≳ kr_factor · L at every level)
-    L, poles = if interp_method == Val(:LbTrained1Step)
-        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
-    elseif interp_method == Val(:FFTSpectral)
-        levelIntegralInfoCal(cubeEdgel, Val(:FFTSpectral); λ = λ, L_min = L_min)
-    else
-        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
-    end
-
-    # Per-level near-field radius: adaptive unless the caller pinned one
-    nr = near_range === nothing ? adaptive_near_range(λ, cubeEdgel, L) : near_range
-
-    # Search neighbors
-    cubesNeighbors = searchNearCubes(cubesID3D, nLevels; near_range = nr)
+    # Search neighbors (tree-uniform radius — see build_octree / issue #22 #3)
+    cubesNeighbors = searchNearCubes(cubesID3D, nLevels; near_range = near_range)
 
     cubesInfo = Vector{CubeInfo{Int,FT}}(undef, nCubes)
     for icube = 1:nCubes
@@ -256,6 +249,14 @@ function setLevelInfo!(
             MVector{3,Int}(cubesID3D[icube, :]),
             MVector{3,FT}(center),
         )
+    end
+
+    L, poles = if interp_method == Val(:LbTrained1Step)
+        levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
+    elseif interp_method == Val(:FFTSpectral)
+        levelIntegralInfoCal(cubeEdgel, Val(:FFTSpectral); λ = λ, L_min = L_min)
+    else
+        levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
     end
 
     level = LevelInfo{Int,FT,interp_type(poles)}()
@@ -306,8 +307,8 @@ function setLevelInfo!(
 
     cubesID3D = kidCubesInCubeID3D[kidsIntervals[1:(end-1)], 1:3]
 
-    # Truncation number first: the adaptive near-field radius depends on it
-    # (issue #22, problem 3)
+    # Truncation number first: the tree-uniform near-field radius is derived
+    # from it in build_octree (issue #22, problem 3)
     L, poles = if interp_method == Val(:LbTrained1Step)
         levelIntegralInfoCal(cubeEdgel, Val(:LbTrained1Step); λ = λ)
     elseif interp_method == Val(:FFTSpectral)
@@ -316,10 +317,8 @@ function setLevelInfo!(
         levelIntegralInfoCal(cubeEdgel; λ = λ, L_min = L_min)
     end
 
-    # Per-level near-field radius: adaptive unless the caller pinned one
-    nr = near_range === nothing ? adaptive_near_range(λ, cubeEdgel, L) : near_range
-
-    cubesNeighbors = searchNearCubes(cubesID3D, levelID; near_range = nr)
+    # Search neighbors (tree-uniform radius — see build_octree / issue #22 #3)
+    cubesNeighbors = searchNearCubes(cubesID3D, levelID; near_range = near_range)
 
     cubesInfo = Vector{CubeInfo{Int,FT}}(undef, nCubes)
     for icube = 1:nCubes

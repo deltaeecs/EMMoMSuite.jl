@@ -447,7 +447,7 @@ end
     efie = EFIE(freq)
     set_frequency!(freq)
 
-    pw = PlaneWave(freq, π / 2, π, [1.0, 0.0, 0.0])
+    pw = PlaneWave(freq, π / 2, π, [0.0, 0.0, 1.0])
     V = excitation_vector(efie, pw, basis)
 
     # Path 1: dense direct solve

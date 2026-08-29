@@ -308,7 +308,7 @@ end
     @test all(isfinite, y)
 end
 
-@testset "issue #22 #3: adaptive per-level near_range" begin
+@testset "issue #22 #3: adaptive tree-uniform near_range" begin
     OB = EMMoMSuite.FastAlgorithms.MLFMA.OctreeBuilder
 
     # Calibration: GD2V gate fixture (λ=1, w=0.1 → L=9) must reproduce
@@ -325,21 +325,52 @@ end
     efie = EFIE(freq)
     centers = reduce(hcat, [bf.center for bf in basis.functions])
 
-    # Default (adaptive): every level's smallest far pair must satisfy
-    # kR_min ≥ 0.55·L — correct M2L by construction (problem 3)
+    # Default (adaptive, leaf-derived tree-uniform radius): every level's
+    # smallest far pair must satisfy kR_min ≥ 0.55·L — correct M2L by
+    # construction (problem 3)
     octree, _ = build_octree(centers, 0.1; λ = 1.0)
     k = 2π
+    leaf_nr = OB.adaptive_near_range(
+        1.0,
+        octree.levels[octree.nLevels].cubeEdgel,
+        octree.levels[octree.nLevels].L,
+    )
     for levelID = 2:octree.nLevels
         level = octree.levels[levelID]
         kR_min = Inf
+        n_far = 0
         for cube in level.cubes, fid in cube.farneighbors
             far = level.cubes[fid]
             off = (cube.ID3D[1] - far.ID3D[1],
                    cube.ID3D[2] - far.ID3D[2],
                    cube.ID3D[3] - far.ID3D[3])
             kR_min = min(kR_min, k * norm(off) * level.cubeEdgel)
+            n_far += 1
         end
         @test kR_min ≥ 0.55 * level.L - 1e-9
+    end
+
+    # Near/far TILING: no existing cube pair may fall through both lists.
+    # For every ordered leaf pair (i, j): offset d ≤ nr ⇒ j ∈ neighbors(i);
+    # nr < d ≤ 2nr+1 ⇒ j ∈ farneighbors(i). (d > 2nr+1 is handled at coarser
+    # levels — that is the hierarchical tiling.) This is the regression that
+    # catches per-level radii breaking the parent-window invariant.
+    leaf = octree.levels[octree.nLevels]
+    for i in 1:leaf.nCubes
+        ci = leaf.cubes[i]
+        for j in 1:leaf.nCubes
+            j == i && continue
+            cj = leaf.cubes[j]
+            d = max(abs(ci.ID3D[1] - cj.ID3D[1]),
+                    abs(ci.ID3D[2] - cj.ID3D[2]),
+                    abs(ci.ID3D[3] - cj.ID3D[3]))
+            d ≤ leaf_nr || d ≤ 2 * leaf_nr + 1 || continue
+            if d ≤ leaf_nr
+                @test (j in ci.neighbors)
+            else
+                @test (j in ci.farneighbors)
+            end
+        end
     end
 
     # Explicit near_range is still honored: leaf neighbors within ±near_range
