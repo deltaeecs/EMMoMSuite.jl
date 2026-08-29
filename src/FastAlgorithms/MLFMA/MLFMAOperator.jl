@@ -316,6 +316,32 @@ function _build_element_cache(
     return element_infos, gq_infos
 end
 
+"""
+    _append_infos!(dest, src) -> dest
+
+Append per-basis element info vectors to the assembly container, normalizing
+the element integer/float types to the container's (gmsh meshes carry `Int32`
+indices while analytic generators use `Int64` — issue #22, problem 5).
+"""
+_append_infos!(dest::Nothing, src::AbstractVector) = copy(src)
+
+_append_infos!(dest, src) = append!(dest, src)
+
+function _append_infos!(
+    dest::Vector{TriangleInfo{IT,FT}},
+    src::Vector{TriangleInfo{IT2,FT2}},
+) where {IT<:Integer,FT<:AbstractFloat,IT2<:Integer,FT2<:AbstractFloat}
+    IT === IT2 && FT === FT2 && return append!(dest, src)
+    for t in src
+        push!(dest, TriangleInfo{IT,FT}(
+            IT(t.triID), t.tag, FT(t.area),
+            IT.(t.verticesID), FT.(t.vertices), FT.(t.center), FT.(t.facen̂),
+            FT.(t.edgel), FT.(t.edgev̂), FT.(t.edgen̂), IT.(t.inBfsID), t.bfsSign,
+        ))
+    end
+    return dest
+end
+
 Base.eltype(op::MLFMAOperator{FT,CT}) where {FT,CT} = CT
 Base.size(op::MLFMAOperator) = size(op.Z_near)
 Base.size(op::MLFMAOperator, i::Int) = size(op.Z_near, i)
@@ -452,8 +478,11 @@ function assemble_near_field(
     tri_to_rwg = [Vector{Tuple{Int,Int,Float64}}() for _ = 1:max_tri_id]
     tet_to_swg = [Vector{Tuple{Int,Int,Float64}}() for _ = 1:max_tet_id]
 
-    all_tris = Vector{TriangleInfo{Int,Float64}}()
-    all_tets = Vector{TetrahedraInfo{Int,Float64,ComplexF64}}()
+    # Container eltype follows the first contributing basis — gmsh meshes carry
+    # Int32 indices while analytic generators use Int64 (issue #22, problem 5:
+    # the gmsh path must reach the MLFMA near-field assembly).
+    all_tris = nothing
+    all_tets = nothing
 
     for (b_idx, b) in enumerate(bases)
         offset = b_idx == 1 ? 0 : offsets[b_idx-1]
@@ -468,7 +497,7 @@ function assemble_near_field(
                     end
                 end
             end
-            append!(all_tris, get_triangles_info(b.mesh, b))
+            all_tris = _append_infos!(all_tris, get_triangles_info(b.mesh, b))
         elseif b isa SWGBasis
             for (i, f) in enumerate(b.functions)
                 global_id = offset + i
@@ -480,9 +509,9 @@ function assemble_near_field(
                 end
             end
             if hasfield(typeof(operator), :permittivities)
-                append!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+                all_tets = _append_infos!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
             elseif operator isa VEFIE
-                append!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+                all_tets = _append_infos!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
             end
         end
     end
@@ -539,7 +568,7 @@ function assemble_near_field(
     end
 
     # Pre-compute VEFIE caches for all tets (needed for vefie_element_interaction_kernel)
-    if vefie_op !== nothing && !isempty(all_tets)
+    if vefie_op !== nothing && all_tets !== nothing && !isempty(all_tets)
         vefie_caches = precompute_vefie_basis(vefie_op, all_tets)
     end
 
