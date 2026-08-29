@@ -5,6 +5,7 @@ using EMMoMSuite.Geometry
 using EMMoMSuite.BasisFunctions
 using EMMoMSuite.IntegralEquations
 using EMMoMSuite.CoreModule
+using EMMoMSuite.Solvers: BlockJacobiPreconditioner
 using StaticArrays
 using LinearAlgebra
 using MPI
@@ -265,4 +266,44 @@ end
     @test length(phiParentPoles.Xϕs) < 6
     info2 = Interp.interpolationCSCMatCal(phiParentPoles, phiChildPoles, 6)
     @test info2 isa Interp.LagrangeInterpInfo
+end
+
+@testset "issue #22: MLFMAOperator element cache + scratch reuse" begin
+    freq = 300e6
+    mesh = generate_sphere_mesh(0.5, 6, 12)
+    basis = RWGBasis(mesh)
+    efie = EFIE(freq)
+
+    op = MLFMAOperator(efie, basis, 0.3)
+
+    # Element geometry/quadrature must be precomputed once at construction
+    @test op.element_cache !== nothing
+    infos, gqs = op.element_cache
+    @test length(infos) == 1 && length(gqs) == 1
+    @test infos[1] !== nothing && gqs[1] !== nothing
+
+    # Scratch-buffer reuse must not corrupt results: repeated matvecs are
+    # deterministic, and mul! into a caller buffer agrees with `*`.
+    x = ones(ComplexF64, size(op, 1))
+    y1 = op * x
+    y2 = op * x
+    @test y1 == y2
+    y3 = similar(x)
+    mul!(y3, op, x)
+    @test y3 == y1
+    @test all(isfinite, y1)
+end
+
+@testset "issue #22: BlockJacobiPreconditioner on MLFMAOperator" begin
+    freq = 300e6
+    mesh = generate_sphere_mesh(0.5, 6, 12)
+    basis = RWGBasis(mesh)
+    efie = EFIE(freq)
+    op = MLFMAOperator(efie, basis, 0.3)
+
+    P = BlockJacobiPreconditioner(op)
+    x = ones(ComplexF64, size(op, 1))
+    y = P \ x
+    @test length(y) == length(x)
+    @test all(isfinite, y)
 end

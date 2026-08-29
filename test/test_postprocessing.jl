@@ -411,3 +411,27 @@ end
     @test all(result_swg.P_density .>= 0)
     @test result_swg.P_total ≈ sum(result_swg.P_density .* V) rtol=1e-10
 end
+
+@testset "issue #22: radarCrossSection guards unset global k0" begin
+    mesh  = generate_sphere_mesh(0.5, 4, 8)
+    basis = RWGBasis(mesh)
+    I_dummy = ones(ComplexF64, num_basis(basis))
+    θs = collect(range(0.0, π, length = 10))
+    ϕs = [0.0]
+
+    # Simulate a fresh session where set_frequency! was never called:
+    # previously this silently produced σ ≡ 0 → 10log10(0) = -Inf dBsm everywhere.
+    saved_k0 = Parameters.GLOBAL_PARAMS.k0
+    Parameters.GLOBAL_PARAMS.k0 = 0.0
+    try
+        @test_throws ErrorException radarCrossSection(θs, ϕs, I_dummy, basis)
+    finally
+        Parameters.GLOBAL_PARAMS.k0 = saved_k0
+    end
+
+    # Sanity: with a properly set frequency the same call returns finite RCS
+    set_frequency!(300e6)
+    _, rcs_total, rcs_dB = radarCrossSection(θs, ϕs, I_dummy, basis)
+    @test all(isfinite, rcs_dB)
+    @test all(rcs_total .>= 0)
+end

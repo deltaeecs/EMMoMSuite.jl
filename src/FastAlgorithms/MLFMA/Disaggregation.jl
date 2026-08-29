@@ -114,7 +114,22 @@ function disaggregate_downward!(
         return
     end
 
+    # Per-thread scratch buffers, allocated once per call/level instead of once per
+    # (cube, kid) — issue #22: the per-kid `zeros` + product temporaries dominated
+    # per-matvec heap allocations.
+    # (FFTInterpInfo took the batched early-return path above.)
+    nP = size(parentDisaggG, 1)
+    nScratch = Threads.nthreads()
+    scratch_shift = [Matrix{CT}(undef, nP, 2) for _ in 1:nScratch]
+    if hasfield(typeof(interp), :θϕCSC)
+        scratch_T = [Vector{CT}(undef, size(interp.θϕCSCT, 1)) for _ in 1:nScratch]
+    else
+        scratch_T = [Matrix{CT}(undef, size(interp.θCSCT, 1), 2) for _ in 1:nScratch]
+        scratch_C = [Matrix{CT}(undef, nPolesChild, 2) for _ in 1:nScratch]
+    end
+
     Threads.@threads for iCube = 1:parentLevel.nCubes
+        tid = Threads.threadid()
         parentCube = parentLevel.cubes[iCube]
         disaggParent = view(parentDisaggG, :, :, iCube)
 
@@ -125,28 +140,21 @@ function disaggregate_downward!(
 
             shift = view(phaseShift, :, childIn8)
 
-            shiftedParent = zeros(CT, size(disaggParent))
+            shiftedParent = scratch_shift[tid]
             for pol = 1:2
                 @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
             end
 
-            childVal = if interp isa FFTInterpInfo
-                # FFT 谱反插值：θ 方向 Lagrange 转置，φ 方向 FFT 下采样（父层 M2 → 子层 M1）
-                temp = interp.θCSCT * shiftedParent
-                out = Matrix{eltype(shiftedParent)}(undef, interp.nθ * interp.M1, 2)
-                for pol = 1:2
-                    @views fft_anterp_phi!(out[:, pol], temp[:, pol], interp)
-                end
-                out
-            elseif hasfield(typeof(interp), :θϕCSC)
+            if hasfield(typeof(interp), :θϕCSC)
                 # Lebedev 一步反插值：θϕCSCT 为插值矩阵的转置（伴随算子）
-                reshape(interp.θϕCSCT * vec(shiftedParent), nPolesChild, 2)
+                mul!(scratch_T[tid], interp.θϕCSCT, vec(shiftedParent))
+                @views childDisaggG[:, :, childID] .+= reshape(scratch_T[tid], nPolesChild, 2)
             else
-                temp = interp.θCSCT * shiftedParent
-                interp.ϕCSCT * temp
+                # 传统两段式反插值：先 θ 转置，再 ϕ 转置
+                mul!(scratch_T[tid], interp.θCSCT, shiftedParent)
+                mul!(scratch_C[tid], interp.ϕCSCT, scratch_T[tid])
+                @views childDisaggG[:, :, childID] .+= scratch_C[tid]
             end
-
-            @views childDisaggG[:, :, childID] .+= childVal
         end
     end
 end
@@ -169,6 +177,7 @@ function disaggregate_leaf!(
     ZI::AbstractVector,
     sorted_ids::Vector{Int};
     cube_filter = nothing,
+    element_cache = nothing,
 )
     disaggregate_leaf!(
         level,
@@ -178,6 +187,7 @@ function disaggregate_leaf!(
         ZI,
         sorted_ids;
         cube_filter = cube_filter,
+        element_cache = element_cache,
     )
 end
 
@@ -194,6 +204,7 @@ function disaggregate_leaf!(
     ZI::AbstractVector,
     sorted_ids::Vector{Int};
     cube_filter = nothing,
+    element_cache = nothing,
 )
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -212,27 +223,33 @@ function disaggregate_leaf!(
     nPoles = length(poles.r̂sθsϕs)
     nCubes = level.nCubes
 
-    # Precompute element info and quadrature
-    element_infos = Any[]
-    gqs = Any[]
+    # Precompute element info and quadrature (or reuse the operator-level cache
+    # built by `_build_element_cache` — issue #22)
+    local element_infos, gqs
+    if element_cache === nothing
+        element_infos = Any[]
+        gqs = Any[]
 
-    for b in bases
-        if b isa RWGBasis
-            push!(element_infos, get_triangles_info(b.mesh, b))
-            push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
-        elseif b isa SWGBasis
-            if hasfield(typeof(operator), :permittivities)
-                push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+        for b in bases
+            if b isa RWGBasis
+                push!(element_infos, get_triangles_info(b.mesh, b))
+                push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
+            elseif b isa SWGBasis
+                if hasfield(typeof(operator), :permittivities)
+                    push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+                else
+                    push!(
+                        element_infos,
+                        get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh))),
+                    )
+                end
+                push!(gqs, GaussQuadratureInfo(:Tetrahedron, 5, FT))
             else
-                push!(
-                    element_infos,
-                    get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh))),
-                )
+                error("Unsupported basis type")
             end
-            push!(gqs, GaussQuadratureInfo(:Tetrahedron, 5, FT))
-        else
-            error("Unsupported basis type")
         end
+    else
+        element_infos, gqs = element_cache
     end
 
     poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]

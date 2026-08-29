@@ -22,6 +22,25 @@ using ...CoreModule: num_elements, Constants
 export radarCrossSection
 
 """
+    _checked_k0() -> Float64
+
+Return the global free-space wavenumber, erroring out when it has not been set.
+
+`radarCrossSection` historically read the global `k0` silently; with `k0 == 0`
+(fresh session, `set_frequency!` never called) every RCS evaluates to exactly 0
+and `10log10(0) = -Inf` dBsm is returned with no warning (issue #22).
+"""
+function _checked_k0()
+    k0 = get_k0()
+    k0 > 0 || error(
+        "Global k0 is not set (k0 = $k0). " *
+        "Call `set_frequency!(freq)` before radarCrossSection, " *
+        "or use a frequency-synchronized operator constructor.",
+    )
+    return k0
+end
+
+"""
     radarCrossSection(θs_obs, ϕs_obs, ICoeff, trianglesInfo, BFT)
 
 Calculate the Radar Cross Section (RCS) of the target.
@@ -71,7 +90,7 @@ function radarCrossSection(
     # Calculate currents on geometry
     Jtris = geoElectricJCal(ICoeff, basis)
 
-    k0 = get_k0()
+    k0 = _checked_k0()
     eta0 = get_eta0()
 
     Nθ_obs = length(θs_obs)
@@ -141,7 +160,7 @@ function radarCrossSection(
 
     Jtetras = geoElectricJCal(ICoeff, basis, permittivities)
 
-    k0 = get_k0()
+    k0 = _checked_k0()
     eta0 = get_eta0()
 
     Nθ_obs = length(θs_obs)
@@ -209,7 +228,7 @@ function radarCrossSection(
     permittivities::Vector{CT},
 ) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
 
-    k0 = get_k0()
+    k0 = _checked_k0()
     eta0 = get_eta0()
 
     Nθ_obs = length(θs_obs)
@@ -258,7 +277,7 @@ function radarCrossSection(
     permittivities::Vector{CT},
 ) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
 
-    k0 = get_k0()
+    k0 = _checked_k0()
     eta0 = get_eta0()
 
     Nθ_obs = length(θs_obs)
@@ -301,7 +320,7 @@ function radarCrossSection(
     permittivities::Vector{CT},
 ) where {IT<:Integer,FT<:Real,CT<:Complex{FT}}
 
-    k0 = get_k0()
+    k0 = _checked_k0()
     eta0 = get_eta0()
 
     Nθ_obs = length(θs_obs)
@@ -362,7 +381,7 @@ function radarCrossSection(
     I_surf = ICoeff[1:n_surf]
     I_vol = ICoeff[n_surf+1:end]
 
-    k0 = get_k0()
+    k0 = _checked_k0()
     eta0 = get_eta0()
     Nθ_obs = length(θs_obs)
     Nϕ_obs = length(ϕs_obs)

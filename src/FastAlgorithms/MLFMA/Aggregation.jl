@@ -49,11 +49,20 @@ function aggregate!(
     offsets::Vector{Int},
     operator::AbstractIntegralOperator,
     x::AbstractVector,
-    sorted_ids::Vector{Int},
+    sorted_ids::Vector{Int};
+    element_cache = nothing,
 )
     # 1. Leaf level aggregation (Radiation pattern of basis functions)
     leafLevel = octree.levels[octree.nLevels]
-    aggregate_leaf!(leafLevel, bases, offsets, operator, x, sorted_ids)
+    aggregate_leaf!(
+        leafLevel,
+        bases,
+        offsets,
+        operator,
+        x,
+        sorted_ids;
+        element_cache = element_cache,
+    )
 
     # 2. Upward pass (Child to Parent)
     for levelID = (octree.nLevels-1):-1:2
@@ -82,6 +91,7 @@ function aggregate_leaf!(
     x::AbstractVector,
     sorted_ids::Vector{Int};
     cube_filter = nothing,
+    element_cache = nothing,
 )
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -99,28 +109,35 @@ function aggregate_leaf!(
         fill!(level.aggS, zero(CT))
     end
 
-    # Precompute element info and quadrature
-    element_infos = Any[]
-    gqs = Any[]
+    # Precompute element info and quadrature (or reuse the operator-level cache
+    # built by `_build_element_cache` — issue #22: rebuilding these on every matvec
+    # dominated per-iteration heap allocations)
+    local element_infos, gqs
+    if element_cache === nothing
+        element_infos = Any[]
+        gqs = Any[]
 
-    for b in bases
-        if b isa RWGBasis
-            push!(element_infos, get_triangles_info(b.mesh, b))
-            push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
-        elseif b isa SWGBasis
-            if hasfield(typeof(operator), :permittivities)
-                push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+        for b in bases
+            if b isa RWGBasis
+                push!(element_infos, get_triangles_info(b.mesh, b))
+                push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
+            elseif b isa SWGBasis
+                if hasfield(typeof(operator), :permittivities)
+                    push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+                else
+                    # Fallback
+                    push!(
+                        element_infos,
+                        get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh))),
+                    )
+                end
+                push!(gqs, GaussQuadratureInfo(:Tetrahedron, 5, FT))
             else
-                # Fallback
-                push!(
-                    element_infos,
-                    get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh))),
-                )
+                error("Unsupported basis type")
             end
-            push!(gqs, GaussQuadratureInfo(:Tetrahedron, 5, FT))
-        else
-            error("Unsupported basis type")
         end
+    else
+        element_infos, gqs = element_cache
     end
 
     poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]
@@ -399,17 +416,27 @@ function aggregate_upward!(
 
     phaseShift = parentLevel.phaseShiftFromKids
 
-    # FFT 路径：先对所有子盒做一次批量 φ FFT 插值，循环内只做 θ 步
-    childPhi = nothing
+    # Per-thread scratch buffers, allocated once per call/level instead of once per
+    # (cube, kid) — issue #22. Sized from the interpolation matrices up front.
+    nScratch = Threads.nthreads()
     if interp isa FFTInterpInfo
         childPhi = fft_interp_phi_batch!(
             Array{ComplexF64}(undef, interp.nθ * interp.M2, 2, childLevel.nCubes),
             childAggS,
             interp,
         )
+        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:nScratch]
+    elseif hasfield(typeof(interp), :θϕCSC)
+        # Lebedev one-step: result length = size(θϕCSC, 1) = 2·nPolesParent
+        scratch_flat = [Vector{CT}(undef, size(interp.θϕCSC, 1)) for _ in 1:nScratch]
+    else
+        # Traditional two-step: ϕ-interp result, then θ-interp result
+        scratch_ϕ = [Matrix{CT}(undef, size(interp.ϕCSC, 1), 2) for _ in 1:nScratch]
+        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:nScratch]
     end
 
     Threads.@threads for iCube = 1:nCubesParent
+        tid = Threads.threadid()
         cube_filter !== nothing && !cube_filter(iCube) && continue
         parentCube = parentLevel.cubes[iCube]
 
@@ -421,14 +448,17 @@ function aggregate_upward!(
 
             aggInterp = if interp isa FFTInterpInfo
                 # FFT 谱插值：φ 步已批量完成，这里只做 θ 方向 Lagrange
-                interp.θCSC * view(childPhi, :, :, childID)
+                mul!(scratch_agg[tid], interp.θCSC, view(childPhi, :, :, childID))
+                scratch_agg[tid]
             elseif hasfield(typeof(interp), :θϕCSC)
                 # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
-                reshape(interp.θϕCSC * vec(aggChild), nPolesParent, 2)
+                mul!(scratch_flat[tid], interp.θϕCSC, vec(aggChild))
+                reshape(scratch_flat[tid], nPolesParent, 2)
             else
                 # 传统两段式：先 ϕ 后 θ
-                aggInterpPhi = interp.ϕCSC * aggChild
-                interp.θCSC * aggInterpPhi
+                mul!(scratch_ϕ[tid], interp.ϕCSC, aggChild)
+                mul!(scratch_agg[tid], interp.θCSC, scratch_ϕ[tid])
+                scratch_agg[tid]
             end
 
             shift = view(phaseShift, :, childIn8)

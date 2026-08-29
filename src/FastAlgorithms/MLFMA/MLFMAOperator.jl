@@ -71,6 +71,8 @@ Far-field interactions are computed using:
 - `operator::AbstractIntegralOperator`: Underlying integral equation (EFIE/MFIE/CFIE/SCFIE/VEFIE)
 - `sorted_ids::Vector{Int}`: Permutation mapping original → octree-sorted basis
 - `inv_sorted_ids::Vector{Int}`: Inverse permutation for result reordering
+- `element_cache`: Precomputed per-basis element geometry + quadrature used by the
+  far-field `mul!` path (built once at construction, see `_build_element_cache`)
 
 # Constructor
 
@@ -106,6 +108,14 @@ y = mlfma_op * x  # Uses mul!(y, mlfma_op, x) internally
 # Use with iterative solver
 V = compute_excitation_vector(efie, plane_wave)
 I = gmres(mlfma_op, V, abstol=1e-6, reltol=1e-6)
+
+# Preconditioning: prefer the block-Jacobi preconditioner over `lu(mlfma_op.Z_near)`.
+# `lu` factorizes the full (dense-filling) near-field matrix — O(N³) time / O(N²) memory —
+# while block-Jacobi factorizes only the per-cube diagonal blocks in parallel:
+using EMMoMSuite.Solvers: BlockJacobiPreconditioner
+P = BlockJacobiPreconditioner(mlfma_op)
+solver = GMRESSolver(restart = 20, maxiter = 5000, tol = 1e-6)
+I = solve!(solver, mlfma_op, V; Pl = P)
 ```
 
 # Complexity Analysis
@@ -168,6 +178,7 @@ struct MLFMAOperator{FT,CT} <: AbstractIntegralOperator
     operator::AbstractIntegralOperator # Underlying EFIE/MFIE/VEFIE/SCFIE
     sorted_ids::Vector{Int} # Permutation to map original basis to sorted basis
     inv_sorted_ids::Vector{Int} # Inverse permutation
+    element_cache::Any # Precomputed (element_infos, gq_infos) per basis — see _build_element_cache
 end
 
 function MLFMAOperator(
@@ -244,6 +255,11 @@ function MLFMAOperator(
     FT = eltype(bases[1].mesh.node)
     CT = eltype(Z_near)
 
+    # Precompute per-basis element geometry + quadrature once (issue #22):
+    # aggregate_leaf!/disaggregate_leaf! previously rebuilt these on EVERY matvec,
+    # which dominated per-iteration heap allocations.
+    element_cache = _build_element_cache(abstract_bases, operator, FT)
+
     return MLFMAOperator{FT,CT}(
         octree,
         abstract_bases,
@@ -252,7 +268,43 @@ function MLFMAOperator(
         operator,
         sorted_ids,
         inv_sorted_ids,
+        element_cache,
     )
+end
+
+"""
+    _build_element_cache(bases, operator, FT) -> (element_infos, gq_infos)
+
+Precompute per-basis element geometry and Gauss quadrature data once at operator
+construction. `aggregate_leaf!`/`disaggregate_leaf!` accept this cache (keyword
+`element_cache`) so that `mul!` no longer rebuilds all `TriangleInfo`/`TetrahedraInfo`
+on every matrix-vector product.
+"""
+function _build_element_cache(
+    bases::Vector{<:AbstractBasisFunction},
+    operator::AbstractIntegralOperator,
+    ::Type{FT},
+) where {FT<:Real}
+    nb = length(bases)
+    element_infos = Vector{Any}(undef, nb)
+    gq_infos = Vector{Any}(undef, nb)
+    for (i, b) in enumerate(bases)
+        if b isa RWGBasis
+            element_infos[i] = get_triangles_info(b.mesh, b)
+            gq_infos[i] = GaussQuadratureInfo(:Triangle, 4, FT)
+        elseif b isa SWGBasis
+            if hasfield(typeof(operator), :permittivities)
+                element_infos[i] = get_tetrahedra_info(b.mesh, b, operator.permittivities)
+            else
+                element_infos[i] =
+                    get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh)))
+            end
+            gq_infos[i] = GaussQuadratureInfo(:Tetrahedron, 5, FT)
+        else
+            error("Unsupported basis type")
+        end
+    end
+    return element_infos, gq_infos
 end
 
 Base.eltype(op::MLFMAOperator{FT,CT}) where {FT,CT} = CT
@@ -302,7 +354,15 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
 
     # 2.1 Aggregation (Upward Pass)
     # Computes radiation patterns at leaf level and aggregates up to level 2
-    aggregate!(A.octree, A.bases, A.basis_offsets, A.operator, x, A.sorted_ids)
+    aggregate!(
+        A.octree,
+        A.bases,
+        A.basis_offsets,
+        A.operator,
+        x,
+        A.sorted_ids;
+        element_cache = A.element_cache,
+    )
 
     # 2.2 Translation (Horizontal Pass)
     # Computes received fields at each level from far neighbors
@@ -323,7 +383,15 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
     # Projects received fields onto test functions
     y_far = zeros(ComplexF64, length(x))
     leafLevel = A.octree.levels[A.octree.nLevels]
-    disaggregate_leaf!(leafLevel, A.bases, A.basis_offsets, A.operator, y_far, A.sorted_ids)
+    disaggregate_leaf!(
+        leafLevel,
+        A.bases,
+        A.basis_offsets,
+        A.operator,
+        y_far,
+        A.sorted_ids;
+        element_cache = A.element_cache,
+    )
 
     # Apply EFIE factor to Far Field part if needed
     # Note: The factor is multiplied by 4 because the aggregation/disaggregation
