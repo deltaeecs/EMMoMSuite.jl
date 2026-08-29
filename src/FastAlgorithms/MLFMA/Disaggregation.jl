@@ -114,46 +114,49 @@ function disaggregate_downward!(
         return
     end
 
-    # Per-thread scratch buffers, allocated once per call/level instead of once per
-    # (cube, kid) — issue #22: the per-kid `zeros` + product temporaries dominated
-    # per-matvec heap allocations.
+    # Per-chunk scratch buffers: one chunk of cubes per task, each chunk owns its
+    # buffers (indexed by the *loop* variable, not Threads.threadid() — the
+    # latter can exceed Threads.nthreads() on multi-pool runtimes). Buffers are
+    # allocated once per call/level instead of once per (cube, kid) — issue #22.
     # (FFTInterpInfo took the batched early-return path above.)
     nP = size(parentDisaggG, 1)
-    nScratch = Threads.nthreads()
-    scratch_shift = [Matrix{CT}(undef, nP, 2) for _ in 1:nScratch]
+    nScratch = max(1, min(Threads.nthreads(), parentLevel.nCubes))
+    chunks = collect(Iterators.partition(1:parentLevel.nCubes, cld(parentLevel.nCubes, nScratch)))
+    scratch_shift = [Matrix{CT}(undef, nP, 2) for _ in 1:length(chunks)]
     if hasfield(typeof(interp), :θϕCSC)
-        scratch_T = [Vector{CT}(undef, size(interp.θϕCSCT, 1)) for _ in 1:nScratch]
+        scratch_T = [Vector{CT}(undef, size(interp.θϕCSCT, 1)) for _ in 1:length(chunks)]
     else
-        scratch_T = [Matrix{CT}(undef, size(interp.θCSCT, 1), 2) for _ in 1:nScratch]
-        scratch_C = [Matrix{CT}(undef, nPolesChild, 2) for _ in 1:nScratch]
+        scratch_T = [Matrix{CT}(undef, size(interp.θCSCT, 1), 2) for _ in 1:length(chunks)]
+        scratch_C = [Matrix{CT}(undef, nPolesChild, 2) for _ in 1:length(chunks)]
     end
 
-    Threads.@threads for iCube = 1:parentLevel.nCubes
-        tid = Threads.threadid()
-        parentCube = parentLevel.cubes[iCube]
-        disaggParent = view(parentDisaggG, :, :, iCube)
+    Threads.@threads for ci in 1:length(chunks)
+        for iCube in chunks[ci]
+            parentCube = parentLevel.cubes[iCube]
+            disaggParent = view(parentDisaggG, :, :, iCube)
 
-        for iKid = 1:length(parentCube.kidsInterval)
-            childID = parentCube.kidsInterval[iKid]
-            child_filter !== nothing && !child_filter(childID) && continue
-            childIn8 = parentCube.kidsIn8[iKid]
+            for iKid = 1:length(parentCube.kidsInterval)
+                childID = parentCube.kidsInterval[iKid]
+                child_filter !== nothing && !child_filter(childID) && continue
+                childIn8 = parentCube.kidsIn8[iKid]
 
-            shift = view(phaseShift, :, childIn8)
+                shift = view(phaseShift, :, childIn8)
 
-            shiftedParent = scratch_shift[tid]
-            for pol = 1:2
-                @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
-            end
+                shiftedParent = scratch_shift[ci]
+                for pol = 1:2
+                    @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
+                end
 
-            if hasfield(typeof(interp), :θϕCSC)
-                # Lebedev 一步反插值：θϕCSCT 为插值矩阵的转置（伴随算子）
-                mul!(scratch_T[tid], interp.θϕCSCT, vec(shiftedParent))
-                @views childDisaggG[:, :, childID] .+= reshape(scratch_T[tid], nPolesChild, 2)
-            else
-                # 传统两段式反插值：先 θ 转置，再 ϕ 转置
-                mul!(scratch_T[tid], interp.θCSCT, shiftedParent)
-                mul!(scratch_C[tid], interp.ϕCSCT, scratch_T[tid])
-                @views childDisaggG[:, :, childID] .+= scratch_C[tid]
+                if hasfield(typeof(interp), :θϕCSC)
+                    # Lebedev 一步反插值：θϕCSCT 为插值矩阵的转置（伴随算子）
+                    mul!(scratch_T[ci], interp.θϕCSCT, vec(shiftedParent))
+                    @views childDisaggG[:, :, childID] .+= reshape(scratch_T[ci], nPolesChild, 2)
+                else
+                    # 传统两段式反插值：先 θ 转置，再 ϕ 转置
+                    mul!(scratch_T[ci], interp.θCSCT, shiftedParent)
+                    mul!(scratch_C[ci], interp.ϕCSCT, scratch_T[ci])
+                    @views childDisaggG[:, :, childID] .+= scratch_C[ci]
+                end
             end
         end
     end

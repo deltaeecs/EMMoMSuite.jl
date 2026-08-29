@@ -416,55 +416,59 @@ function aggregate_upward!(
 
     phaseShift = parentLevel.phaseShiftFromKids
 
-    # Per-thread scratch buffers, allocated once per call/level instead of once per
-    # (cube, kid) — issue #22. Sized from the interpolation matrices up front.
-    nScratch = Threads.nthreads()
+    # Per-chunk scratch buffers: one chunk of cubes per task, each chunk owns its
+    # buffers (indexed by the *loop* variable, not Threads.threadid() — the
+    # latter can exceed Threads.nthreads() on multi-pool runtimes). Buffers are
+    # allocated once per call/level instead of once per (cube, kid) — issue #22.
+    nScratch = max(1, min(Threads.nthreads(), nCubesParent))
+    chunks = collect(Iterators.partition(1:nCubesParent, cld(nCubesParent, nScratch)))
     if interp isa FFTInterpInfo
         childPhi = fft_interp_phi_batch!(
             Array{ComplexF64}(undef, interp.nθ * interp.M2, 2, childLevel.nCubes),
             childAggS,
             interp,
         )
-        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:nScratch]
+        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)]
     elseif hasfield(typeof(interp), :θϕCSC)
         # Lebedev one-step: result length = size(θϕCSC, 1) = 2·nPolesParent
-        scratch_flat = [Vector{CT}(undef, size(interp.θϕCSC, 1)) for _ in 1:nScratch]
+        scratch_flat = [Vector{CT}(undef, size(interp.θϕCSC, 1)) for _ in 1:length(chunks)]
     else
         # Traditional two-step: ϕ-interp result, then θ-interp result
-        scratch_ϕ = [Matrix{CT}(undef, size(interp.ϕCSC, 1), 2) for _ in 1:nScratch]
-        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:nScratch]
+        scratch_ϕ = [Matrix{CT}(undef, size(interp.ϕCSC, 1), 2) for _ in 1:length(chunks)]
+        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)]
     end
 
-    Threads.@threads for iCube = 1:nCubesParent
-        tid = Threads.threadid()
-        cube_filter !== nothing && !cube_filter(iCube) && continue
-        parentCube = parentLevel.cubes[iCube]
+    Threads.@threads for ci in 1:length(chunks)
+        for iCube in chunks[ci]
+            cube_filter !== nothing && !cube_filter(iCube) && continue
+            parentCube = parentLevel.cubes[iCube]
 
-        for iKid = 1:length(parentCube.kidsInterval)
-            childID = parentCube.kidsInterval[iKid]
-            childIn8 = parentCube.kidsIn8[iKid]
+            for iKid = 1:length(parentCube.kidsInterval)
+                childID = parentCube.kidsInterval[iKid]
+                childIn8 = parentCube.kidsIn8[iKid]
 
-            aggChild = view(childAggS, :, :, childID)
+                aggChild = view(childAggS, :, :, childID)
 
-            aggInterp = if interp isa FFTInterpInfo
-                # FFT 谱插值：φ 步已批量完成，这里只做 θ 方向 Lagrange
-                mul!(scratch_agg[tid], interp.θCSC, view(childPhi, :, :, childID))
-                scratch_agg[tid]
-            elseif hasfield(typeof(interp), :θϕCSC)
-                # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
-                mul!(scratch_flat[tid], interp.θϕCSC, vec(aggChild))
-                reshape(scratch_flat[tid], nPolesParent, 2)
-            else
-                # 传统两段式：先 ϕ 后 θ
-                mul!(scratch_ϕ[tid], interp.ϕCSC, aggChild)
-                mul!(scratch_agg[tid], interp.θCSC, scratch_ϕ[tid])
-                scratch_agg[tid]
-            end
+                aggInterp = if interp isa FFTInterpInfo
+                    # FFT 谱插值：φ 步已批量完成，这里只做 θ 方向 Lagrange
+                    mul!(scratch_agg[ci], interp.θCSC, view(childPhi, :, :, childID))
+                    scratch_agg[ci]
+                elseif hasfield(typeof(interp), :θϕCSC)
+                    # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
+                    mul!(scratch_flat[ci], interp.θϕCSC, vec(aggChild))
+                    reshape(scratch_flat[ci], nPolesParent, 2)
+                else
+                    # 传统两段式：先 ϕ 后 θ
+                    mul!(scratch_ϕ[ci], interp.ϕCSC, aggChild)
+                    mul!(scratch_agg[ci], interp.θCSC, scratch_ϕ[ci])
+                    scratch_agg[ci]
+                end
 
-            shift = view(phaseShift, :, childIn8)
+                shift = view(phaseShift, :, childIn8)
 
-            for pol = 1:2
-                @views parentAggS[:, pol, iCube] .+= shift .* aggInterp[:, pol]
+                for pol = 1:2
+                    @views parentAggS[:, pol, iCube] .+= shift .* aggInterp[:, pol]
+                end
             end
         end
     end
