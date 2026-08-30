@@ -37,16 +37,24 @@ function compute_translation_factors!(
     levels::Dict{Int,LV},
     k::Real;
     near_range::Union{Int,Nothing} = nothing,
+    m2l_stabilization::Symbol = :unscaled,
 ) where {LV<:AbstractLevel}
     # Compute for each level (from 2 to nLevels). `near_range = nothing` selects
     # the per-level adaptive radius (issue #22, problem 3 — real-spectrum M2L
     # convergence requires kR_min ≳ kr_factor·L on every level).
+    #
+    # `m2l_stabilization = :scaled` activates the low-frequency-stable scaled
+    # diagonalization (Ergül & Karaosmanoğlu, URSI GA 2014): each translation
+    # series term carries an s^l factor that balances the h_l⁽²⁾(kw) growth at
+    # small arguments, stabilizing the M2L at short translation distances.
     λ = 2π / k
     for iLevel = 2:nLevels
         level = levels[iLevel]
         nr = near_range === nothing ?
             adaptive_near_range(λ, level.cubeEdgel, level.L) : near_range
-        cal_alpha_trans_on_level!(level, k, nr)
+        s = m2l_stabilization === :scaled ?
+            scaled_translation_factor(k, level.cubeEdgel, nr) : nothing
+        cal_alpha_trans_on_level!(level, k, nr, s)
     end
 end
 
@@ -54,6 +62,7 @@ function cal_alpha_trans_on_level!(
     level::LevelInfo,
     k::Real,
     near_range::Int,
+    s::Union{Real,Nothing} = nothing,
 )
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -67,6 +76,10 @@ function cal_alpha_trans_on_level!(
     # Standard code uses -im * k / (4 * π)
     # Verification shows we need this standard factor to match Direct Solver.
     const_factor = -im * k / (4 * FT(π))
+
+    # Low-frequency stabilization scale (issue #22, problem 3): s === nothing
+    # recovers the unscaled diagonalization (s = 1).
+    s_factor = s === nothing ? one(FT) : FT(s)
 
     # 只计算/存储本层实际出现的远场相对偏移列：
     # 全量偏移表为 (2·(2·near_range+1)+1)³ − (2·near_range+1)³ 列，稀疏八叉树中
@@ -130,11 +143,17 @@ function cal_alpha_trans_on_level!(
             legendrePls = collectPl(truncL, cosϕ)
 
             # Summation
+            # Low-frequency stabilization (issue #22, problem 3; Ergül &
+            # Karaosmanoğlu, URSI GA 2014): each term carries an s^l factor
+            # that balances the h_l⁽²⁾(kw) growth at small arguments.
+            # s === nothing recovers the unscaled series exactly (s = 1).
             val = zero(CT)
             j_term = im
+            s_power = one(FT)
             for l = 0:truncL
                 j_term *= -im
-                val += j_term * (2 * l + 1) * h2lxs[l+1] * legendrePls[l+1]
+                val += s_power * j_term * (2 * l + 1) * h2lxs[l+1] * legendrePls[l+1]
+                s_power *= s_factor
             end
 
             αTrans[iPole, iFarNei] = val * const_factor * Wθϕs[iPole]

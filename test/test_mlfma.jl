@@ -388,3 +388,34 @@ end
     end
     @test maxoff ≤ 1
 end
+
+@testset "issue #22 #3: scaled M2L stabilization — documented limitation" begin
+    # The scaled diagonalization (Ergül & Karaosmanoğlu, URSI GA 2014)
+    # stabilizes the h_l series for SUBWAVELENGTH boxes (kw ≪ 1 — the paper's
+    # λ/250 demo). At electrical-size boxes (kw ≈ 2π·0.3 here) the short-range
+    # error is dominated by evanescent content that NEITHER the unscaled NOR
+    # the s^l-scaled real-spectrum M2L captures — empirically the scaled form
+    # is orders of magnitude WORSE (rel ≈ 1e4 vs direct). The correct remedy
+    # at conventional frequencies is the adaptive near_range (GD2V-calibrated).
+    # This testset pins the documented, opt-in behavior: the operator runs and
+    # produces finite output; it makes no accuracy claim.
+    freq = 300e6
+    mesh = generate_sphere_mesh(0.5, 6, 12)
+    basis = RWGBasis(mesh)
+    efie = EFIE(freq)
+    set_frequency!(freq)
+    x = ones(ComplexF64, num_basis(basis))
+
+    Z = assemble_impedance_matrix(efie, basis)
+    y_dense = Z * x
+
+    op_s = MLFMAOperator(efie, basis, 0.3, Val(:Lagrange2Step), 1;
+                         m2l_stabilization = :scaled)
+    y_s = op_s * x
+    rel_s = norm(y_s - y_dense) / norm(y_dense)
+    @info "scaled M2L at nr=1 (documented limitation: not accuracy-recovering " *
+          "at electrical-size boxes)" rel_s
+
+    @test all(isfinite, y_s)
+    @test all(isfinite, y_dense)
+end

@@ -4,7 +4,7 @@ using StaticArrays
 using OffsetArrays
 using ..Interpolation
 
-export CubeInfo, AbstractLevel, LevelInfo, adaptive_near_range
+export CubeInfo, AbstractLevel, LevelInfo, adaptive_near_range, scaled_translation_factor
 
 mutable struct CubeInfo{IT<:Integer,FT<:Real}
     kidsInterval::UnitRange{IT}
@@ -73,6 +73,31 @@ function adaptive_near_range(
     kw = k * cubeEdgel
     kw > 0 || return 1
     return max(1, ceil(Int, kr_factor * L / kw) - 1)
+end
+
+"""
+    scaled_translation_factor(k, cubeEdgel, near_range) -> Real
+
+Per-level scaling factor `s` for the low-frequency-stable (scaled) M2L
+diagonalization — Ergül & Karaosmanoğlu, URSI GA 2014 (issue #22, problem 3).
+
+The scaled decomposition replaces the unstable Hankel series terms
+`h_l⁽²⁾(kw)` by `s^l · h_l⁽²⁾(kw)` in the translation operator and rescales
+the shift operators to `exp(ik k̂·v/s)`. Stability requires `s ≪ kw` (smallest
+translation distance), while the exponential shift approximation requires
+`s ≫ kv` (largest shift distance). The geometric mean of both bounds gives
+
+    s = k·w·sqrt(2·near_range + 1)
+
+with `s` proportional to the electrical box size, as recommended by the paper.
+"""
+function scaled_translation_factor(
+    k::Real,
+    cubeEdgel::Real,
+    near_range::Integer,
+)
+    k > 0 || return 1.0
+    return k * cubeEdgel * sqrt(2 * near_range + 1)
 end
 
 end

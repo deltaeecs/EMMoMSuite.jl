@@ -199,9 +199,11 @@ function MLFMAOperator(
     basis::AbstractBasisFunction,
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Union{Int,Nothing} = nothing,
+    near_range::Union{Int,Nothing} = nothing;
+    m2l_stabilization::Symbol = :unscaled,
 )
-    return MLFMAOperator(operator, [basis], leafCubeEdgel, interp_method, near_range)
+    return MLFMAOperator(operator, [basis], leafCubeEdgel, interp_method, near_range;
+        m2l_stabilization = m2l_stabilization)
 end
 
 function MLFMAOperator(
@@ -209,7 +211,8 @@ function MLFMAOperator(
     bases::Vector{<:AbstractBasisFunction},
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Union{Int,Nothing} = nothing,
+    near_range::Union{Int,Nothing} = nothing;
+    m2l_stabilization::Symbol = :unscaled,
 )
     # 1. Build Octree
     # Concatenate centers from all bases
@@ -223,6 +226,7 @@ function MLFMAOperator(
         λ = lambda,
         interp_method = interp_method,
         near_range = near_range,
+        m2l_stabilization = m2l_stabilization,
     )
 
     # Inverse permutation
@@ -1025,10 +1029,12 @@ function MLFMAOperatorMPI(
     comm::MPI.Comm = MPI.COMM_WORLD,
     interp_method::Val = Val(:Lagrange2Step),
     near_range::Union{Int,Nothing} = nothing,
+    m2l_stabilization::Symbol = :unscaled,
 )
     return MLFMAOperatorMPI(
         operator, [basis], leafCubeEdgel;
         comm = comm, interp_method = interp_method, near_range = near_range,
+        m2l_stabilization = m2l_stabilization,
     )
 end
 
@@ -1039,6 +1045,7 @@ function MLFMAOperatorMPI(
     comm::MPI.Comm = MPI.COMM_WORLD,
     interp_method::Val = Val(:Lagrange2Step),
     near_range::Union{Int,Nothing} = nothing,
+    m2l_stabilization::Symbol = :unscaled,
 )
     rank     = MPI.Comm_rank(comm)
     n_procs  = MPI.Comm_size(comm)
@@ -1051,6 +1058,7 @@ function MLFMAOperatorMPI(
     octree, sorted_ids = build_octree(
         bf_centers, leafCubeEdgel; λ = lambda,
         near_range = near_range, interp_method = interp_method,
+        m2l_stabilization = m2l_stabilization,
     )
 
     N = size(bf_centers, 2)

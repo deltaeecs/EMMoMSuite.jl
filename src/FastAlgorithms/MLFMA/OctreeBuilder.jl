@@ -62,6 +62,7 @@ function build_octree(
     L_min::Int = 0,
     near_range::Union{Int,Nothing} = nothing,
     interp_method::Val = Val(:Lagrange2Step),
+    m2l_stabilization::Symbol = :unscaled,
 ) where {FT<:Real}
     @info "Building Octree..."
 
@@ -154,10 +155,12 @@ function build_octree(
 
     # 9. Precompute Shift Factors
     k = 2π / λ
-    compute_shift_factors!(nLevels, levels, k)
+    compute_shift_factors!(nLevels, levels, k;
+        near_range = nr_tree, m2l_stabilization = m2l_stabilization)
 
     # 10. Precompute Transfer Factors (tree-uniform near radius, leaf-derived)
-    compute_translation_factors!(nLevels, levels, k; near_range = nr_tree)
+    compute_translation_factors!(nLevels, levels, k;
+        near_range = nr_tree, m2l_stabilization = m2l_stabilization)
 
     # M2L 有效距离校验（issue #22 问题 3）：对角实谱 M2L 的浮点收敛要求
     # 叶层最小 far 对距离 kR_min ≥ kr_factor·L（kr_factor = 0.55，经 GD2V 门校准）。
