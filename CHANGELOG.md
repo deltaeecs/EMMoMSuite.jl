@@ -93,11 +93,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **MLFMA 近场半径自适应（issue #22 问题 3）**：`build_octree` / `MLFMAOperator` /
-  `MLFMAOperatorMPI` 的 `near_range` 默认值改为 `nothing`（逐层自适应，按
-  `adaptive_near_range` 保证每层最小远对 `kR_min ≥ 0.55·L`，实谱 M2L 浮点收敛；
-  经 GD2V 门校准），显式 `Int` 仍被尊重；叶层 kR 距离校验阈值由绝对「偏移 ≥ 8」
-  改为相对「kR_min ≥ 0.55·L」，避免静默精度损失。问题 3 的性能型根治
-  （shifted expansion 恢复标准 189 交互列表）另行立项。
+  `MLFMAOperatorMPI` 的 `near_range` 默认值改为 `nothing`（由叶层推导全树统一的
+  自适应半径，按 `adaptive_near_range` 保证每层最小远对 `kR_min ≥ 0.55·L`，实谱 M2L
+  浮点收敛；经 GD2V 门校准），显式 `Int` 仍被尊重；叶层 kR 距离校验阈值由绝对「偏移 ≥ 8」
+  改为相对「kR_min ≥ 0.55·L」，避免静默精度损失。自适应半径 > 2（电小叶层）时输出
+  效率指引警告，并新增权衡基准脚本 `benchmark/mlfma_nearrange_tradeoff.jl`。
+  问题 3 的性能型根治（shifted expansion 恢复标准 189 交互列表）另行立项。
 - **RCS 静默 -Inf（issue #22 问题 2）**：`radarCrossSection` 全局 `k0` 未设置
   （默认 0）时不再静默返回全 `-Inf` dBsm，改为抛出可行动错误。
 

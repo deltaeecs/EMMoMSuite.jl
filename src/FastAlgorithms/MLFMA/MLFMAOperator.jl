@@ -141,6 +141,10 @@ I = solve!(solver, mlfma_op, V; Pl = P)
 - **Memory footprint**: ~10-50 MB per 10k unknowns (depends on leaf size)
 - **Setup time**: ~1-10 minutes for 100k unknowns
 - **Matrix-vector time**: ~0.1-1 second per iteration for 100k unknowns
+- **Leaf size vs near_range**: the adaptive radius follows `kR_min ≥ 0.55·L`;
+  electrically small leaves (≈ 0.1λ) force `near_range ≈ 7` and a heavy direct
+  near-field matrix, electrically larger leaves (≈ 0.5λ–1λ) keep it ≈ 2–3.
+  See `benchmark/mlfma_nearrange_tradeoff.jl` for an empirical trade-off map.
 
 # Advanced Features
 

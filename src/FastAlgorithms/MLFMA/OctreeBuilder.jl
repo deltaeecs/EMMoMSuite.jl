@@ -84,6 +84,21 @@ function build_octree(
     nr_tree = near_range === nothing ?
         adaptive_near_range(λ, leafCubeEdgelUsed, L_leaf) : near_range
 
+    # 1.6 Efficiency guidance (issue #22, problem 3): the direct near-field
+    # matrix grows as (2nr+1)^3 cubes per cube. Adaptive radii above ~2 mean
+    # the leaf cubes are electrically small relative to the evanescent reach;
+    # electrically larger leaf cubes keep nr small at equal M2L accuracy
+    # (kR_min scales with w while L grows sublinearly).
+    if near_range === nothing && nr_tree > 2
+        @warn "Adaptive near_range = $nr_tree (> 2): the direct near-field matrix " *
+              "covers (2·$nr_tree+1)^3 cubes per cube, which grows assembly time and " *
+              "memory. This leaf cube (≈ $(round(leafCubeEdgelUsed / λ, digits = 2)) λ) is " *
+              "electrically small; an electrically larger leaf cube (≈ 0.5λ–1λ keeps " *
+              "near_range ≈ 2–3) trades pole count for a much smaller near-field " *
+              "matrix (the adaptive radius follows kR_min ≥ 0.55·L). Pair the " *
+              "near-field matrix with BlockJacobiPreconditioner. See issue #22 (problem 3)."
+    end
+
     # 2. Create Leaf Level
     leafLevel, leafsIDSorted = setLevelInfo!(
         nLevels,
