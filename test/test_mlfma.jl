@@ -329,7 +329,7 @@ end
     # smallest far pair must satisfy kR_min ≥ 0.55·L — correct M2L by
     # construction (problem 3). nr = 7 > 2 also triggers the efficiency
     # guidance warning.
-    octree = @test_logs (:warn, r"Adaptive near_range = 7") match_mode = :any begin
+    octree, _ = @test_logs (:warn, r"Adaptive near_range = 7") match_mode = :any begin
         build_octree(centers, 0.1; λ = 1.0)
     end
     k = 2π
