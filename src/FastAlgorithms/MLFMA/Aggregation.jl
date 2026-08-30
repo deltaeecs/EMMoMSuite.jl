@@ -49,11 +49,20 @@ function aggregate!(
     offsets::Vector{Int},
     operator::AbstractIntegralOperator,
     x::AbstractVector,
-    sorted_ids::Vector{Int},
+    sorted_ids::Vector{Int};
+    element_cache = nothing,
 )
     # 1. Leaf level aggregation (Radiation pattern of basis functions)
     leafLevel = octree.levels[octree.nLevels]
-    aggregate_leaf!(leafLevel, bases, offsets, operator, x, sorted_ids)
+    aggregate_leaf!(
+        leafLevel,
+        bases,
+        offsets,
+        operator,
+        x,
+        sorted_ids;
+        element_cache = element_cache,
+    )
 
     # 2. Upward pass (Child to Parent)
     for levelID = (octree.nLevels-1):-1:2
@@ -82,6 +91,7 @@ function aggregate_leaf!(
     x::AbstractVector,
     sorted_ids::Vector{Int};
     cube_filter = nothing,
+    element_cache = nothing,
 )
     FT = eltype(level.cubeEdgel)
     CT = Complex{FT}
@@ -99,28 +109,35 @@ function aggregate_leaf!(
         fill!(level.aggS, zero(CT))
     end
 
-    # Precompute element info and quadrature
-    element_infos = Any[]
-    gqs = Any[]
+    # Precompute element info and quadrature (or reuse the operator-level cache
+    # built by `_build_element_cache` — issue #22: rebuilding these on every matvec
+    # dominated per-iteration heap allocations)
+    local element_infos, gqs
+    if element_cache === nothing
+        element_infos = Any[]
+        gqs = Any[]
 
-    for b in bases
-        if b isa RWGBasis
-            push!(element_infos, get_triangles_info(b.mesh, b))
-            push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
-        elseif b isa SWGBasis
-            if hasfield(typeof(operator), :permittivities)
-                push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+        for b in bases
+            if b isa RWGBasis
+                push!(element_infos, get_triangles_info(b.mesh, b))
+                push!(gqs, GaussQuadratureInfo(:Triangle, 4, FT))
+            elseif b isa SWGBasis
+                if hasfield(typeof(operator), :permittivities)
+                    push!(element_infos, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+                else
+                    # Fallback
+                    push!(
+                        element_infos,
+                        get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh))),
+                    )
+                end
+                push!(gqs, GaussQuadratureInfo(:Tetrahedron, 5, FT))
             else
-                # Fallback
-                push!(
-                    element_infos,
-                    get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh))),
-                )
+                error("Unsupported basis type")
             end
-            push!(gqs, GaussQuadratureInfo(:Tetrahedron, 5, FT))
-        else
-            error("Unsupported basis type")
         end
+    else
+        element_infos, gqs = element_cache
     end
 
     poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]
@@ -399,42 +416,59 @@ function aggregate_upward!(
 
     phaseShift = parentLevel.phaseShiftFromKids
 
-    # FFT 路径：先对所有子盒做一次批量 φ FFT 插值，循环内只做 θ 步
-    childPhi = nothing
+    # Per-chunk scratch buffers: one chunk of cubes per task, each chunk owns its
+    # buffers (indexed by the *loop* variable, not Threads.threadid() — the
+    # latter can exceed Threads.nthreads() on multi-pool runtimes). Buffers are
+    # allocated once per call/level instead of once per (cube, kid) — issue #22.
+    nScratch = max(1, min(Threads.nthreads(), nCubesParent))
+    chunks = collect(Iterators.partition(1:nCubesParent, cld(nCubesParent, nScratch)))
     if interp isa FFTInterpInfo
         childPhi = fft_interp_phi_batch!(
             Array{ComplexF64}(undef, interp.nθ * interp.M2, 2, childLevel.nCubes),
             childAggS,
             interp,
         )
+        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)]
+    elseif hasfield(typeof(interp), :θϕCSC)
+        # Lebedev one-step: result length = size(θϕCSC, 1) = 2·nPolesParent
+        scratch_flat = [Vector{CT}(undef, size(interp.θϕCSC, 1)) for _ in 1:length(chunks)]
+    else
+        # Traditional two-step: ϕ-interp result, then θ-interp result
+        scratch_ϕ = [Matrix{CT}(undef, size(interp.ϕCSC, 1), 2) for _ in 1:length(chunks)]
+        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)]
     end
 
-    Threads.@threads for iCube = 1:nCubesParent
-        cube_filter !== nothing && !cube_filter(iCube) && continue
-        parentCube = parentLevel.cubes[iCube]
+    Threads.@threads for ci in 1:length(chunks)
+        for iCube in chunks[ci]
+            cube_filter !== nothing && !cube_filter(iCube) && continue
+            parentCube = parentLevel.cubes[iCube]
 
-        for iKid = 1:length(parentCube.kidsInterval)
-            childID = parentCube.kidsInterval[iKid]
-            childIn8 = parentCube.kidsIn8[iKid]
+            for iKid = 1:length(parentCube.kidsInterval)
+                childID = parentCube.kidsInterval[iKid]
+                childIn8 = parentCube.kidsIn8[iKid]
 
-            aggChild = view(childAggS, :, :, childID)
+                aggChild = view(childAggS, :, :, childID)
 
-            aggInterp = if interp isa FFTInterpInfo
-                # FFT 谱插值：φ 步已批量完成，这里只做 θ 方向 Lagrange
-                interp.θCSC * view(childPhi, :, :, childID)
-            elseif hasfield(typeof(interp), :θϕCSC)
-                # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
-                reshape(interp.θϕCSC * vec(aggChild), nPolesParent, 2)
-            else
-                # 传统两段式：先 ϕ 后 θ
-                aggInterpPhi = interp.ϕCSC * aggChild
-                interp.θCSC * aggInterpPhi
-            end
+                aggInterp = if interp isa FFTInterpInfo
+                    # FFT 谱插值：φ 步已批量完成，这里只做 θ 方向 Lagrange
+                    mul!(scratch_agg[ci], interp.θCSC, view(childPhi, :, :, childID))
+                    scratch_agg[ci]
+                elseif hasfield(typeof(interp), :θϕCSC)
+                    # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
+                    mul!(scratch_flat[ci], interp.θϕCSC, vec(aggChild))
+                    reshape(scratch_flat[ci], nPolesParent, 2)
+                else
+                    # 传统两段式：先 ϕ 后 θ
+                    mul!(scratch_ϕ[ci], interp.ϕCSC, aggChild)
+                    mul!(scratch_agg[ci], interp.θCSC, scratch_ϕ[ci])
+                    scratch_agg[ci]
+                end
 
-            shift = view(phaseShift, :, childIn8)
+                shift = view(phaseShift, :, childIn8)
 
-            for pol = 1:2
-                @views parentAggS[:, pol, iCube] .+= shift .* aggInterp[:, pol]
+                for pol = 1:2
+                    @views parentAggS[:, pol, iCube] .+= shift .* aggInterp[:, pol]
+                end
             end
         end
     end

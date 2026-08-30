@@ -28,18 +28,25 @@ T_\\tau(k, \\hat{k}, R_{ba}) = \\frac{-{\\rm j}k}{(4\\pi)^2}
 - `nLevels`: 八叉树层数（从第 2 层到叶层计算）。
 - `levels`: 层信息字典，每个 `LevelInfo` 写入 `αTrans` 与 `αTransIndex`。
 - `k`: 波数。
-- `near_range`: 近邻判定半径（默认 4，远邻条件为任一维度 `|Δ| > near_range`）。
+- `near_range`: 近邻判定半径。`nothing`（默认）时逐层自适应
+  （`adaptive_near_range`，保证实谱 M2L 收敛，见 issue #22 问题 3）；
+  显式 `Int` 则所有层固定同一半径（远邻条件为任一维度 `|Δ| > near_range`）。
 """
 function compute_translation_factors!(
     nLevels::Int,
     levels::Dict{Int,LV},
     k::Real;
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 ) where {LV<:AbstractLevel}
-    # Compute for each level (from 2 to nLevels)
+    # Compute for each level (from 2 to nLevels). `near_range = nothing` selects
+    # the per-level adaptive radius (issue #22, problem 3 — real-spectrum M2L
+    # convergence requires kR_min ≳ kr_factor·L on every level).
+    λ = 2π / k
     for iLevel = 2:nLevels
         level = levels[iLevel]
-        cal_alpha_trans_on_level!(level, k, near_range)
+        nr = near_range === nothing ?
+            adaptive_near_range(λ, level.cubeEdgel, level.L) : near_range
+        cal_alpha_trans_on_level!(level, k, nr)
     end
 end
 

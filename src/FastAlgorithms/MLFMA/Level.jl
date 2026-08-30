@@ -4,7 +4,7 @@ using StaticArrays
 using OffsetArrays
 using ..Interpolation
 
-export CubeInfo, AbstractLevel, LevelInfo
+export CubeInfo, AbstractLevel, LevelInfo, adaptive_near_range
 
 mutable struct CubeInfo{IT<:Integer,FT<:Real}
     kidsInterval::UnitRange{IT}
@@ -38,6 +38,41 @@ mutable struct LevelInfo{IT<:Integer,FT<:Real,IPT} <: AbstractLevel
     function LevelInfo{IT,FT,IPT}() where {IT<:Integer,FT<:Real,IPT}
         new{IT,FT,IPT}()
     end
+end
+
+"""
+    adaptive_near_range(λ, cubeEdgel, L; kr_factor = 0.55) -> Int
+
+Tree-uniform adaptive near-field radius derived from the leaf level
+(issue #22, problem 3).
+
+The real-spectrum M2L series `Σ (2l+1)(-j)^l h_l⁽²⁾(kR) P_l(k̂·R̂)` contains
+`h_l⁽²⁾(kR)` terms that grow with `l` until `l ≈ kR`; the series only converges
+in floating point once the smallest far-pair distance satisfies
+`kR_min ≳ kr_factor · L`. Empirically calibrated against gate GD2V
+(λ = 1, w = 0.1 → L = 9): `kr_factor = 0.55` reproduces the passing
+`near_range = 7`, while `near_range = 4` (kR_min/L ≈ 0.35) fails.
+
+The near/far list tiling of the octree requires ONE radius for the whole tree
+(the child-level exclusion window must fall inside the parent-level neighbor
+window), so the radius is derived from the **leaf** level — the smallest `w`,
+hence the binding constraint — and applied uniformly:
+
+    near_range = max(1, ceil(kr_factor · L_leaf / (k·w_leaf)) − 1),   k = 2π/λ
+
+Coarser levels then satisfy the criterion with a growing margin
+(kR_min(ℓ) scales with `w_ℓ` while `L_ℓ` grows sublinearly).
+"""
+function adaptive_near_range(
+    λ::Real,
+    cubeEdgel::Real,
+    L::Integer;
+    kr_factor::Real = 0.55,
+)
+    k = 2π / λ
+    kw = k * cubeEdgel
+    kw > 0 || return 1
+    return max(1, ceil(Int, kr_factor * L / kw) - 1)
 end
 
 end

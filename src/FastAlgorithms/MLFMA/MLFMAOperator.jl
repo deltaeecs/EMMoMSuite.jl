@@ -71,6 +71,8 @@ Far-field interactions are computed using:
 - `operator::AbstractIntegralOperator`: Underlying integral equation (EFIE/MFIE/CFIE/SCFIE/VEFIE)
 - `sorted_ids::Vector{Int}`: Permutation mapping original → octree-sorted basis
 - `inv_sorted_ids::Vector{Int}`: Inverse permutation for result reordering
+- `element_cache`: Precomputed per-basis element geometry + quadrature used by the
+  far-field `mul!` path (built once at construction, see `_build_element_cache`)
 
 # Constructor
 
@@ -85,6 +87,15 @@ Far-field interactions are computed using:
   - Typical: 0.25λ to 0.5λ (balance accuracy vs efficiency)
   - Smaller → more cubes, higher memory, better accuracy
   - Larger → fewer cubes, lower memory, lower accuracy
+- `interp_method`: `Val(:Lagrange2Step)` (default), `Val(:LbTrained1Step)` or
+  `Val(:FFTSpectral)`
+- `near_range`: Near-field radius in cube offsets, uniform for the whole tree.
+  `nothing` (default) derives an **adaptive** radius from the leaf level that
+  guarantees real-spectrum M2L convergence (`kR_min ≥ 0.55·L_leaf`, issue #22
+  problem 3); an explicit `Int` pins the radius (a too-small value makes the
+  diagonal M2L inaccurate — a warning is emitted at construction). Note the
+  direct near-field matrix grows as `(2nr+1)³` per cube — pair larger radii
+  with `BlockJacobiPreconditioner`.
 
 # Usage
 
@@ -106,6 +117,14 @@ y = mlfma_op * x  # Uses mul!(y, mlfma_op, x) internally
 # Use with iterative solver
 V = compute_excitation_vector(efie, plane_wave)
 I = gmres(mlfma_op, V, abstol=1e-6, reltol=1e-6)
+
+# Preconditioning: prefer the block-Jacobi preconditioner over `lu(mlfma_op.Z_near)`.
+# `lu` factorizes the full (dense-filling) near-field matrix — O(N³) time / O(N²) memory —
+# while block-Jacobi factorizes only the per-cube diagonal blocks in parallel:
+using EMMoMSuite.Solvers: BlockJacobiPreconditioner
+P = BlockJacobiPreconditioner(mlfma_op)
+solver = GMRESSolver(restart = 20, maxiter = 5000, tol = 1e-6)
+I = solve!(solver, mlfma_op, V; Pl = P)
 ```
 
 # Complexity Analysis
@@ -168,6 +187,7 @@ struct MLFMAOperator{FT,CT} <: AbstractIntegralOperator
     operator::AbstractIntegralOperator # Underlying EFIE/MFIE/VEFIE/SCFIE
     sorted_ids::Vector{Int} # Permutation to map original basis to sorted basis
     inv_sorted_ids::Vector{Int} # Inverse permutation
+    element_cache::Any # Precomputed (element_infos, gq_infos) per basis — see _build_element_cache
 end
 
 function MLFMAOperator(
@@ -175,7 +195,7 @@ function MLFMAOperator(
     basis::AbstractBasisFunction,
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     return MLFMAOperator(operator, [basis], leafCubeEdgel, interp_method, near_range)
 end
@@ -185,7 +205,7 @@ function MLFMAOperator(
     bases::Vector{<:AbstractBasisFunction},
     leafCubeEdgel::Float64,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     # 1. Build Octree
     # Concatenate centers from all bases
@@ -244,6 +264,11 @@ function MLFMAOperator(
     FT = eltype(bases[1].mesh.node)
     CT = eltype(Z_near)
 
+    # Precompute per-basis element geometry + quadrature once (issue #22):
+    # aggregate_leaf!/disaggregate_leaf! previously rebuilt these on EVERY matvec,
+    # which dominated per-iteration heap allocations.
+    element_cache = _build_element_cache(abstract_bases, operator, FT)
+
     return MLFMAOperator{FT,CT}(
         octree,
         abstract_bases,
@@ -252,7 +277,69 @@ function MLFMAOperator(
         operator,
         sorted_ids,
         inv_sorted_ids,
+        element_cache,
     )
+end
+
+"""
+    _build_element_cache(bases, operator, FT) -> (element_infos, gq_infos)
+
+Precompute per-basis element geometry and Gauss quadrature data once at operator
+construction. `aggregate_leaf!`/`disaggregate_leaf!` accept this cache (keyword
+`element_cache`) so that `mul!` no longer rebuilds all `TriangleInfo`/`TetrahedraInfo`
+on every matrix-vector product.
+"""
+function _build_element_cache(
+    bases::Vector{<:AbstractBasisFunction},
+    operator::AbstractIntegralOperator,
+    ::Type{FT},
+) where {FT<:Real}
+    nb = length(bases)
+    element_infos = Vector{Any}(undef, nb)
+    gq_infos = Vector{Any}(undef, nb)
+    for (i, b) in enumerate(bases)
+        if b isa RWGBasis
+            element_infos[i] = get_triangles_info(b.mesh, b)
+            gq_infos[i] = GaussQuadratureInfo(:Triangle, 4, FT)
+        elseif b isa SWGBasis
+            if hasfield(typeof(operator), :permittivities)
+                element_infos[i] = get_tetrahedra_info(b.mesh, b, operator.permittivities)
+            else
+                element_infos[i] =
+                    get_tetrahedra_info(b.mesh, b, fill(1.0 + 0im, num_elements(b.mesh)))
+            end
+            gq_infos[i] = GaussQuadratureInfo(:Tetrahedron, 5, FT)
+        else
+            error("Unsupported basis type")
+        end
+    end
+    return element_infos, gq_infos
+end
+
+"""
+    _append_infos!(dest, src) -> dest
+
+Append per-basis element info vectors to the assembly container, normalizing
+the element integer/float types to the container's (gmsh meshes carry `Int32`
+indices while analytic generators use `Int64` — issue #22, problem 5).
+"""
+_append_infos!(dest::Nothing, src::AbstractVector) = copy(src)
+
+_append_infos!(dest, src) = append!(dest, src)
+
+function _append_infos!(
+    dest::Vector{TriangleInfo{IT,FT}},
+    src::Vector{TriangleInfo{IT2,FT2}},
+) where {IT<:Integer,FT<:AbstractFloat,IT2<:Integer,FT2<:AbstractFloat}
+    IT === IT2 && FT === FT2 && return append!(dest, src)
+    for t in src
+        push!(dest, TriangleInfo{IT,FT}(
+            IT(t.triID), t.tag, FT(t.area),
+            IT.(t.verticesID), FT.(t.vertices), FT.(t.center), FT.(t.facen̂),
+            FT.(t.edgel), FT.(t.edgev̂), FT.(t.edgen̂), IT.(t.inBfsID), t.bfsSign,
+        ))
+    end
+    return dest
 end
 
 Base.eltype(op::MLFMAOperator{FT,CT}) where {FT,CT} = CT
@@ -302,7 +389,15 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
 
     # 2.1 Aggregation (Upward Pass)
     # Computes radiation patterns at leaf level and aggregates up to level 2
-    aggregate!(A.octree, A.bases, A.basis_offsets, A.operator, x, A.sorted_ids)
+    aggregate!(
+        A.octree,
+        A.bases,
+        A.basis_offsets,
+        A.operator,
+        x,
+        A.sorted_ids;
+        element_cache = A.element_cache,
+    )
 
     # 2.2 Translation (Horizontal Pass)
     # Computes received fields at each level from far neighbors
@@ -323,7 +418,15 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
     # Projects received fields onto test functions
     y_far = zeros(ComplexF64, length(x))
     leafLevel = A.octree.levels[A.octree.nLevels]
-    disaggregate_leaf!(leafLevel, A.bases, A.basis_offsets, A.operator, y_far, A.sorted_ids)
+    disaggregate_leaf!(
+        leafLevel,
+        A.bases,
+        A.basis_offsets,
+        A.operator,
+        y_far,
+        A.sorted_ids;
+        element_cache = A.element_cache,
+    )
 
     # Apply EFIE factor to Far Field part if needed
     # Note: The factor is multiplied by 4 because the aggregation/disaggregation
@@ -375,8 +478,11 @@ function assemble_near_field(
     tri_to_rwg = [Vector{Tuple{Int,Int,Float64}}() for _ = 1:max_tri_id]
     tet_to_swg = [Vector{Tuple{Int,Int,Float64}}() for _ = 1:max_tet_id]
 
-    all_tris = Vector{TriangleInfo{Int,Float64}}()
-    all_tets = Vector{TetrahedraInfo{Int,Float64,ComplexF64}}()
+    # Container eltype follows the first contributing basis — gmsh meshes carry
+    # Int32 indices while analytic generators use Int64 (issue #22, problem 5:
+    # the gmsh path must reach the MLFMA near-field assembly).
+    all_tris = nothing
+    all_tets = nothing
 
     for (b_idx, b) in enumerate(bases)
         offset = b_idx == 1 ? 0 : offsets[b_idx-1]
@@ -391,7 +497,7 @@ function assemble_near_field(
                     end
                 end
             end
-            append!(all_tris, get_triangles_info(b.mesh, b))
+            all_tris = _append_infos!(all_tris, get_triangles_info(b.mesh, b))
         elseif b isa SWGBasis
             for (i, f) in enumerate(b.functions)
                 global_id = offset + i
@@ -403,9 +509,9 @@ function assemble_near_field(
                 end
             end
             if hasfield(typeof(operator), :permittivities)
-                append!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+                all_tets = _append_infos!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
             elseif operator isa VEFIE
-                append!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
+                all_tets = _append_infos!(all_tets, get_tetrahedra_info(b.mesh, b, operator.permittivities))
             end
         end
     end
@@ -462,7 +568,7 @@ function assemble_near_field(
     end
 
     # Pre-compute VEFIE caches for all tets (needed for vefie_element_interaction_kernel)
-    if vefie_op !== nothing && !isempty(all_tets)
+    if vefie_op !== nothing && all_tets !== nothing && !isempty(all_tets)
         vefie_caches = precompute_vefie_basis(vefie_op, all_tets)
     end
 
@@ -914,7 +1020,7 @@ function MLFMAOperatorMPI(
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     return MLFMAOperatorMPI(
         operator, [basis], leafCubeEdgel;
@@ -928,7 +1034,7 @@ function MLFMAOperatorMPI(
     leafCubeEdgel::Float64;
     comm::MPI.Comm = MPI.COMM_WORLD,
     interp_method::Val = Val(:Lagrange2Step),
-    near_range::Int = 4,
+    near_range::Union{Int,Nothing} = nothing,
 )
     rank     = MPI.Comm_rank(comm)
     n_procs  = MPI.Comm_size(comm)

@@ -4,6 +4,8 @@ using EMMoMSuite.PostProcessing
 using EMMoMSuite.Geometry
 using EMMoMSuite.Utilities.Parameters
 using EMMoMSuite.BasisFunctions
+using EMMoMSuite.FastAlgorithms.MLFMA
+using EMMoMSuite.Solvers: BlockJacobiPreconditioner, GMRESSolver
 using StaticArrays
 using LinearAlgebra
 
@@ -410,4 +412,57 @@ end
     @test all(isfinite, result_swg.P_density)
     @test all(result_swg.P_density .>= 0)
     @test result_swg.P_total ≈ sum(result_swg.P_density .* V) rtol=1e-10
+end
+
+@testset "issue #22: radarCrossSection guards unset global k0" begin
+    mesh  = generate_sphere_mesh(0.5, 4, 8)
+    basis = RWGBasis(mesh)
+    I_dummy = ones(ComplexF64, num_basis(basis))
+    θs = collect(range(0.0, π, length = 10))
+    ϕs = [0.0]
+
+    # Simulate a fresh session where set_frequency! was never called:
+    # previously this silently produced σ ≡ 0 → 10log10(0) = -Inf dBsm everywhere.
+    saved_k0 = Parameters.GLOBAL_PARAMS.k0
+    Parameters.GLOBAL_PARAMS.k0 = 0.0
+    try
+        @test_throws ErrorException radarCrossSection(θs, ϕs, I_dummy, basis)
+    finally
+        Parameters.GLOBAL_PARAMS.k0 = saved_k0
+    end
+
+    # Sanity: with a properly set frequency the same call returns finite RCS
+    set_frequency!(300e6)
+    _, rcs_total, rcs_dB = radarCrossSection(θs, ϕs, I_dummy, basis)
+    @test all(isfinite, rcs_dB)
+    @test all(rcs_total .>= 0)
+end
+
+@testset "issue #22 #5: same-mesh cross-path comparison (gmsh)" begin
+    # Problem 5: numerical comparison across solver paths must happen on ONE mesh.
+    # A single gmsh-generated mesh feeds both the dense and the MLFMA path here.
+    mesh = generate_gmsh_sphere(0.5; mesh_size = 0.15)
+    basis = RWGBasis(mesh)
+    freq = 300e6
+    efie = EFIE(freq)
+    set_frequency!(freq)
+
+    pw = PlaneWave(freq, π / 2, π, [0.0, 0.0, 1.0])
+    V = excitation_vector(efie, pw, basis)
+
+    # Path 1: dense direct solve
+    Z = assemble_impedance_matrix(efie, basis)
+    I_dense = Z \ V
+
+    # Path 2: MLFMA iterative solve on the SAME mesh
+    op = MLFMAOperator(efie, basis, 0.2)
+    P = BlockJacobiPreconditioner(op)
+    solver = GMRESSolver(restart = 20, maxiter = 300, tol = 1e-4, verbose = false)
+    I_mlfma = solve!(solver, op, V; Pl = P)
+
+    rel = norm(I_mlfma - I_dense) / norm(I_dense)
+    @info "issue #22 #5 same-mesh dense vs MLFMA (gmsh sphere)" rel
+    # Tolerance aligned with the repo's GD2 gate convention (rel < 0.15 for
+    # MLFMA-vs-direct comparisons on coarse ~1λ meshes).
+    @test rel < 0.15
 end
