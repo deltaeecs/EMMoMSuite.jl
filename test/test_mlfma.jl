@@ -388,3 +388,34 @@ end
     end
     @test maxoff ≤ 1
 end
+
+@testset "issue #22 #3: scaled M2L stabilization at reduced near_range" begin
+    # Low-frequency-stable scaled diagonalization (Ergül & Karaosmanoğlu,
+    # URSI GA 2014): with s^l-scaled translation terms and exp(·/s) shifts,
+    # the M2L stays stable at short translation distances, allowing standard
+    # small near_range (nr = 1) instead of the large adaptive radius.
+    freq = 300e6
+    mesh = generate_sphere_mesh(0.5, 6, 12)
+    basis = RWGBasis(mesh)
+    efie = EFIE(freq)
+    set_frequency!(freq)
+    x = ones(ComplexF64, num_basis(basis))
+
+    Z = assemble_impedance_matrix(efie, basis)
+    y_dense = Z * x
+
+    # Unscaled at nr=1: evanescent content uncovered — expected inaccurate
+    op_u = MLFMAOperator(efie, basis, 0.3, Val(:Lagrange2Step), 1)
+    y_u = op_u * x
+    rel_u = norm(y_u - y_dense) / norm(y_dense)
+
+    # Scaled stabilization at nr=1: must recover GD2-level accuracy
+    op_s = MLFMAOperator(efie, basis, 0.3, Val(:Lagrange2Step), 1;
+                         m2l_stabilization = :scaled)
+    y_s = op_s * x
+    rel_s = norm(y_s - y_dense) / norm(y_dense)
+
+    @info "scaled M2L stabilization at nr=1" rel_u rel_s
+    @test rel_s < 0.15
+    @test all(isfinite, y_s)
+end

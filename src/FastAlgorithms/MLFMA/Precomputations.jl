@@ -11,14 +11,22 @@ using ..Interpolation
 export compute_shift_factors!, compute_interpolation_matrices!
 
 """
-    compute_shift_factors!(nLevels::Int, levels::Dict{Int, LevelInfo}, k::Real)
+    compute_shift_factors!(nLevels::Int, levels::Dict{Int, LevelInfo}, k::Real;
+                           near_range = nothing, m2l_stabilization = :unscaled)
 
 Compute phase shift factors for all levels.
+
+With `m2l_stabilization = :scaled` the shift operators use the scaled
+exponential form `exp(ik k̂·v/s)` of the low-frequency-stable diagonalization
+(Ergül & Karaosmanoğlu, URSI GA 2014; issue #22, problem 3), with the
+per-level scaling factor `s` from `scaled_translation_factor`.
 """
 function compute_shift_factors!(
     nLevels::Int,
     levels::Dict{Int,LV},
-    k::Real,
+    k::Real;
+    near_range::Union{Int,Nothing} = nothing,
+    m2l_stabilization::Symbol = :unscaled,
 ) where {LV<:AbstractLevel}
     JK = im * k
 
@@ -39,6 +47,12 @@ function compute_shift_factors!(
         poles = level.poles
         nPoles = length(poles.r̂sθsϕs)
 
+        # Scaled-shift divisor: with :scaled the shift exponent carries v/s
+        # (paper eq. (7)); :unscaled keeps v (factor 1).
+        s = m2l_stabilization === :scaled ?
+            scaled_translation_factor(k, level.cubeEdgel, something(near_range, 1)) :
+            one(FT)
+
         # Allocate
         phaseShift2Kids = zeros(Complex{FT}, nPoles, 8)
 
@@ -46,7 +60,7 @@ function compute_shift_factors!(
             ΔCt2Ck = ΔCt2Cks[:, iKid]
             for iPole = 1:nPoles
                 r̂ = poles.r̂sθsϕs[iPole].r̂
-                phaseShift2Kids[iPole, iKid] = exp(-JK * dot(r̂, ΔCt2Ck))
+                phaseShift2Kids[iPole, iKid] = exp(-JK * dot(r̂, ΔCt2Ck) / s)
             end
         end
 

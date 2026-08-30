@@ -88,7 +88,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 4λ PEC 球基准（N=3312，5 层）：Lebedev 路径极点数较 GL 少 31.5%、单次 MVM 快约 18~2.9×
   （随规模增长），εq 与 GL 完全一致。
 
-## [Unreleased]
+## [0.2.2] - 2026-08-30
 
 ### Fixed
 
