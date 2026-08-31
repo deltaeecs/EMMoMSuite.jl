@@ -1,5 +1,11 @@
 # Codecov 配置：benchmark 脚本与测试目录不计入覆盖率；
 # 项目覆盖率允许 ±2% 漂移（新增/重构代码），patch 允许 ±10% 相对目标漂移。
+#
+# status 只看 full-coverage flag（runtests_cov.jl 全量套件，80% 硬门在 CI
+# 作业内强制）：test-fast-latest（Julia 1.12 informational）也上传 codecov
+# （fast-tests flag），但其套件只覆盖 ~30% 行——若不按 flag 过滤，它的
+# 部分覆盖数据会把 patch 状态拉到 <2% 造成误报（实测 PR #26：patch
+# 98.15% 仍标红）。flags 过滤后状态只反映全量套件。
 ignore:
   - "scripts/**"
   - "test/**"
@@ -8,9 +14,11 @@ coverage:
   status:
     project:
       default:
+        flags: [full-coverage]
         target: auto
         threshold: 2%
     patch:
       default:
+        flags: [full-coverage]
         target: auto
         threshold: 10%

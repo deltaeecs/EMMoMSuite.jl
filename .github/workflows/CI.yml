@@ -8,6 +8,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 同一 ref 的连续推送取消旧 run（PR 迭代时避免排队堆积与重复计费）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # ── LTS 门禁：Fast Tests（Julia 1.10 × 3 平台）─────────────────────────────
   # Julia 1.12 存在已知多线程/覆盖率性能回归（JuliaLang/julia#59355、#60241、
@@ -93,6 +98,14 @@ jobs:
       - uses: julia-actions/setup-julia@v1
         with:
           version: '1.10'
+
+      # 依赖 depot 缓存（与 test-fast 同模式）：免每次全量预编译 24 个依赖
+      - uses: actions/cache@v3
+        with:
+          path: ~/.julia
+          key: ${{ runner.os }}-julia-1.10-${{ hashFiles('**/Project.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-julia-1.10-
       
       - uses: julia-actions/julia-buildpkg@v1
       
@@ -105,7 +118,9 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    needs: test-fast  # 与 test-medium 并行，缩短合并等待
+    # 不再 needs: test-fast：本作业是最长一环（原 20 min，含缓存后 ~15 min），
+    # 立即并行启动可把 PR 关键路径从 5+20=25 min 压到 ~15-17 min。
+    # 快速失败保护由 test-medium（needs: test-fast）与本作业 80% 硬门承担。
     
     steps:
       - uses: actions/checkout@v4
@@ -113,6 +128,14 @@ jobs:
       - uses: julia-actions/setup-julia@v1
         with:
           version: '1.10'
+
+      # 依赖 depot 缓存（与 test-fast 同模式）：免每次全量预编译
+      - uses: actions/cache@v3
+        with:
+          path: ~/.julia
+          key: ${{ runner.os }}-julia-1.10-${{ hashFiles('**/Project.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-julia-1.10-
       
       - uses: julia-actions/julia-buildpkg@v1
       
