@@ -1,5 +1,7 @@
 name = "EMMoMSuite"
 uuid = "899f6035-dac1-4aaa-a294-a84c0e2067b5"
+# v0.2.2 保持不变：本提交触碰 Project.toml 以在合并后重触发 release.yml，
+# 完成 v0.2.2 因 REGISTRATOR_TOKEN 401 而失败的 General 自动注册。
 version = "0.2.2"
 authors = ["xyhe <1225385871@qq.com>"]
 license = "GPL-3.0-only"
