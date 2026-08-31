@@ -11,6 +11,7 @@ module MLFMA
 
 include("Interpolation.jl")
 include("Level.jl")
+include("SphericalHarmonics.jl")
 include("Octree.jl")
 include("Precomputations.jl")
 include("Translation.jl")
@@ -22,6 +23,7 @@ include("PMCHWMLFMAOperator.jl")
 
 using .Interpolation
 using .Level
+using .SphericalHarmonics
 using .Octree
 using .Precomputations
 using .Translation

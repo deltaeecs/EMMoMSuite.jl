@@ -117,10 +117,16 @@ jobs:
           # 对破坏性变更需提供 release notes 的准则；内容指向自动生成的 GitHub Release。
           printf '@JuliaRegistrator register\n\nRelease notes:\nSee the changelog at https://github.com/%s/releases/tag/%s\n' \
             "${GITHUB_REPOSITORY}" "${TAG}" > register_body.txt
-          URL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-            -F "body=@register_body.txt" \
-            -H 'Accept: application/vnd.github+json' \
-            --jq '.html_url')"
+          if ! URL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -F "body=@register_body.txt" \
+              -H 'Accept: application/vnd.github+json' \
+              --jq '.html_url')"; then
+            echo "::error::注册评论发布失败（v0.2.2 曾因 Bad credentials/401 失败）。" \
+              "请检查仓库 Secret REGISTRATOR_TOKEN：PAT 需有效且 scope 含 public_repo，" \
+              "且以 collaborator 身份发出（github-actions[bot] 不被 JuliaRegistrator 认可）。" \
+              "更新 Secret 后可用 workflow_dispatch 重跑本工作流补注册。"
+            exit 1
+          fi
           echo "Trigger comment posted: ${URL}"
 
       - name: Warn when registration skipped (missing token)

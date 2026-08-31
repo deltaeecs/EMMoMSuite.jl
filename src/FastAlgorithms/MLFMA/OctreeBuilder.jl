@@ -160,12 +160,19 @@ function build_octree(
 
     # 10. Precompute Transfer Factors (tree-uniform near radius, leaf-derived)
     compute_translation_factors!(nLevels, levels, k;
-        near_range = nr_tree, m2l_stabilization = m2l_stabilization)
+        near_range = nr_tree,
+        m2l_stabilization = m2l_stabilization)
 
-    # M2L 有效距离校验（issue #22 问题 3）：对角实谱 M2L 的浮点收敛要求
-    # 叶层最小 far 对距离 kR_min ≥ kr_factor·L（kr_factor = 0.55，经 GD2V 门校准）。
-    # near_range = nothing（默认）时逐层自适应半径已按此构造，此处作为护栏复核；
-    # 显式 near_range 过小时给出可行动警告，避免静默精度损失。
+    # M2L 有效距离校验（issue #22 问题 3；判据按阶段 2 实证修订，见
+    # docs/dev/m2l_short_range_spectral.md §1、§6）：
+    #   (a) 几何分离判据（主判据）：叶层最小 far 距离 R_min=(nr+1)·w 需满足
+    #       2·r_extent ≤ R_min，r_extent 为基函数支撑顶点到盒中心的最大距离。
+    #       网格三角形边长超过叶盒尺寸时（如粗网格 fixture）该条件被破坏，
+    #       任何 M2L 方案都无法恢复——此时必须增大 near_range 或叶盒尺寸。
+    #   (b) 对角实谱数值判据（次级）：kR_min ≳ 0.45·L（对角方案在分离达标
+    #       时实测可承受 0.3–0.45；低于此时逐点样本 ~|h_L(kR)| 增大，其精度
+    #       依赖 GL 采样求积对截断级数尾部的广义求和/混叠相消，鲁棒性下降）。
+    #       谱域（多极子域）重构经集成验证无法替代该机制（§6 负结果）。
     leaf_level = levels[nLevels]
     if leaf_level.nCubes > 0
         kR_min = Inf
@@ -184,12 +191,14 @@ function build_octree(
                 n_far += 1
             end
         end
-        if n_far > 0 && kR_min < 0.55 * leaf_level.L
-            @warn "MLFMA 叶层远场对最小距离不足：kR_min = $(round(kR_min, digits = 2)) < " *
-                  "0.55·L（L = $(leaf_level.L)）。对角实谱 M2L 在该距离下精度显著下降" *
-                  "（近场倏逝波分量未被实角谱覆盖）。当前 near_range = $(repr(nr_tree))；" *
-                  "建议增大 near_range 或减小叶层尺寸，使叶层最小 far 偏移满足 " *
-                  "kR_min ≥ 0.55·L。"
+        if n_far > 0 && kR_min < 0.45 * leaf_level.L
+            @warn "MLFMA 叶层远场对最小距离偏小：kR_min = $(round(kR_min, digits = 2)) " *
+                  "< 0.45·L（L = $(leaf_level.L)）。对角实谱 M2L 的逐点级数样本 " *
+                  "（~|h_L(kR_min)| 量级）偏大，精度依赖采样求积的相消鲁棒性。当前 " *
+                  "near_range = $(repr(nr_tree))；建议：(1) 若网格三角形边长 ≳ 叶盒尺寸，" *
+                  "属几何分离不足（2·支撑外延 ≤ (nr+1)·w 才是远场），应增大 " *
+                  "near_range 或改用与网格匹配的更大叶盒；(2) 否则可增大 near_range " *
+                  "至 kR_min ≥ 0.45·L，或改用电大尺寸叶盒（减小 L/w 比）。"
         end
     end
 

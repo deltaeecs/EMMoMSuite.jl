@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`SphericalHarmonics` 数学模块（issue #22 问题 3 调研产物）**：归一化球谐
+  （`plgndr`/`ylm`）、GL 极点网格分析/综合矩阵（`sh_matrix`，`YᵀW·Y = I` 至
+  机器精度）、Gaunt 系数表、谱域（多极子域）M2L 平移矩阵 `m2l_matrix`
+  （单谐解析锚点 1e-10）与超额带宽公式 `spectral_bandwidth`。仅作分析/教学
+  工具；配套单元自检加入 `test/test_mlfma.jl`。
+- **设计笔记** `docs/dev/m2l_short_range_spectral.md`：issue #22 问题 3 的
+  完整调研记录——含阶段 3 集成负结果与机制分析：对角实谱 M2L 在
+  `kR_min < L` 放大区依赖 GL 采样求积对截断级数尾部的广义求和/混叠相消
+  才收敛于真值（GD2X nr=2 对角 rel=3.6e-3），任何带限的谱域
+  （分析→平移→综合）往返都摧毁该相消（实测 rel 1e2–1e3），因此谱域方案
+  不可作为短距修复；短距正解是自适应/显式增大 `near_range` 或电大叶盒。
+  原型自检脚本 `scripts/verification/verify_m2l_spectral_shortrange.jl`
+  （头部已附负结果声明）。
+
+### Changed
+
+- **M2L 有效距离校验判据修正（issue #22 问题 3）**：叶层 `kR_min` 警告阈值
+  0.55→0.45·L（GD2X 对角 nr=2 在 kR_min/L=0.33 通过的实证），警告文字改为
+  **几何分离优先**：先判支撑外延（三角形边长 ≳ 叶盒 ⇒ 任何方案不可恢复，
+  应增大 `near_range`/叶盒），再给数值鲁棒性建议（kR_min ≥ 0.45·L 或电大
+  叶盒）。自适应半径公式（`kr_factor = 0.55`）与默认行为不变。
+
 ## [0.2.1] - 2026-08-27
 
 ### Added

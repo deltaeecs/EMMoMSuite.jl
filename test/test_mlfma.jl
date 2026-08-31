@@ -8,6 +8,7 @@ using EMMoMSuite.CoreModule
 using EMMoMSuite.Solvers: BlockJacobiPreconditioner
 using StaticArrays
 using LinearAlgebra
+using SpecialFunctions
 using MPI
 
 # Mock Operator
@@ -396,7 +397,10 @@ end
     # error is dominated by evanescent content that NEITHER the unscaled NOR
     # the s^l-scaled real-spectrum M2L captures — empirically the scaled form
     # is orders of magnitude WORSE (rel ≈ 1e4 vs direct). The correct remedy
-    # at conventional frequencies is the adaptive near_range (GD2V-calibrated).
+    # at conventional frequencies is the adaptive near_range (GD2V-calibrated);
+    # the multipole-domain (spectral) reformulation was investigated and
+    # FALSIFIED at integration (see the SphericalHarmonics testset below and
+    # docs/dev/m2l_short_range_spectral.md §6).
     # This testset pins the documented, opt-in behavior: the operator runs and
     # produces finite output; it makes no accuracy claim.
     freq = 300e6
@@ -419,3 +423,68 @@ end
     @test all(isfinite, y_s)
     @test all(isfinite, y_dense)
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# issue #22 问题 3 调研产物：SphericalHarmonics 数学工具（单元自检）
+#
+# 背景（负结果，2025 阶段 3 集成结论）：谱域（多极子域）M2L——分析
+# `F̂ = YᵀW·F` → 稠密 Gaunt 平移矩阵 `M` → 综合 `G = const·W·Y·M·F̂`——
+# 在理想化原型（带限 F、共享求积）中成立（scripts/verification/
+# verify_m2l_spectral_shortrange.jl 自检全绿），但在真实管线中被证伪：
+# 对角方案的逐点采样求积在 kR < L（h_l 放大区，实际叶层常态）依赖 GL
+# 采样对截断级数尾部的广义求和/混叠相消才收敛于真值（GD2X nr=2 对角
+# rel=3.6e-3）；带限往返破坏该相消（谱域 rel ≥ 3.6e2，"精确 Gaunt 配对"
+# 的低阶谱系数比真值大 ~10³×）。机制与数据：docs/dev/
+# m2l_short_range_spectral.md §6。本模块保留为经机器精度验证的数学
+# 工具（球谐分析/综合、Gaunt 表、谱域平移矩阵——供分析与后续研究）。
+# ─────────────────────────────────────────────────────────────────────────────
+
+@testset "issue #22 #3: SphericalHarmonics 单元自检" begin
+    SH = EMMoMSuite.FastAlgorithms.MLFMA.SphericalHarmonics
+    Interp = EMMoMSuite.FastAlgorithms.MLFMA.Interpolation
+
+    # 1) GL 极点网格上球谐矩阵正交归一（degree ≤ L 精确 ⇒ 机器精度）
+    for L in (9, 12)
+        Lc, poles = Interp.levelIntegralInfoCal(0.1; λ = 0.5, L_min = L)
+        Y, YtW = SH.sh_matrix(poles, L)
+        S = YtW * Y
+        @test maximum(abs, S - I) < 1e-12
+    end
+
+    # 2) 超额带宽公式：与解析公式一致、单调、有下限
+    @test SH.spectral_bandwidth(1.2566; digits = 2.0) == 5   # GD2V 叶盒 kw
+    @test SH.spectral_bandwidth(2.5133; digits = 2.0) == 9   # 0.2λ 盒
+    @test SH.spectral_bandwidth(0.0) == 0
+
+    # 3) M 矩阵单谐解析锚点：M_{a,(0,0)}·√(4π) = 4π(-j)^{l_a} h_{l_a} conj(Y_a(R̂))
+    L = 9
+    k = 4π
+    Rvec = [0.2, 0.35, 0.91]
+    R = norm(Rvec); R̂ = Rvec / R; kR = k * R
+    θR = acos(clamp(R̂[3], -1, 1)); φR = atan(R̂[2], R̂[1])
+    Mb = SH.m2l_matrix(L, Rvec, k)
+    plgndr = SH.plgndr
+    normf(l, m) = sqrt((2l + 1) / (4π)) *
+        exp(0.5 * (SpecialFunctions.loggamma(l - abs(m) + 1) -
+                   SpecialFunctions.loggamma(l + abs(m) + 1)))
+    err = 0.0
+    a00 = 1   # idx(0,0) = 0²+(0+0+1) = 1
+    for l = 0:L, m = -l:l
+        ai = l^2 + (m + l + 1)
+        θpart = m >= 0 ? normf(l, m) * plgndr(l, m, cos(θR)) :
+                (-1.0)^(-m) * normf(l, m) * plgndr(l, -m, cos(θR))
+        Ya = θpart * exp(im * m * φR)
+        rhs = 4π * (-im)^l *
+              (SpecialFunctions.sphericalbesselj(l, kR) -
+               im * SpecialFunctions.sphericalbessely(l, kR)) * conj(Ya)
+        err = max(err, abs(Mb[ai, a00] * sqrt(4π) - rhs) / max(abs(rhs), 1e-30))
+    end
+    @test err < 1e-10
+
+    # 4) 行列对称截断：Leff 截断只保留 l ≤ Leff 的行×列子块
+    Mb6 = SH.m2l_matrix(L, Rvec, k; Leff = 6)
+    @test maximum(abs, Mb6[1:49, 1:49] .- Mb[1:49, 1:49]) == 0  # (l ≤ 6)² 子块不变
+    @test maximum(abs, Mb6[:, 50:end]) == 0                     # l_b > 6 列全零
+    @test maximum(abs, Mb6[50:end, :]) == 0                     # l_a > 6 行全零
+end
+

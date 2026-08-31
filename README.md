@@ -246,7 +246,10 @@ rel = norm(I_mlfma - I_dense) / norm(I_dense)
 MLFMA 说明：`MLFMAOperator` 默认 `near_range = nothing`，按层自适应选取近场半径，
 保证每层最小远对距离 `kR_min ≥ 0.55·L`（实谱 M2L 浮点收敛条件，见
 `?adaptive_near_range`）；也可显式传 `Int` 固定。注意直接近场矩阵按 `(2nr+1)³`
-每盒增长，较大半径请配合 `BlockJacobiPreconditioner` 使用。
+每盒增长，较大半径请配合 `BlockJacobiPreconditioner` 使用。短距（`near_range = 1`
+标准交互列表）M2L 的精度边界与权衡见
+`docs/dev/m2l_short_range_spectral.md`（issue #22 问题 3：分离判据优先；
+谱域重构经集成验证不可行，已归档为负结果）。
 
 ### 发布链：精度 / 性能 / 报告一体化
 
