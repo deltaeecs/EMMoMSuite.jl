@@ -6,6 +6,7 @@ using OffsetArrays
 using SpecialFunctions
 using ....CoreModule
 using ..Level
+using ..Interpolation
 
 export compute_translation_factors!, translate!
 
@@ -31,6 +32,17 @@ T_\\tau(k, \\hat{k}, R_{ba}) = \\frac{-{\\rm j}k}{(4\\pi)^2}
 - `near_range`: 近邻判定半径。`nothing`（默认）时逐层自适应
   （`adaptive_near_range`，保证实谱 M2L 收敛，见 issue #22 问题 3）；
   显式 `Int` 则所有层固定同一半径（远邻条件为任一维度 `|Δ| > near_range`）。
+
+# 谱域（多极子域）M2L 的负结果（issue #22 问题 3 调研，阶段 3 集成中止）
+
+曾实现 `m2l_scheme = :spectral`（分析 `F̂ = YᵀW·F` → 稠密 Gaunt 平移矩阵
+`M` → 综合 `G = const·W·Y·M·F̂`），在集成层被证伪并移除：对角方案的逐点
+采样求积在 `kR < L`（h_l 放大区，实际 MLFMA 叶层常态）依赖 GL 采样对
+截断级数尾部的**广义求和/混叠相消**才收敛于真值；带限的分析→平移→综合
+往返破坏该相消（实测 GD2X nr=2：对角 rel=3.6e-3 vs 谱域 rel≥3.6e2，
+其中"精确 Gaunt 配对"的谱系数比真值大 ~10³×）。完整机制分析与数据见
+`docs/dev/m2l_short_range_spectral.md` §6。数学工具保留在
+`SphericalHarmonics`（`m2l_matrix` 等，用于分析/教学）。
 """
 function compute_translation_factors!(
     nLevels::Int,
@@ -58,6 +70,12 @@ function compute_translation_factors!(
     end
 end
 
+"""
+    cal_alpha_trans_on_level!(level, k, near_range, s = nothing) -> used
+
+计算单层按使用集压缩的 `αTrans`（`nPoles × n_used`）与 `αTransIndex`，
+返回实际使用的远偏移表 `used`（与 `αTransIndex` 的赋值顺序一致）。
+"""
 function cal_alpha_trans_on_level!(
     level::LevelInfo,
     k::Real,
@@ -161,7 +179,7 @@ function cal_alpha_trans_on_level!(
     end
 
     level.αTrans = αTrans
-    return nothing
+    return used
 end
 
 function spherical_h2l_array(lmax::Int, x::T) where {T<:Real}
@@ -209,9 +227,6 @@ function translate!(level::LevelInfo; cube_filter = nothing)
     αTransIndex = level.αTransIndex
 
     # Loop over cubes
-    count_trans = 0
-    max_factor = 0.0
-
     Threads.@threads for iCube = 1:length(cubes)
         cube_filter !== nothing && !cube_filter(iCube) && continue
         cube = cubes[iCube]
@@ -238,6 +253,7 @@ function translate!(level::LevelInfo; cube_filter = nothing)
         end
     end
 
+    return nothing
 end
 
 end
