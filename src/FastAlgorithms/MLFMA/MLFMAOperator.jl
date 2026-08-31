@@ -390,8 +390,10 @@ end
 Compute y = A * x using MLFMA.
 """
 function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVector)
-    # 1. Near Field: y = Z_near * x
-    mul!(y, A.Z_near, x)
+    # 远场直接累加进 y（先清零），近场最后用 5 参 mul! 融合累加
+    # y = 1·(Z_near·x) + 1·y —— 消除原来的 y_far = zeros(...) 临时缓冲
+    # （issue #22 第二轮：稳态 matvec 分配）。
+    fill!(y, zero(eltype(y)))
 
     # 2. Far Field (MLFMA)
 
@@ -423,15 +425,15 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
     end
 
     # 2.4 Final Collection (Leaf Level)
-    # Projects received fields onto test functions
-    y_far = zeros(ComplexF64, length(x))
+    # Projects received fields onto test functions — directly into y
+    #（y 已在开头清零，远场系数缩放后再融合累加近场）
     leafLevel = A.octree.levels[A.octree.nLevels]
     disaggregate_leaf!(
         leafLevel,
         A.bases,
         A.basis_offsets,
         A.operator,
-        y_far,
+        y,
         A.sorted_ids;
         element_cache = A.element_cache,
     )
@@ -443,11 +445,11 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
     # Without the ×4 correction, the far-field would be 4× too small.
     # Legacy code avoids this by using -jk/(16π²) in translation + jkη in disagg.
     if hasfield(typeof(A.operator), :factor)
-        y_far .*= (4 * A.operator.factor)
+        y .*= (4 * A.operator.factor)
     end
 
-    # Add to y
-    y .+= y_far
+    # 1. Near Field（融合累加，无临时缓冲）: y += Z_near * x
+    mul!(y, A.Z_near, x, true, true)
 
     return y
 end
@@ -1141,9 +1143,9 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperatorMPI, x::AbstractV
     n_procs = MPI.Comm_size(A.comm)
 
     # ── Step 1: Distributed Near-Field ────────────────────────────────────────
-    y_near = zeros(CT, N)
-    mul!(y_near, A.Z_near_local, x)
-    MPI.Allreduce!(y_near, +, A.comm)
+    # 近场直接写入 y（原实现每次调用分配 y_near 临时缓冲 — issue #22 第二轮）
+    mul!(y, A.Z_near_local, x)
+    MPI.Allreduce!(y, +, A.comm)
 
     # ── Step 2: Far-Field（全层按秩分区：聚合/转移/反聚合 + 每层 Allreduce）──
     cube_filter = n_procs > 1 ? (i -> (i - 1) % n_procs == rank) : nothing
@@ -1195,7 +1197,8 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperatorMPI, x::AbstractV
     end
 
     # ── Combine ───────────────────────────────────────────────────────────────
-    y .= y_near .+ y_far
+    # y 已含完整近场；y_far 保留独立缓冲（其 Allreduce 语义所需）
+    y .+= y_far
 
     return y
 end
