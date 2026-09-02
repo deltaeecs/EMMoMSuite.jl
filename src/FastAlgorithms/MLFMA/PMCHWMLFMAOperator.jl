@@ -249,11 +249,8 @@ function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperator, x::Abstrac
     fill!(y, zero(eltype(y)))
     N = num_basis(A.basis)
 
-    # 近场
-    mul!(y, A.Z_near, x)
-
-    # 远场
-    y_far = zeros(eltype(y), 2N)
+    # 远场：四遍直接累加进 y（原实现每次调用分配 y_far = zeros(2N) 临时缓冲
+    # —— issue #22 第二轮；各 *_pmchw_*! 均为累加语义，可安全写入已清零的 y）
 
     function clear_agg!(oct)
         for (_, lv) in oct.levels
@@ -281,27 +278,28 @@ function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperator, x::Abstrac
     clear_agg!(A.octree0)
     aggregate_leaf_pmchw!(A.octree0, A.basis, x, A.sorted_ids0, 1:N, k0)
     up_translate_down!(A.octree0)
-    disaggregate_leaf_pmchw_j!(A.octree0, A.basis, A.pmchw, y_far, A.sorted_ids0, :k0)
+    disaggregate_leaf_pmchw_j!(A.octree0, A.basis, A.pmchw, y, A.sorted_ids0, :k0)
 
     # 遍 2: J×k1
     clear_agg!(A.octree1)
     aggregate_leaf_pmchw!(A.octree1, A.basis, x, A.sorted_ids1, 1:N, k1)
     up_translate_down!(A.octree1)
-    disaggregate_leaf_pmchw_j!(A.octree1, A.basis, A.pmchw, y_far, A.sorted_ids1, :k1)
+    disaggregate_leaf_pmchw_j!(A.octree1, A.basis, A.pmchw, y, A.sorted_ids1, :k1)
 
     # 遍 3: M×k0
     clear_agg!(A.octree0)
     aggregate_leaf_pmchw!(A.octree0, A.basis, x, A.sorted_ids0, (N+1):(2N), k0)
     up_translate_down!(A.octree0)
-    disaggregate_leaf_pmchw_m!(A.octree0, A.basis, A.pmchw, y_far, A.sorted_ids0, :k0)
+    disaggregate_leaf_pmchw_m!(A.octree0, A.basis, A.pmchw, y, A.sorted_ids0, :k0)
 
     # 遍 4: M×k1
     clear_agg!(A.octree1)
     aggregate_leaf_pmchw!(A.octree1, A.basis, x, A.sorted_ids1, (N+1):(2N), k1)
     up_translate_down!(A.octree1)
-    disaggregate_leaf_pmchw_m!(A.octree1, A.basis, A.pmchw, y_far, A.sorted_ids1, :k1)
+    disaggregate_leaf_pmchw_m!(A.octree1, A.basis, A.pmchw, y, A.sorted_ids1, :k1)
 
-    y .+= y_far
+    # 近场最后融合累加（无临时缓冲）: y += Z_near * x
+    mul!(y, A.Z_near, x, true, true)
     return y
 end
 
@@ -338,52 +336,84 @@ function aggregate_leaf_pmchw!(
         fill!(leaf_level.aggS, zero(CT))
     end
 
-    tri_info = get_triangles_info(basis.mesh, basis)
-    gq = GaussQuadratureInfo(:Triangle, 4, FT)
+    # 单元几何/求积/极点向量缓存在叶层上（issue #22 第二轮：原每遍重建全网格
+    # tri_info 与 poles 数组，每次 matvec ×4 遍）
+    if !isdefined(leaf_level, :elemcache)
+        leaf_level.elemcache = (
+            get_triangles_info(basis.mesh, basis),
+            GaussQuadratureInfo(:Triangle, 4, FT),
+        )
+    end
+    tri_info, gq = leaf_level.elemcache
     n_qp = length(gq.weight)
 
-    poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]
-    poles_θhat = [p.θhat for p in poles.r̂sθsϕs]
-    poles_ϕhat = [p.ϕhat for p in poles.r̂sθsϕs]
+    if !isdefined(leaf_level, :polevecs)
+        leaf_level.polevecs = (
+            [p.r̂ for p in poles.r̂sθsϕs],
+            [p.θhat for p in poles.r̂sθsϕs],
+            [p.ϕhat for p in poles.r̂sθsϕs],
+        )
+    end
+    poles_r̂, poles_θhat, poles_ϕhat = leaf_level.polevecs
 
+    # 循环体经函数屏障传入（tri_info/gq 从 ::Any 字段解包后为 Any 局部量，
+    # 内联循环会造成逐 qp 装箱 — issue #22 第二轮）
+    aggS = leaf_level.aggS
+    cubes = leaf_level.cubes
     Threads.@threads for iCube = 1:nCubes
         cube_filter !== nothing && !cube_filter(iCube) && continue
-        cube = leaf_level.cubes[iCube]
-        cubeCenter = cube.center
+        cube = cubes[iCube]
+        _agg_pmchw_kernel!(
+            aggS, iCube, cube, basis, x, sorted_ids, offset, JK,
+            tri_info, gq, poles_r̂, poles_θhat, poles_ϕhat, coeff_tol(),
+        )
+    end
+    return nothing
+end
 
-        for bfID_sorted in cube.bfInterval
-            bfID_orig = sorted_ids[bfID_sorted]
-            coeff = x[bfID_orig+offset]
-            abs(coeff) < 1e-12 && continue
+# 装箱阈值（与原实现 abs(coeff) < 1e-12 一致）
+coeff_tol() = 1e-12
 
-            bf = basis.functions[bfID_orig]
+function _agg_pmchw_kernel!(
+    aggS, iCube, cube, basis, x, sorted_ids, offset, JK,
+    tri_info, gq, poles_r̂, poles_θhat, poles_ϕhat, tol,
+)
+    nPoles = length(poles_r̂)
+    n_qp = length(gq.weight)
+    cubeCenter = cube.center
 
-            for i_supp = 1:2
-                tri_idx = bf.support[i_supp]
-                tri_idx == 0 && continue
+    for bfID_sorted in cube.bfInterval
+        bfID_orig = sorted_ids[bfID_sorted]
+        coeff = x[bfID_orig+offset]
+        abs(coeff) < tol && continue
 
-                tri = tri_info[tri_idx]
-                v_all = tri.vertices
+        bf = basis.functions[bfID_orig]
 
-                local_edge = bf.local_edge_idx[i_supp]
-                v_opp = v_all[:, local_edge]
-                sign_supp = bf.signs[i_supp]
+        for i_supp = 1:2
+            tri_idx = bf.support[i_supp]
+            tri_idx == 0 && continue
 
-                for i_qp = 1:n_qp
-                    L = gq.coordinate[:, i_qp]
-                    r = v_all * L
-                    rho = r - v_opp
-                    r_local = r - cubeCenter
-                    factor_vec = sign_supp * bf.edge_length / 2 * gq.weight[i_qp] * coeff
+            tri = tri_info[tri_idx]
+            v_all = tri.vertices
 
-                    for iPole = 1:nPoles
-                        r̂ = poles_r̂[iPole]
-                        phase = exp(JK * dot(r̂, r_local))
-                        vec = rho * factor_vec * phase
+            local_edge = bf.local_edge_idx[i_supp]
+            v_opp = v_all[:, local_edge]
+            sign_supp = bf.signs[i_supp]
 
-                        leaf_level.aggS[iPole, 1, iCube] += dot(poles_θhat[iPole], vec)
-                        leaf_level.aggS[iPole, 2, iCube] += dot(poles_ϕhat[iPole], vec)
-                    end
+            for i_qp = 1:n_qp
+                L = gq.coordinate[:, i_qp]
+                r = v_all * L
+                rho = r - v_opp
+                r_local = r - cubeCenter
+                factor_vec = sign_supp * bf.edge_length / 2 * gq.weight[i_qp] * coeff
+
+                for iPole = 1:nPoles
+                    r̂ = poles_r̂[iPole]
+                    phase = exp(JK * dot(r̂, r_local))
+                    vec = rho * factor_vec * phase
+
+                    aggS[iPole, 1, iCube] += dot(poles_θhat[iPole], vec)
+                    aggS[iPole, 2, iCube] += dot(poles_ϕhat[iPole], vec)
                 end
             end
         end
@@ -477,14 +507,24 @@ function disaggregate_leaf_pmchw_j!(
     leaf_level = octree.levels[octree.nLevels]
     isdefined(leaf_level, :disaggG) || return
 
-    # 预计算一次（原实现在每个基函数调用 _receive_terms 时重建 tri_info/求积/poles，
+    # 预计算一次并缓存于叶层（issue #22 第二轮：原实现每遍重建 tri_info/求积/poles，
     # 是 PMCHW matvec 的主导热点）
     FT = eltype(leaf_level.cubeEdgel)
-    tri_info = get_triangles_info(basis.mesh, basis)
-    gq = GaussQuadratureInfo(:Triangle, 4, FT)
-    poles_r̂ = [p.r̂ for p in leaf_level.poles.r̂sθsϕs]
-    poles_θhat = [p.θhat for p in leaf_level.poles.r̂sθsϕs]
-    poles_ϕhat = [p.ϕhat for p in leaf_level.poles.r̂sθsϕs]
+    if !isdefined(leaf_level, :elemcache)
+        leaf_level.elemcache = (
+            get_triangles_info(basis.mesh, basis),
+            GaussQuadratureInfo(:Triangle, 4, FT),
+        )
+    end
+    tri_info, gq = leaf_level.elemcache
+    if !isdefined(leaf_level, :polevecs)
+        leaf_level.polevecs = (
+            [p.r̂ for p in leaf_level.poles.r̂sθsϕs],
+            [p.θhat for p in leaf_level.poles.r̂sθsϕs],
+            [p.ϕhat for p in leaf_level.poles.r̂sθsϕs],
+        )
+    end
+    poles_r̂, poles_θhat, poles_ϕhat = leaf_level.polevecs
 
     Threads.@threads for iCube = 1:leaf_level.nCubes
         cube_filter !== nothing && !cube_filter(iCube) && continue
@@ -530,11 +570,22 @@ function disaggregate_leaf_pmchw_m!(
     isdefined(leaf_level, :disaggG) || return
 
     FT = eltype(leaf_level.cubeEdgel)
-    tri_info = get_triangles_info(basis.mesh, basis)
-    gq = GaussQuadratureInfo(:Triangle, 4, FT)
-    poles_r̂ = [p.r̂ for p in leaf_level.poles.r̂sθsϕs]
-    poles_θhat = [p.θhat for p in leaf_level.poles.r̂sθsϕs]
-    poles_ϕhat = [p.ϕhat for p in leaf_level.poles.r̂sθsϕs]
+    # 缓存于叶层（issue #22 第二轮：原每遍重建）
+    if !isdefined(leaf_level, :elemcache)
+        leaf_level.elemcache = (
+            get_triangles_info(basis.mesh, basis),
+            GaussQuadratureInfo(:Triangle, 4, FT),
+        )
+    end
+    tri_info, gq = leaf_level.elemcache
+    if !isdefined(leaf_level, :polevecs)
+        leaf_level.polevecs = (
+            [p.r̂ for p in leaf_level.poles.r̂sθsϕs],
+            [p.θhat for p in leaf_level.poles.r̂sθsϕs],
+            [p.ϕhat for p in leaf_level.poles.r̂sθsϕs],
+        )
+    end
+    poles_r̂, poles_θhat, poles_ϕhat = leaf_level.polevecs
 
     Threads.@threads for iCube = 1:leaf_level.nCubes
         cube_filter !== nothing && !cube_filter(iCube) && continue
@@ -1043,24 +1094,23 @@ function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperatorMPI, x::Abst
     mul!(y, A.Z_near_local, x)
     MPI.Allreduce!(y, +, A.comm)
 
-    # 远场：四遍，每遍独立 y_pass（Allreduce 后累加，避免跨遍重复求和）
-    y_far = zeros(ComplexF64, M)
+    # 远场：四遍，每遍独立 y_pass（Allreduce 后累加进 y，避免跨遍重复求和；
+    # 原实现每次调用额外分配 y_far 缓冲 —— issue #22 第二轮）
     y_pass = zeros(ComplexF64, M)
     k0 = A.pmchw.k0
     k1 = A.pmchw.k1
     _pmchw_pass_mpi!(A.octree0, A, A.sorted_ids0, x, 1:N, k0, :k0, :j, cube_filter, y_pass, A.comm)
-    y_far .+= y_pass
+    y .+= y_pass
     fill!(y_pass, 0)
     _pmchw_pass_mpi!(A.octree1, A, A.sorted_ids1, x, 1:N, k1, :k1, :j, cube_filter, y_pass, A.comm)
-    y_far .+= y_pass
+    y .+= y_pass
     fill!(y_pass, 0)
     _pmchw_pass_mpi!(A.octree0, A, A.sorted_ids0, x, (N+1):(2N), k0, :k0, :m, cube_filter, y_pass, A.comm)
-    y_far .+= y_pass
+    y .+= y_pass
     fill!(y_pass, 0)
     _pmchw_pass_mpi!(A.octree1, A, A.sorted_ids1, x, (N+1):(2N), k1, :k1, :m, cube_filter, y_pass, A.comm)
-    y_far .+= y_pass
+    y .+= y_pass
 
-    y .+= y_far
     return y
 end
 

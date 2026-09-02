@@ -95,15 +95,33 @@ function disaggregate_downward!(
             end
         end
         nOwned = length(owned)
+        # Temp / childT / shifted 缓存在层上（issue #22 第二轮：原实现每次调用、
+        # 每个 (cube, kid) 都分配临时矩阵）。owned 列表本身依赖 child_filter
+        # （MPI 秩界），保持每次重建（KB 级）。
+        if !(
+            isdefined(parentLevel, :dwScratch) &&
+            parentLevel.dwScratch.nthreads == Threads.nthreads() &&
+            size(parentLevel.dwScratch.temp, 3) == nOwned
+        )
+            parentLevel.dwScratch = (
+                nthreads = Threads.nthreads(),
+                temp = Array{ComplexF64}(undef, nθc * M2, 2, nOwned),
+                childt = Array{ComplexF64}(undef, nθc * M1, 2, nOwned),
+                shifted = Matrix{ComplexF64}(undef, size(parentDisaggG, 1), 2),
+            )
+        end
+        dwsc = parentLevel.dwScratch
+        Temp = dwsc.temp::Array{ComplexF64,3}
+        sh = dwsc.shifted::Matrix{ComplexF64}
         if nOwned > 0
-            Temp = Array{ComplexF64}(undef, nθc * M2, 2, nOwned)
             for (oi, (_, iCube, childIn8)) in enumerate(owned)
                 disaggParent = view(parentDisaggG, :, :, iCube)
                 shift = view(phaseShift, :, childIn8)
-                @views Temp[:, :, oi] .= interp.θCSCT * (shift .* disaggParent)
+                @views sh .= shift .* disaggParent
+                mul!(view(Temp, :, :, oi), interp.θCSCT, sh)
             end
             childT = fft_anterp_phi_batch!(
-                Array{ComplexF64}(undef, nθc * M1, 2, nOwned),
+                dwsc.childt::Array{ComplexF64,3},
                 Temp,
                 interp,
             )
@@ -117,41 +135,87 @@ function disaggregate_downward!(
     # Per-chunk scratch buffers: one chunk of cubes per task, each chunk owns its
     # buffers (indexed by the *loop* variable, not Threads.threadid() — the
     # latter can exceed Threads.nthreads() on multi-pool runtimes). Buffers are
-    # allocated once per call/level instead of once per (cube, kid) — issue #22.
+    # cached on the level and rebuilt only when the thread count changes —
+    # issue #22 第二轮（原实现每次调用/每层重建）。
     # (FFTInterpInfo took the batched early-return path above.)
     nP = size(parentDisaggG, 1)
-    nScratch = max(1, min(Threads.nthreads(), parentLevel.nCubes))
+    nthreads = Threads.nthreads()
+    nScratch = max(1, min(nthreads, parentLevel.nCubes))
     chunks = collect(Iterators.partition(1:parentLevel.nCubes, cld(parentLevel.nCubes, nScratch)))
-    scratch_shift = [Matrix{CT}(undef, nP, 2) for _ in 1:length(chunks)]
-    if hasfield(typeof(interp), :θϕCSC)
-        scratch_T = [Vector{CT}(undef, size(interp.θϕCSCT, 1)) for _ in 1:length(chunks)]
+    if isdefined(parentLevel, :dwScratch) &&
+       parentLevel.dwScratch.nthreads == nthreads &&
+       length(parentLevel.dwScratch.chunks) == length(chunks)
+        sc = parentLevel.dwScratch
     else
-        scratch_T = [Matrix{CT}(undef, size(interp.θCSCT, 1), 2) for _ in 1:length(chunks)]
-        scratch_C = [Matrix{CT}(undef, nPolesChild, 2) for _ in 1:length(chunks)]
+        if hasfield(typeof(interp), :θϕCSC)
+            sc = (nthreads = nthreads,
+                chunks = chunks,
+                scratch_shift = [Matrix{CT}(undef, nP, 2) for _ in 1:length(chunks)],
+                scratch_T = [Vector{CT}(undef, size(interp.θϕCSCT, 1)) for _ in 1:length(chunks)])
+        else
+            sc = (nthreads = nthreads,
+                chunks = chunks,
+                scratch_shift = [Matrix{CT}(undef, nP, 2) for _ in 1:length(chunks)],
+                scratch_T = [Matrix{CT}(undef, size(interp.θCSCT, 1), 2) for _ in 1:length(chunks)],
+                scratch_C = [Matrix{CT}(undef, nPolesChild, 2) for _ in 1:length(chunks)])
+        end
+        parentLevel.dwScratch = sc
     end
+    scratch_shift = sc.scratch_shift::Vector{Matrix{CT}}
 
-    Threads.@threads for ci in 1:length(chunks)
-        for iCube in chunks[ci]
-            parentCube = parentLevel.cubes[iCube]
-            disaggParent = view(parentDisaggG, :, :, iCube)
+    # 两种插值路径各自特化线程循环体（Union 局部量会造成装箱广播临时，
+    # issue #22 第二轮）
+    if hasfield(typeof(interp), :θϕCSC)
+        scratch_T = sc.scratch_T::Vector{Vector{CT}}
 
-            for iKid = 1:length(parentCube.kidsInterval)
-                childID = parentCube.kidsInterval[iKid]
-                child_filter !== nothing && !child_filter(childID) && continue
-                childIn8 = parentCube.kidsIn8[iKid]
+        Threads.@threads for ci in 1:length(chunks)
+            for iCube in chunks[ci]
+                parentCube = parentLevel.cubes[iCube]
+                disaggParent = view(parentDisaggG, :, :, iCube)
 
-                shift = view(phaseShift, :, childIn8)
+                for iKid = 1:length(parentCube.kidsInterval)
+                    childID = parentCube.kidsInterval[iKid]
+                    child_filter !== nothing && !child_filter(childID) && continue
+                    childIn8 = parentCube.kidsIn8[iKid]
 
-                shiftedParent = scratch_shift[ci]
-                for pol = 1:2
-                    @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
-                end
+                    shift = view(phaseShift, :, childIn8)
 
-                if hasfield(typeof(interp), :θϕCSC)
+                    shiftedParent = scratch_shift[ci]
+                    for pol = 1:2
+                        @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
+                    end
+
                     # Lebedev 一步反插值：θϕCSCT 为插值矩阵的转置（伴随算子）
                     mul!(scratch_T[ci], interp.θϕCSCT, vec(shiftedParent))
-                    @views childDisaggG[:, :, childID] .+= reshape(scratch_T[ci], nPolesChild, 2)
-                else
+                    fi = 0
+                    for pol = 1:2, iP = 1:nPolesChild
+                        fi += 1
+                        childDisaggG[iP, pol, childID] += scratch_T[ci][fi]
+                    end
+                end
+            end
+        end
+    else
+        scratch_T = sc.scratch_T::Vector{Matrix{CT}}
+        scratch_C = sc.scratch_C::Vector{Matrix{CT}}
+
+        Threads.@threads for ci in 1:length(chunks)
+            for iCube in chunks[ci]
+                parentCube = parentLevel.cubes[iCube]
+                disaggParent = view(parentDisaggG, :, :, iCube)
+
+                for iKid = 1:length(parentCube.kidsInterval)
+                    childID = parentCube.kidsInterval[iKid]
+                    child_filter !== nothing && !child_filter(childID) && continue
+                    childIn8 = parentCube.kidsIn8[iKid]
+
+                    shift = view(phaseShift, :, childIn8)
+
+                    shiftedParent = scratch_shift[ci]
+                    for pol = 1:2
+                        @views shiftedParent[:, pol] .= shift .* disaggParent[:, pol]
+                    end
+
                     # 传统两段式反插值：先 θ 转置，再 ϕ 转置
                     mul!(scratch_T[ci], interp.θCSCT, shiftedParent)
                     mul!(scratch_C[ci], interp.ϕCSCT, scratch_T[ci])
@@ -255,9 +319,15 @@ function disaggregate_leaf!(
         element_infos, gqs = element_cache
     end
 
-    poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]
-    poles_θhat = [p.θhat for p in poles.r̂sθsϕs]
-    poles_ϕhat = [p.ϕhat for p in poles.r̂sθsϕs]
+    # 极点向量数组只构造一次并缓存在层上（issue #22：原实现每次调用重建 3 个数组）
+    if !isdefined(level, :polevecs)
+        level.polevecs = (
+            [p.r̂ for p in poles.r̂sθsϕs],
+            [p.θhat for p in poles.r̂sθsϕs],
+            [p.ϕhat for p in poles.r̂sθsϕs],
+        )
+    end
+    poles_r̂, poles_θhat, poles_ϕhat = level.polevecs
 
     Threads.@threads for iCube = 1:nCubes
         cube_filter !== nothing && !cube_filter(iCube) && continue
@@ -332,6 +402,7 @@ function add_received_field_rwg!(
     field_at_center,
 )
     JK = im * k
+    FT = eltype(gq.coordinate)
     n_qp = length(gq.weight)
     nPoles = length(poles_r̂)
 
@@ -374,22 +445,30 @@ function add_received_field_rwg!(
         tri = elem_info[tri_idx]
         tri_vertices = tri.vertices
 
-        # Normal for MFIE
-        v1 = tri_vertices[:, 1]
-        v2 = tri_vertices[:, 2]
-        v3 = tri_vertices[:, 3]
+        # Normal for MFIE（SVector 全栈分配 — issue #22）
+        v1 = SVector{3,FT}(tri_vertices[1, 1], tri_vertices[2, 1], tri_vertices[3, 1])
+        v2 = SVector{3,FT}(tri_vertices[1, 2], tri_vertices[2, 2], tri_vertices[3, 2])
+        v3 = SVector{3,FT}(tri_vertices[1, 3], tri_vertices[2, 3], tri_vertices[3, 3])
         normal = normalize(cross(v2 - v1, v3 - v1))
 
         local_edge = bf.local_edge_idx[i_supp]
-        v_opp = tri_vertices[:, local_edge]
+        v_opp = SVector{3,FT}(
+            tri_vertices[1, local_edge],
+            tri_vertices[2, local_edge],
+            tri_vertices[3, local_edge],
+        )
 
         sign = bf.signs[i_supp]
 
         for i_qp = 1:n_qp
-            L = gq.coordinate[:, i_qp]
+            L = SVector{3,FT}(
+                gq.coordinate[1, i_qp],
+                gq.coordinate[2, i_qp],
+                gq.coordinate[3, i_qp],
+            )
             r = tri_vertices * L
             rho = r - v_opp
-            r_local = r - cubeCenter
+            r_local = r - SVector{3,FT}(cubeCenter)
             factor_vec = sign * bf.edge_length / 2 * gq.weight[i_qp]
 
             for iPole = 1:nPoles
@@ -464,6 +543,7 @@ function add_received_field_swg!(
     field_at_center,
 )
     JK = im * k
+    FT = eltype(gq.coordinate)
     n_qp = length(gq.weight)
     nPoles = length(poles_r̂)
 
@@ -487,15 +567,25 @@ function add_received_field_swg!(
         tet_vertices = tet.vertices
 
         local_face = bf.local_face_idx[i_supp]
-        v_free = tet_vertices[:, local_face]
+        v_free = SVector{3,FT}(
+            tet_vertices[1, local_face],
+            tet_vertices[2, local_face],
+            tet_vertices[3, local_face],
+        )
 
         sign = bf.signs[i_supp]
 
         for i_qp = 1:n_qp
-            L = gq.coordinate[:, i_qp]
+            # 四面体重心坐标 4 维 → SVector{4}
+            L = SVector{4,FT}(
+                gq.coordinate[1, i_qp],
+                gq.coordinate[2, i_qp],
+                gq.coordinate[3, i_qp],
+                gq.coordinate[4, i_qp],
+            )
             r = tet_vertices * L
             rho = sign * (r - v_free)
-            r_local = r - cubeCenter
+            r_local = r - SVector{3,FT}(cubeCenter)
             factor_vec = bf.area / 3 * gq.weight[i_qp]
 
             for iPole = 1:nPoles
