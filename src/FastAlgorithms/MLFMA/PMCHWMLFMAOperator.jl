@@ -303,6 +303,26 @@ function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperator, x::Abstrac
     return y
 end
 
+# 5 参 mul!(y, A, x, α, β) := y = α·A·x + β·y
+function LinearAlgebra.mul!(
+    y::AbstractVector,
+    A::PMCHWMLFMAOperator,
+    x::AbstractVector,
+    α::Number,
+    β::Number,
+)
+    if iszero(β)
+        mul!(y, A, x)
+        y .*= α
+        return y
+    else
+        t = similar(y)
+        mul!(t, A, x)
+        @. y = α * t + β * y
+        return y
+    end
+end
+
 Base.:*(A::PMCHWMLFMAOperator, x::AbstractVector) = (y = similar(x); mul!(y, A, x); y)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1112,6 +1132,26 @@ function LinearAlgebra.mul!(y::AbstractVector, A::PMCHWMLFMAOperatorMPI, x::Abst
     y .+= y_pass
 
     return y
+end
+
+# 5 参 mul!(y, A, x, α, β) := y = α·A·x + β·y
+function LinearAlgebra.mul!(
+    y::AbstractVector,
+    A::PMCHWMLFMAOperatorMPI,
+    x::AbstractVector,
+    α::Number,
+    β::Number,
+)
+    if iszero(β)
+        mul!(y, A, x)
+        y .*= α
+        return y
+    else
+        t = similar(y)
+        mul!(t, A, x)
+        @. y = α * t + β * y
+        return y
+    end
 end
 
 Base.:*(A::PMCHWMLFMAOperatorMPI, x::AbstractVector) = (y = similar(x); mul!(y, A, x); y)

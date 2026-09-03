@@ -454,6 +454,27 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperator, x::AbstractVect
     return y
 end
 
+# 5 参 mul!(y, A, x, α, β) := y = α·A·x + β·y —— IterativeSolvers 等线性求解器
+# 会以 5 参形式作用到算子（不同 IterativeSolvers 版本/路径），缺此方法则 MethodError。
+function LinearAlgebra.mul!(
+    y::AbstractVector,
+    A::MLFMAOperator,
+    x::AbstractVector,
+    α::Number,
+    β::Number,
+)
+    if iszero(β)
+        mul!(y, A, x)   # y := A·x（3 参本身会覆盖 y）
+        y .*= α
+        return y
+    else
+        t = similar(y)
+        mul!(t, A, x)
+        @. y = α * t + β * y
+        return y
+    end
+end
+
 function get_basis_index(global_idx::Int, offsets::Vector{Int})
     idx = searchsortedfirst(offsets, global_idx)
     local_idx = idx == 1 ? global_idx : global_idx - offsets[idx-1]
@@ -1201,6 +1222,27 @@ function LinearAlgebra.mul!(y::AbstractVector, A::MLFMAOperatorMPI, x::AbstractV
     y .+= y_far
 
     return y
+end
+
+# 5 参 mul!(y, A, x, α, β) := y = α·A·x + β·y（IterativeSolvers 等线性求解器会
+# 以 5 参作用到算子；缺此方法则 MethodError）
+function LinearAlgebra.mul!(
+    y::AbstractVector,
+    A::MLFMAOperatorMPI,
+    x::AbstractVector,
+    α::Number,
+    β::Number,
+)
+    if iszero(β)
+        mul!(y, A, x)   # y := A·x（3 参本身会覆盖 y）
+        y .*= α
+        return y
+    else
+        t = similar(y)
+        mul!(t, A, x)
+        @. y = α * t + β * y
+        return y
+    end
 end
 
 end # module MLFMAOperatorModule
