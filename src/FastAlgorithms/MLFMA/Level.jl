@@ -35,6 +35,17 @@ mutable struct LevelInfo{IT<:Integer,FT<:Real,IPT} <: AbstractLevel
     αTrans::Array{Complex{FT},2}
     αTransIndex::OffsetArray{IT,3,Array{IT,3}}
 
+    # ── 稳态 matvec 分配缓存（issue #22 第二轮：全部懒初始化，undef 合法）──
+    # 叶层辐射/接收循环用的极点向量数组（构造一次）
+    polevecs::Any
+    # aggregate_upward! 的逐 chunk scratch / FFT 批量缓冲（含创建时的线程数，
+    # 线程数变化时自动重建）
+    uwScratch::Any
+    # disaggregate_downward! 的逐 chunk scratch / FFT 批量缓冲
+    dwScratch::Any
+    # PMCHW 路径的 (tri_info, gq) 单元缓存（原每遍重建全网格几何）
+    elemcache::Any
+
     function LevelInfo{IT,FT,IPT}() where {IT<:Integer,FT<:Real,IPT}
         new{IT,FT,IPT}()
     end

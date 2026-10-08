@@ -140,9 +140,15 @@ function aggregate_leaf!(
         element_infos, gqs = element_cache
     end
 
-    poles_r̂ = [p.r̂ for p in poles.r̂sθsϕs]
-    poles_θhat = [p.θhat for p in poles.r̂sθsϕs]
-    poles_ϕhat = [p.ϕhat for p in poles.r̂sθsϕs]
+    # 极点向量数组只构造一次并缓存在层上（issue #22：原实现每次调用重建 3 个数组）
+    if !isdefined(level, :polevecs)
+        level.polevecs = (
+            [p.r̂ for p in poles.r̂sθsϕs],
+            [p.θhat for p in poles.r̂sθsϕs],
+            [p.ϕhat for p in poles.r̂sθsϕs],
+        )
+    end
+    poles_r̂, poles_θhat, poles_ϕhat = level.polevecs
 
     # Loop over cubes
     Threads.@threads for iCube = 1:nCubes
@@ -261,6 +267,7 @@ function add_radiation_pattern_rwg!(
     coef,
 )
     JK = im * k
+    FT = eltype(gq.coordinate)
     n_qp = length(gq.weight)
     nPoles = length(poles_r̂)
 
@@ -275,22 +282,32 @@ function add_radiation_pattern_rwg!(
 
         local_edge = bf.local_edge_idx[i_supp]
         opp_vertex_idx = local_edge
-        v_opp = tri_vertices[:, opp_vertex_idx]
+        # SVector 取列/运算全部栈分配（issue #22：原实现每 qp 产生 3-4 个
+        # 堆 Vector，每 pole 再一个堆 Vector，百万级小分配累积成 GC 灾难）
+        v_opp = SVector{3,FT}(
+            tri_vertices[1, opp_vertex_idx],
+            tri_vertices[2, opp_vertex_idx],
+            tri_vertices[3, opp_vertex_idx],
+        )
 
         sign = bf.signs[i_supp]
 
         for i_qp = 1:n_qp
-            L = gq.coordinate[:, i_qp]
+            L = SVector{3,FT}(
+                gq.coordinate[1, i_qp],
+                gq.coordinate[2, i_qp],
+                gq.coordinate[3, i_qp],
+            )
             r = tri_vertices * L
             rho = r - v_opp
-            r_local = r - cubeCenter
+            r_local = r - SVector{3,FT}(cubeCenter)
 
             factor_vec = sign * bf.edge_length / 2 * gq.weight[i_qp] * coef
 
             for iPole = 1:nPoles
                 r̂ = poles_r̂[iPole]
                 phase = exp(JK * dot(r̂, r_local))
-                vec = rho * factor_vec * phase
+                vec = rho * (factor_vec * phase)
 
                 aggS[iPole, 1, iCube] += dot(poles_θhat[iPole], vec)
                 aggS[iPole, 2, iCube] += dot(poles_ϕhat[iPole], vec)
@@ -336,6 +353,7 @@ function add_radiation_pattern_swg!(
     coef,
 )
     JK = im * k
+    FT = eltype(gq.coordinate)
     n_qp = length(gq.weight)
     nPoles = length(poles_r̂)
 
@@ -352,22 +370,32 @@ function add_radiation_pattern_swg!(
         kappa = tet.κ
 
         local_face = bf.local_face_idx[i_supp]
-        v_free = tet_vertices[:, local_face]
+        v_free = SVector{3,FT}(
+            tet_vertices[1, local_face],
+            tet_vertices[2, local_face],
+            tet_vertices[3, local_face],
+        )
 
         sign = bf.signs[i_supp]
 
         for i_qp = 1:n_qp
-            L = gq.coordinate[:, i_qp]
+            # 四面体重心坐标是 4 维（SMatrix{4,N}），L 需为 SVector{4}
+            L = SVector{4,FT}(
+                gq.coordinate[1, i_qp],
+                gq.coordinate[2, i_qp],
+                gq.coordinate[3, i_qp],
+                gq.coordinate[4, i_qp],
+            )
             r = tet_vertices * L
             rho = sign * (r - v_free)
-            r_local = r - cubeCenter
+            r_local = r - SVector{3,FT}(cubeCenter)
 
             factor_vec = bf.area / 3 * gq.weight[i_qp] * coef * kappa
 
             for iPole = 1:nPoles
                 r̂ = poles_r̂[iPole]
                 phase = exp(JK * dot(r̂, r_local))
-                vec = rho * factor_vec * phase
+                vec = rho * (factor_vec * phase)
 
                 aggS[iPole, 1, iCube] += dot(poles_θhat[iPole], vec)
                 aggS[iPole, 2, iCube] += dot(poles_ϕhat[iPole], vec)
@@ -419,55 +447,106 @@ function aggregate_upward!(
     # Per-chunk scratch buffers: one chunk of cubes per task, each chunk owns its
     # buffers (indexed by the *loop* variable, not Threads.threadid() — the
     # latter can exceed Threads.nthreads() on multi-pool runtimes). Buffers are
-    # allocated once per call/level instead of once per (cube, kid) — issue #22.
-    nScratch = max(1, min(Threads.nthreads(), nCubesParent))
-    chunks = collect(Iterators.partition(1:nCubesParent, cld(nCubesParent, nScratch)))
-    if interp isa FFTInterpInfo
-        childPhi = fft_interp_phi_batch!(
-            Array{ComplexF64}(undef, interp.nθ * interp.M2, 2, childLevel.nCubes),
-            childAggS,
-            interp,
-        )
-        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)]
-    elseif hasfield(typeof(interp), :θϕCSC)
-        # Lebedev one-step: result length = size(θϕCSC, 1) = 2·nPolesParent
-        scratch_flat = [Vector{CT}(undef, size(interp.θϕCSC, 1)) for _ in 1:length(chunks)]
-    else
-        # Traditional two-step: ϕ-interp result, then θ-interp result
-        scratch_ϕ = [Matrix{CT}(undef, size(interp.ϕCSC, 1), 2) for _ in 1:length(chunks)]
-        scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)]
+    # cached on the level and rebuilt only when the thread count changes —
+    # issue #22 第二轮（原实现每次调用/每层重建）。
+    nthreads = Threads.nthreads()
+    sc = nothing
+    if isdefined(parentLevel, :uwScratch) && parentLevel.uwScratch.nthreads == nthreads
+        sc = parentLevel.uwScratch
     end
+    nScratch = max(1, min(nthreads, nCubesParent))
+    chunks = collect(Iterators.partition(1:nCubesParent, cld(nCubesParent, nScratch)))
+    if sc === nothing
+        if interp isa FFTInterpInfo
+            fftbuf = Array{ComplexF64}(undef, interp.nθ * interp.M2, 2, childLevel.nCubes)
+            sc = (nthreads = nthreads, fftbuf = fftbuf,
+                scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)])
+        elseif hasfield(typeof(interp), :θϕCSC)
+            # Lebedev one-step: result length = size(θϕCSC, 1) = 2·nPolesParent
+            sc = (nthreads = nthreads, fftbuf = nothing,
+                scratch_flat = [Vector{CT}(undef, size(interp.θϕCSC, 1)) for _ in 1:length(chunks)])
+        else
+            # Traditional two-step: ϕ-interp result, then θ-interp result
+            sc = (nthreads = nthreads, fftbuf = nothing,
+                scratch_ϕ = [Matrix{CT}(undef, size(interp.ϕCSC, 1), 2) for _ in 1:length(chunks)],
+                scratch_agg = [Matrix{CT}(undef, nPolesParent, 2) for _ in 1:length(chunks)])
+        end
+        parentLevel.uwScratch = sc
+    end
+    if interp isa FFTInterpInfo
+        childPhi = fft_interp_phi_batch!(sc.fftbuf::Array{ComplexF64,3}, childAggS, interp)
+        scratch_agg = sc.scratch_agg::Vector{Matrix{CT}}
 
-    Threads.@threads for ci in 1:length(chunks)
-        for iCube in chunks[ci]
-            cube_filter !== nothing && !cube_filter(iCube) && continue
-            parentCube = parentLevel.cubes[iCube]
+        # 三种插值路径各自特化整个线程循环体：原先把三分支塞进 if-表达式
+        # 使 aggInterp 为 Union 类型，逐 (kid, pol) 装箱广播临时
+        # （issue #22 第二轮：PMCHW 实测每 matvec 数 MB）。
+        Threads.@threads for ci in 1:length(chunks)
+            for iCube in chunks[ci]
+                cube_filter !== nothing && !cube_filter(iCube) && continue
+                parentCube = parentLevel.cubes[iCube]
 
-            for iKid = 1:length(parentCube.kidsInterval)
-                childID = parentCube.kidsInterval[iKid]
-                childIn8 = parentCube.kidsIn8[iKid]
+                for iKid = 1:length(parentCube.kidsInterval)
+                    childID = parentCube.kidsInterval[iKid]
+                    childIn8 = parentCube.kidsIn8[iKid]
 
-                aggChild = view(childAggS, :, :, childID)
+                    aggInterp = scratch_agg[ci]
+                    mul!(aggInterp, interp.θCSC, view(childPhi, :, :, childID))
 
-                aggInterp = if interp isa FFTInterpInfo
-                    # FFT 谱插值：φ 步已批量完成，这里只做 θ 方向 Lagrange
-                    mul!(scratch_agg[ci], interp.θCSC, view(childPhi, :, :, childID))
-                    scratch_agg[ci]
-                elseif hasfield(typeof(interp), :θϕCSC)
+                    shift = view(phaseShift, :, childIn8)
+                    for pol = 1:2
+                        @views parentAggS[:, pol, iCube] .+= shift .* aggInterp[:, pol]
+                    end
+                end
+            end
+        end
+    elseif hasfield(typeof(interp), :θϕCSC)
+        scratch_flat = sc.scratch_flat::Vector{Vector{CT}}
+
+        Threads.@threads for ci in 1:length(chunks)
+            for iCube in chunks[ci]
+                cube_filter !== nothing && !cube_filter(iCube) && continue
+                parentCube = parentLevel.cubes[iCube]
+
+                for iKid = 1:length(parentCube.kidsInterval)
+                    childID = parentCube.kidsInterval[iKid]
+                    childIn8 = parentCube.kidsIn8[iKid]
+
+                    aggChild = view(childAggS, :, :, childID)
                     # Lebedev 一步插值：θϕCSC 直接作用在展平的 (θ,ϕ) 分量上
                     mul!(scratch_flat[ci], interp.θϕCSC, vec(aggChild))
-                    reshape(scratch_flat[ci], nPolesParent, 2)
-                else
-                    # 传统两段式：先 ϕ 后 θ
-                    mul!(scratch_ϕ[ci], interp.ϕCSC, aggChild)
-                    mul!(scratch_agg[ci], interp.θCSC, scratch_ϕ[ci])
-                    scratch_agg[ci]
+                    shift = view(phaseShift, :, childIn8)
+
+                    fi = 0
+                    for pol = 1:2, iP = 1:nPolesParent
+                        fi += 1
+                        parentAggS[iP, pol, iCube] += shift[iP] * scratch_flat[ci][fi]
+                    end
                 end
+            end
+        end
+    else
+        scratch_ϕ = sc.scratch_ϕ::Vector{Matrix{CT}}
+        scratch_agg = sc.scratch_agg::Vector{Matrix{CT}}
 
-                shift = view(phaseShift, :, childIn8)
+        # 传统两段式：先 ϕ 后 θ
+        Threads.@threads for ci in 1:length(chunks)
+            for iCube in chunks[ci]
+                cube_filter !== nothing && !cube_filter(iCube) && continue
+                parentCube = parentLevel.cubes[iCube]
 
-                for pol = 1:2
-                    @views parentAggS[:, pol, iCube] .+= shift .* aggInterp[:, pol]
+                for iKid = 1:length(parentCube.kidsInterval)
+                    childID = parentCube.kidsInterval[iKid]
+                    childIn8 = parentCube.kidsIn8[iKid]
+
+                    aggChild = view(childAggS, :, :, childID)
+                    aggInterp = scratch_agg[ci]
+                    mul!(scratch_ϕ[ci], interp.ϕCSC, aggChild)
+                    mul!(aggInterp, interp.θCSC, scratch_ϕ[ci])
+
+                    shift = view(phaseShift, :, childIn8)
+                    for pol = 1:2
+                        @views parentAggS[:, pol, iCube] .+= shift .* aggInterp[:, pol]
+                    end
                 end
             end
         end
