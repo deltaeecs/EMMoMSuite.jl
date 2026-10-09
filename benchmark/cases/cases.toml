@@ -22,6 +22,12 @@
 #   mie_radius  : optional sphere radius for the analytic Mie reference
 #                 (PEC sphere when only PEC interfaces, dielectric sphere when
 #                 a non-air dielectric side is present)
+#
+# Volume cases (V*) describe tetrahedral Physical Volumes instead of surface
+# interfaces. `[[case.region]]` blocks (surface = Physical Volume label,
+# material = registry name) are mutually exclusive with [[case.interface]] and
+# legacy eps_r. ie = "auto" routes all-PEC regions to the surface EFIE on the
+# extracted boundary; any dielectric region uses the SWG/VEFIE volume operator.
 
 # ── material registry ────────────────────────────────────────────────────────
 [material.pec]
@@ -251,3 +257,40 @@ phi_cuts    = [0.0, 1.5707963267948966]
 surface = "body"
 plus    = "air"
 minus   = "pec"
+
+# ── volume (tetrahedral) cases ───────────────────────────────────────────────
+[[case]]
+name        = "V1_sphere_VEFIE_Mie"
+geo         = "sphere_r0p15.geo"
+mesh_size   = 0.04
+dim         = 3
+freq        = 6.0e8
+ie          = "auto"
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+mie_radius  = 0.15
+
+[[case.region]]
+surface  = "body"
+material = "eps4p0"
+
+[[case]]
+name        = "V2_sphere_volume_PEC_fallback"
+geo         = "sphere_r0p5.geo"
+mesh_size   = 0.15
+dim         = 3
+freq        = 3.0e8
+ie          = "auto"
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+mie_radius  = 0.5
+
+[[case.region]]
+surface  = "body"
+material = "pec"

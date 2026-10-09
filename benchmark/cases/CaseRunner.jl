@@ -14,7 +14,8 @@ using EMMoMSuite
 using TOML, Printf, Dates, Statistics, LinearAlgebra
 using Plots
 
-export CaseSpec, Interface, PEC, Dielectric, load_cases, run_case, run_cases, write_index
+export CaseSpec, Interface, Region, PEC, Dielectric, VolumeMaterialContext,
+       load_cases, run_case, run_cases, write_index
 
 const CASES_DIR    = @__DIR__
 const GEO_DIR      = joinpath(CASES_DIR, "geo")
@@ -55,6 +56,17 @@ Base.@kwdef struct Interface
     flip::Bool  = false
 end
 
+"""
+    Region
+
+One physical *volume* (gmsh `Physical Volume` label) filled with a single
+material. Volume cases use `Vector{Region}` instead of `Vector{Interface}`.
+"""
+Base.@kwdef struct Region
+    surface::String             # Physical Volume label
+    material::Material
+end
+
 function Base.show(io::IO, m::Dielectric)
     print(io, "Dielectric(εᵣ=", m.eps_r, ", μᵣ=", m.mu_r, ")")
 end
@@ -91,6 +103,7 @@ Base.@kwdef struct CaseSpec
     dim::Int                       = 2
     freq::Float64
     interfaces::Vector{Interface}  = Interface[]
+    regions::Vector{Region}        = Region[]     # volume (dim=3) cases
     ie::String                     = "auto"       # auto | EFIE | CFIE | PMCHW
     alpha::Float64                 = 0.5
     theta_inc::Float64             = pi / 2
@@ -116,6 +129,13 @@ _is_diel(m::Dielectric) = true
 _is_diel(::PEC) = false
 _is_pec(::PEC) = true
 _is_pec(::Dielectric) = false
+
+# Material-protocol hooks (src/IntegralEquations/MaterialFormulation.jl):
+# the generic build_volume_system/is_all_pec machinery works on ANY material
+# model that implements these three functions.
+EMMoMSuite.is_pec_material(m::PEC) = true
+EMMoMSuite.relative_permittivity(d::Dielectric) =
+    ComplexF64(d.eps_r) + (hasproperty(d, :eps_r_im) ? ComplexF64(0, d.eps_r_im) : 0im)
 
 """
     validate_interfaces(interfaces) -> nothing
@@ -148,11 +168,9 @@ end
 Explicit `ie` overrides (`:EFIE`, `:CFIE`, `:PMCHW`).
 """
 function derive_formulation(interfaces, ie::String)
-    sym = Symbol(ie)
-    sym === :auto || return sym
-    any(_is_diel, reduce(vcat, [[itf.plus, itf.minus] for itf in interfaces])) &&
-        return :PMCHW
-    return :EFIE
+    has_diel = any(_is_diel,
+                   reduce(vcat, [[itf.plus, itf.minus] for itf in interfaces]))
+    return EMMoMSuite.derive_formulation(has_diel, ie)
 end
 
 """
@@ -191,6 +209,67 @@ function build_operator(interfaces, freq::Float64; ie::String = "auto", alpha::F
     end
     return op, MaterialContext(k0 = Float64(get_k0()), eta0 = Float64(get_eta0()),
                                layout = layout, interfaces = interfaces)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Volume (tetrahedral) branch: regions → SWG/VEFIE, with PEC-only fallback
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    VolumeMaterialContext
+
+Post-processing context for volume (tetrahedral) cases:
+- `bm`              : `BoundMesh` (tet mesh + per-tag material binding)
+- `regions`         : the `Region` list of the case
+- `permittivities`  : per-tetrahedron relative εᵣ used by VEFIE/RCS
+- `boundary_fallback`: `true` when all regions are PEC and the solve was
+  routed to the surface EFIE on the extracted boundary (RWG basis)
+- `fallback_ctx`    : the inner `MaterialContext` of the fallback path
+"""
+Base.@kwdef struct VolumeMaterialContext
+    k0::Float64
+    eta0::Float64
+    layout::Symbol                              # always :volume
+    bm
+    regions::Vector{Region}
+    permittivities::Vector{ComplexF64}
+    boundary_fallback::Bool                     = false
+    fallback_ctx::Union{Nothing,MaterialContext} = nothing
+end
+
+"""
+    build_volume_operator(bm, regions, freq; ie = "auto") -> (op, VolumeMaterialContext)
+
+Volume counterpart of [`build_operator`](@ref): the single branch point from
+region/material description to solver operator.
+
+`ie = "auto"` rules:
+- **all regions PEC** → degenerate to the existing surface EFIE path
+  (`extract_surface` + RWG basis); the returned context carries
+  `boundary_fallback = true`.
+- **any dielectric region** → SWG basis + VEFIE volume operator with
+  per-tetrahedron permittivities taken from the region bindings.
+- **mix of PEC and dielectric regions** → not supported (error).
+"""
+function build_volume_operator(bm, regions, freq::Float64; ie::String = "auto")
+    isempty(regions) && error("no region defined")
+    set_frequency!(freq)
+
+    # Algorithmic dispatch lives in the library (generic over any material
+    # model implementing the material protocol); CaseRunner only adapts the
+    # result into the case-level post-processing context.
+    sys = build_volume_system(bm, freq; ie = ie)
+    fallback = sys.kind === :efie_fallback
+    ctx = VolumeMaterialContext(
+        k0 = Float64(get_k0()), eta0 = Float64(get_eta0()), layout = :volume,
+        bm = bm, regions = regions, permittivities = sys.permittivities,
+        boundary_fallback = fallback,
+        fallback_ctx = fallback ? MaterialContext(k0 = Float64(get_k0()),
+                                                  eta0 = Float64(get_eta0()),
+                                                  layout = :j_only,
+                                                  interfaces = Interface[]) :
+                                 nothing)
+    return sys.op, sys.mesh, ctx
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -235,6 +314,43 @@ function reference_rcs(ctx::MaterialContext, mie_radius, freq, θa, φ, θinc, �
     end
 end
 
+"volume RCS dispatch: SWG coefficients + per-tet permittivities, or RWG fallback"
+function postprocess_rcs(ctx::VolumeMaterialContext, θa, ϕs, I, basis)
+    if ctx.boundary_fallback
+        _, _, rcs_dB = radarCrossSection(θa, ϕs, I, basis)
+    else
+        _, _, rcs_dB = radarCrossSection(θa, ϕs, I, basis, ctx.permittivities)
+    end
+    return rcs_dB
+end
+
+"volume far-field dispatch: derived from the RCS magnitudes (volume currents
+have no farField overload); matches `_plot_farfield`'s [2, nθ, nϕ] layout"
+function postprocess_farfield(ctx::VolumeMaterialContext, θa, ϕs, I, basis, source, nbasis)
+    return farfield_from_rcs(postprocess_rcs(ctx, θa, ϕs, I, basis))
+end
+
+"""
+    reference_rcs(ctx::VolumeMaterialContext, ...)
+
+Analytic reference chosen from the region materials (same rule as the
+interface variant, reading `ctx.regions` instead).
+"""
+function reference_rcs(ctx::VolumeMaterialContext, mie_radius, freq, θa, φ, θinc, φinc, pol)
+    mie_radius === nothing && return nothing
+    if ctx.boundary_fallback
+        return (:pec, mie_pec_bistatic_rcs_dBsm(mie_radius, freq, θa, φ, θinc, φinc, pol))
+    end
+    diels = filter(r -> r.material isa Dielectric &&
+                         !(isapprox(r.material.eps_r, AIR.eps_r) &&
+                           isapprox(r.material.mu_r, AIR.mu_r)), ctx.regions)
+    isempty(diels) &&
+        return (:pec, mie_pec_bistatic_rcs_dBsm(mie_radius, freq, θa, φ, θinc, φinc, pol))
+    d = diels[1].material
+    return (:diel, mie_dielectric_bistatic_rcs_dBsm(
+        mie_radius, freq, d.eps_r, d.mu_r, θa, φ, θinc, φinc, pol))
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # cases.toml parsing (new interface format + legacy single-material format)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -263,17 +379,29 @@ function load_cases(path::AbstractString = CASES_TOML)
                 flip    = Bool(get(itf, "flip", false)),
             ))
         end
+        # volume (Physical Volume) regions — mutually exclusive with interfaces
+        regions = Region[]
+        for r in get(c, "region", [])
+            push!(regions, Region(
+                surface  = String(r["surface"]),
+                material = _parse_material(registry, r["material"]),
+            ))
+        end
+        !isempty(regions) && (!isempty(interfaces) || haskey(c, "eps_r")) &&
+            error("case `$(c["name"])`: [[case.region]] is mutually exclusive " *
+                  "with [[case.interface]] / legacy eps_r")
         # legacy single-material translation: eps_r present → air|dielectric
-        haskey(c, "eps_r") && push!(interfaces, Interface(
+        haskey(c, "eps_r") && isempty(regions) && push!(interfaces, Interface(
             surface = "body",
             plus    = AIR,
             minus   = Dielectric(
                         eps_r = ComplexF64(Float64(c["eps_r"]), Float64(get(c, "eps_r_im", 0.0))),
                         mu_r  = ComplexF64(Float64(get(c, "mu_r", 1.0)), Float64(get(c, "mu_r_im", 0.0)))),
         ))
-        ie = String(get(c, "ie", isempty(interfaces) ? "EFIE" : "auto"))
+        ie = String(get(c, "ie", (isempty(interfaces) && isempty(regions)) ? "EFIE" : "auto"))
         # legacy pure-PEC case without any interface: synthesize air | pec
-        isempty(interfaces) && push!(interfaces, Interface(surface = "body", plus = AIR, minus = PEC()))
+        isempty(interfaces) && isempty(regions) &&
+            push!(interfaces, Interface(surface = "body", plus = AIR, minus = PEC()))
         push!(specs, CaseSpec(
             name       = String(c["name"]),
             geo        = String(c["geo"]),
@@ -281,6 +409,7 @@ function load_cases(path::AbstractString = CASES_TOML)
             dim        = get(c, "dim", 2),
             freq       = Float64(c["freq"]),
             interfaces = interfaces,
+            regions    = regions,
             ie         = ie,
             alpha      = get(c, "alpha", 0.5),
             theta_inc  = Float64(get(c, "theta_inc", pi / 2)),
@@ -353,8 +482,11 @@ end
     run_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT) -> CaseResult
 
 Execute the full pipeline for one case and write all artifacts.
+Volume cases (`[[case.region]]`) dispatch to `_run_volume_case`; surface
+(interface / legacy) cases run the RWG pipeline below.
 """
 function run_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT)
+    isempty(spec.regions) || return _run_volume_case(spec; outroot)
     outdir = joinpath(outroot, spec.name)
     mkpath(outdir)
     println("=== Case $(spec.name) ===")
@@ -435,6 +567,101 @@ function run_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT)
                      t_mesh, t_assembly, t_solve, t_rcs, t_plots,
                      mie_ok, rmse)
     _write_report(res, rcs_dB, mie_dB, mie_ok)
+    println("  report: ", joinpath(outdir, "report.md"))
+    return res
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# volume (tetrahedral) case pipeline: Physical Volumes → SWG/VEFIE
+# ─────────────────────────────────────────────────────────────────────────────
+
+function _run_volume_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT)
+    outdir = joinpath(outroot, spec.name)
+    mkpath(outdir)
+    println("=== Case $(spec.name) (volume) ===")
+
+    # ---- 1. geometry -> gmsh tetrahedral mesh + Physical Volume regions ---
+    geo_file = isabspath(spec.geo) ? spec.geo : joinpath(GEO_DIR, spec.geo)
+    t0 = time()
+    mesh, region_tags = generate_gmsh_volume(geo_file; mesh_size = spec.mesh_size)
+    t_mesh = time() - t0
+
+    # ---- 1b. bind materials by region name and validate -------------------
+    bm = bind_regions(mesh, region_tags,
+                      Dict(r.surface => r.material for r in spec.regions))
+    validate_bindings(bm) ||
+        error("case $(spec.name): unbound tetrahedra (Physical Volume missing?)")
+
+    tetnum  = mesh.tetnum
+    nnodes  = size(mesh.node, 2)
+    @printf("  mesh: %d tetrahedra, %d nodes, regions = %s (%.1f s)\n",
+            tetnum, nnodes, join(keys(region_tags), ", "), t_mesh)
+
+    set_frequency!(spec.freq)
+    source = PlaneWave(spec.freq, spec.theta_inc, spec.phi_inc, spec.pol)
+
+    # ---- 2. assemble: volume operator factory is the only branch point ----
+    t0 = time()
+    op, solve_mesh, ctx = build_volume_operator(bm, spec.regions, spec.freq;
+                                                ie = spec.ie)
+    basis = ctx.boundary_fallback ? RWGBasis(solve_mesh) : SWGBasis(solve_mesh)
+    nbasis = num_basis(basis)
+    Z = assemble_impedance_matrix(op, basis)
+    V = ctx.boundary_fallback ? excitation_vector(op, source, basis) :
+        excitation_vector(op, source, basis, ctx.permittivities)
+    t_assembly = time() - t0
+    @printf("  assembly (%s, %d unknowns): %.1f s\n",
+            nameof(typeof(op)), nbasis, t_assembly)
+
+    # ---- 3. solve -------------------------------------------------------
+    t0 = time()
+    I = Z \ V
+    t_solve = time() - t0
+    @printf("  LU solve: %.1f s\n", t_solve)
+
+    # ---- 4. RCS ----------------------------------------------------------
+    t0 = time()
+    θs = range(0.0, pi; length = spec.n_theta)
+    ϕs = collect(spec.phi_cuts)
+    θa = collect(Float64.(θs))
+    rcs_dB = postprocess_rcs(ctx, θa, ϕs, I, basis)   # [nθ, nϕ] dBsm
+
+    mie_dB = Matrix{Float64}(undef, length(θa), length(ϕs)); fill!(mie_dB, NaN)
+    mie_ok = false
+    if spec.mie_radius !== nothing
+        try
+            for (j, φ) in enumerate(ϕs)
+                ref = reference_rcs(ctx, spec.mie_radius, spec.freq,
+                                    θa, φ, spec.theta_inc, spec.phi_inc, spec.pol)
+                mie_dB[:, j] .= ref[2]
+            end
+            mie_ok = true
+        catch err
+            @warn "Mie reference failed" spec.name err
+        end
+    end
+    t_rcs = time() - t0
+
+    rmse = [mie_ok ? sqrt(mean((rcs_dB[:, j] .- mie_dB[:, j]).^2)) : NaN for j in eachindex(ϕs)]
+    if mie_ok
+        for (j, φ) in enumerate(ϕs)
+            @printf("  RCS vs Mie, phi=%6.1f°: RMSE = %.3f dB\n", _deg(φ), rmse[j])
+        end
+    end
+
+    # ---- 5. far field + plots ---------------------------------------------
+    t0 = time()
+    FF = postprocess_farfield(ctx, θa, ϕs, I, basis, source, nbasis)
+    _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
+    _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
+    _plot_farfield(spec, outdir, θa, ϕs, FF)
+    t_plots = time() - t0
+    @printf("  plots: %.1f s\n", t_plots)
+
+    res = CaseResult(spec, outdir, tetnum, nnodes, nbasis,
+                     t_mesh, t_assembly, t_solve, t_rcs, t_plots,
+                     mie_ok, rmse)
+    _write_report_volume(res, rcs_dB, mie_dB, mie_ok, region_tags, ctx)
     println("  report: ", joinpath(outdir, "report.md"))
     return res
 end
@@ -531,13 +758,80 @@ function _write_report(res::CaseResult, rcs_dB, mie_dB, mie_ok)
     if s.mie_radius !== nothing
         has_diel = any(itf -> itf.minus isa Dielectric && itf.minus !== AIR ||
                               itf.plus isa Dielectric && itf.plus !== AIR, s.interfaces)
-        has_diel && println(buf, "| Mie reference | dielectric sphere r = $(s.mie_radius) m |") ||
-                  println(buf, "| Mie reference | PEC sphere r = $(s.mie_radius) m |")
+        println(buf, has_diel ?
+            "| Mie reference | dielectric sphere r = $(s.mie_radius) m |" :
+            "| Mie reference | PEC sphere r = $(s.mie_radius) m |")
     end
     println(buf)
     println(buf, "## Mesh & solve")
     println(buf)
     println(buf, "| triangles | nodes | RWG unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |")
+    println(buf, "|---|---|---|---|---|---|---|---|")
+    @printf(buf, "| %d | %d | %d | %.1f s | %.1f s | %.1f s | %.1f s | %.1f s |\n",
+            res.trinum, res.num_nodes, res.num_basis,
+            res.t_mesh, res.t_assembly, res.t_solve, res.t_rcs, res.t_plots)
+    println(buf)
+    println(buf, "## RCS accuracy")
+    println(buf)
+    if mie_ok
+        println(buf, "| phi cut | RMSE vs Mie [dB] |")
+        println(buf, "|---|---|")
+        for (j, φ) in enumerate(s.phi_cuts)
+            @printf(buf, "| %.1f° | %.3f |\n", _deg(φ), res.mie_rmse[j])
+        end
+    else
+        println(buf, "No analytic reference for this geometry; RCS provided as-is.")
+    end
+    println(buf)
+    println(buf, "## Artifacts")
+    println(buf)
+    println(buf, "- RCS data: `rcs.csv`")
+    println(buf, "- RCS curves:")
+    println(buf, "  ![RCS cuts](rcs_cuts.png)")
+    println(buf, "- Far-field pattern:")
+    println(buf, "  ![Far-field polar](farfield_polar.png)")
+    open(joinpath(res.outdir, "report.md"), "w") do io
+        print(io, String(take!(buf)))
+    end
+    return nothing
+end
+
+"report writer for volume (tetrahedral) cases; keeps the same table layout as
+the surface report so `write_index` can parse it"
+function _write_report_volume(res::CaseResult, rcs_dB, mie_dB, mie_ok,
+                              region_tags::Dict{String,Int},
+                              ctx::VolumeMaterialContext)
+    s = res.spec
+    buf = IOBuffer()
+    println(buf, "# Case report — `$(s.name)`")
+    println(buf)
+    println(buf, "*Generated: $(Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS"))*")
+    println(buf)
+    println(buf, "## Inputs")
+    println(buf)
+    println(buf, "| item | value |")
+    println(buf, "|---|---|")
+    println(buf, "| geometry | `cases/geo/$(s.geo)` |")
+    println(buf, "| mesh size | $(s.mesh_size) m |")
+    println(buf, "| mesh dim | $(s.dim) (tetrahedral volume mesh) |")
+    println(buf, "| frequency | $(s.freq/1e6) MHz (λ = $(round(3e8/s.freq; digits=3)) m) |")
+    kind = ctx.boundary_fallback ? "EFIE (all-PEC fallback, surface extracted)" :
+           "VEFIE (SWG volume discretization)"
+    println(buf, "| formulation | $(kind) |")
+    println(buf, "| regions (Physical Volume) | material | tag |")
+    println(buf, "|---|---|---|")
+    for r in s.regions
+        println(buf, "| `$(r.surface)` | $(r.material) | $(get(region_tags, r.surface, "—")) |")
+    end
+    println(buf, "| incidence | θᵢ = $(_deg(s.theta_inc))°, φᵢ = $(_deg(s.phi_inc))°, pol = [$(join(s.pol, ", "))] |")
+    if s.mie_radius !== nothing
+        kind_mie = ctx.boundary_fallback ? "PEC" : "dielectric"
+        println(buf, "| Mie reference | $(kind_mie) sphere r = $(s.mie_radius) m |")
+    end
+    println(buf)
+    println(buf, "## Mesh & solve")
+    println(buf)
+    println(buf, "| tetrahedra | nodes | unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |")
     println(buf, "|---|---|---|---|---|---|---|---|")
     @printf(buf, "| %d | %d | %d | %.1f s | %.1f s | %.1f s | %.1f s | %.1f s |\n",
             res.trinum, res.num_nodes, res.num_basis,

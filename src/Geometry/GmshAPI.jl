@@ -240,17 +240,100 @@ function _extract_triangle_mesh(gmsh, FT::Type{<:AbstractFloat})
 end
 
 """
+    _physical_volume_map(gmsh) → (regions::Dict{String,Int}, ent2phys::Dict{Int,Int})
+
+Query the current Gmsh session for 3-D physical groups. Returns
+`Physical Volume name => physicalTag` and `volume entityTag => physicalTag`.
+Duplicate physical names are rejected.
+"""
+function _physical_volume_map(gmsh)
+    regions = Dict{String,Int}()
+    ent2phys = Dict{Int,Int}()
+    for (_, ptag) in gmsh.model.getPhysicalGroups(3)
+        name = gmsh.model.getPhysicalName(3, ptag)
+        isempty(name) && (name = "vol_$(ptag)")
+        haskey(regions, name) &&
+            error("GmshAPI: duplicate Physical Volume name \"$name\" (tag $ptag)")
+        regions[name] = ptag
+        for etag in gmsh.model.getEntitiesForPhysicalGroup(3, ptag)
+            haskey(ent2phys, etag) &&
+                error("GmshAPI: volume entity $etag belongs to multiple Physical Volumes")
+            ent2phys[etag] = ptag
+        end
+    end
+    return regions, ent2phys
+end
+
+"""
     _extract_tet_mesh(gmsh, FT) → TetrahedraMesh
 
 Extract all tetrahedral elements (Gmsh element type 4) from the current
 Gmsh session and return a `TetrahedraMesh{Int32,FT}`.
+
+When the session defines 3-D physical groups, per-tetrahedron tags are the
+*Physical Volume* tags (volume entities outside any group get tag 0);
+otherwise the legacy all-ones tag vector is kept.
 """
 function _extract_tet_mesh(gmsh, FT::Type{<:AbstractFloat})
-    elem_tags, node_conn = gmsh.model.mesh.getElementsByType(4)
-    isempty(elem_tags) &&
+    regions, ent2phys = _physical_volume_map(gmsh)
+    if isempty(ent2phys)
+        # legacy behaviour: no Physical Volumes defined
+        elem_tags, node_conn = gmsh.model.mesh.getElementsByType(4)
+        isempty(elem_tags) &&
+            error("GmshAPI: no tetrahedral elements found; verify 3-D mesh was generated")
+        ntet = length(elem_tags)
+        node_mat, tag2idx = _extract_nodes_for_elements(gmsh, node_conn, FT)
+        conn_mat = Int64.(_build_connectivity(node_conn, tag2idx, 4, ntet))
+        return TetrahedraMesh(ntet, node_mat, conn_mat, ones(Int, ntet))
+    end
+
+    # Physical Volumes present: assemble connectivity per volume entity so each
+    # tetrahedron carries its physical (region) tag; ungrouped entities get 0.
+    node_conn = Int[]
+    tags = Int[]
+    for (dim, etag) in gmsh.model.getEntities(3)
+        etags, conn = gmsh.model.mesh.getElementsByType(4, etag)
+        isempty(etags) && continue
+        append!(node_conn, conn)
+        append!(tags, fill(get(ent2phys, etag, 0), length(etags)))
+    end
+    isempty(node_conn) &&
         error("GmshAPI: no tetrahedral elements found; verify 3-D mesh was generated")
-    ntet     = length(elem_tags)
+    ntet = length(tags)
     node_mat, tag2idx = _extract_nodes_for_elements(gmsh, node_conn, FT)
-    conn_mat = _build_connectivity(node_conn, tag2idx, 4, ntet)
-    return TetrahedraMesh(ntet, node_mat, conn_mat, ones(Int, ntet))
+    conn_mat = Int64.(_build_connectivity(node_conn, tag2idx, 4, ntet))
+    return TetrahedraMesh(ntet, node_mat, conn_mat, tags)
+end
+
+"""
+    generate_gmsh_volume(geo_file::String; mesh_size=0.1, FT=Float64)
+        → (TetrahedraMesh, Dict{String,Int})
+
+Open a `.geo` file, generate a 3-D tetrahedral mesh and return the
+`TetrahedraMesh` together with the region map
+`Physical Volume name => physicalTag`. Per-tetrahedron tags carry the
+Physical Volume tag (0 for volumes not in any group).
+"""
+function generate_gmsh_volume(
+    geo_file::String;
+    mesh_size::Real = 0.1,
+    FT::Type{<:AbstractFloat} = Float64,
+)
+    isfile(geo_file) || error("File not found: $geo_file")
+    return _with_gmsh() do gmsh
+        gmsh.initialize(["gmsh", "-nopopup"])
+        try
+            gmsh.option.setNumber("General.Verbosity", 0)
+            gmsh.open(geo_file)          # execute the .geo script
+            try gmsh.model.occ.synchronize() catch; end
+            try gmsh.model.geo.synchronize() catch; end
+            mesh_size > 0 && _set_mesh_size!(gmsh, Float64(mesh_size))
+            gmsh.model.mesh.generate(3)
+            mesh = _extract_tet_mesh(gmsh, FT)
+            regions, _ = _physical_volume_map(gmsh)
+            return (mesh, regions)
+        finally
+            gmsh.finalize()
+        end
+    end
 end

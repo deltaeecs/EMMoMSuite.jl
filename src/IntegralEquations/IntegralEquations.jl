@@ -37,6 +37,8 @@ using .NMullerModule
 include("Excitation.jl")
 using .Excitation
 
+include("MaterialFormulation.jl")
+
 export EFIE, MFIE, CFIE, VEFIE, SCFIE, PMCHW, NMuller, assemble_impedance_matrix
 export green_function_free_space
 export assemble_K_offdiag, efie_from_keta, excitation_vector
@@ -51,5 +53,9 @@ export AbstractPMCHWBackend,
 	recover_trial_coefficients,
 	weak_form,
 	strong_form
+
+export is_pec_material, relative_permittivity, relative_permeability,
+	volume_permittivities, is_all_pec, build_volume_system,
+	derive_formulation, farfield_from_rcs
 
 end
