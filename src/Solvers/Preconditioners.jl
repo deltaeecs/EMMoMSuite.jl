@@ -452,9 +452,11 @@ function SPAIPreconditioner(
         sort!(neibfs)
         unique!(neibfs)
 
-        # 2. 邻块的邻块（含自身）的基函数行号
+        # 2. 列集 = 本块 ∪ 邻块的邻块的基函数行号
+        #    （本块显式包含：某些网格下本块不在 N(N(c)) 中，cbfsInCnnei 会越界）
         neisNeibfs = neisNeibfs_ts[tid]
         empty!(neisNeibfs)
+        append!(neisNeibfs, row_map.(collect(cube.bfInterval)))
         for iN in cube.neighbors
             for iNN in cubes[iN].neighbors
                 append!(neisNeibfs, row_map.(collect(cubes[iNN].bfInterval)))

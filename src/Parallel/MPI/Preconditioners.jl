@@ -5,6 +5,8 @@
 #     `(i_cube-1)%P` 号 cube 的 J/M 行块），构造只提取本秩块的行；施加时各秩
 #     对本秩块做 LU 求解 → 1 次 Allreduce 汇聚完整 y。
 #   - `DistributedDiagonalPreconditioner`：对角逆向量每秩复制（O(N)），施加无通信。
+#   - `DistributedSPAIPreconditioner`：逐八叉树块 SAI 行块按 cube 归属分到各秩，
+#     构造只向各块所有者请求所需行（不做全量 Z_near 汇总）；施加 SpMV + Allreduce。
 #   - `apply_mpi_preconditioner!(y, P, x)`：统一入口；`nothing` 与串行预条件
 #     （BlockJacobi/Diagonal/...）作为复制式回退（每秩完整施加，结果一致）。
 #
@@ -113,6 +115,7 @@ MPI 预条件统一施加入口（左预条件 M⁻¹）：
 - `nothing`：y = x
 - `DistributedBlockJacobiPreconditioner`：本秩块 LU 求解 + Allreduce
 - `DistributedDiagonalPreconditioner`：逐元素除法（无通信）
+- `DistributedSPAIPreconditioner`：本秩 SAI 行块 SpMV + Allreduce
 - 串行预条件：每秩完整施加（复制式回退，结果一致但内存每秩全量）
 """
 function apply_mpi_preconditioner!(y::AbstractVector{CT}, P::Nothing, x::AbstractVector{CT}) where {CT}
@@ -157,38 +160,180 @@ function apply_mpi_preconditioner!(
 end
 
 """
-    _gather_full_znear(op::MLFMAOperatorMPI) -> SparseMatrixCSC
+    DistributedSPAIPreconditioner{CT}
 
-将各秩的 `Z_near_local` 非零元 Allgatherv 汇总为完整 `Z_near`（每秩复制）。
-SAI 块构造需要邻块行，`Z_near_local` 只含本秩 cube 的行，因此分布式 SAI
-采用「汇总构造 + 复制式施加」（与串行预条件的复制式回退一致：施加本身就是
-每秩完整 SpMV）。
+MPI 分布式逐八叉树块 SAI 预条件（左预条件）：块按叶 cube 归属分到各秩
+（rank 拥有 `(i_cube-1)%P` 号 cube 的 M 行块，与 `DistributedBlockJacobiPreconditioner`
+同一约定），每秩只构造并保存自己拥有 cube 的 SAI 行块。
+
+构造不交换整个 `Z_near`：每秩只向各块所有者请求本秩 cube 扩展邻域
+（neibfs ∪ neisNeibfs）涉及的**那几行** `Z_near_local`（Alltoall 请求 +
+Alltoallv 回传行非零元），避免逐行/全量 Allgatherv 交换。
+施加：`y_local = M_local * x`（x 每秩复制）+ 1 次 Allreduce 汇聚完整 y。
 """
-function _gather_full_znear(op::MLFMAOperatorMPI)
-    comm = op.comm
-    I_loc, J_loc, V_loc = findnz(op.Z_near_local)
-    n_loc = length(I_loc)
-    counts = MPI.Allgather(Int32(n_loc), comm)
-    Is = MPI.Allgatherv!(I_loc, counts, comm)
-    Js = MPI.Allgatherv!(J_loc, counts, comm)
-    # 值统一为 ComplexF64 再汇总
-    V_loc64 = ComplexF64.(V_loc)
-    Vs = MPI.Allgatherv!(V_loc64, counts, comm)
-    N = size(op.Z_near_local, 1)
-    return sparse(Is, Js, Vs, N, N)
+struct DistributedSPAIPreconditioner{CT}
+    M_local::SparseMatrixCSC{CT,Int}   # 本秩拥有的行块（仅 owned cube 的 M 行非零）
+    comm
 end
 
 """
-    SPAIPreconditioner(op::MLFMAOperatorMPI)
+    DistributedSPAIPreconditioner(op::MLFMAOperatorMPI)
 
-从 MPI MLFMA 算子构造逐八叉树块 SAI 预条件：先 `_gather_full_znear` 汇总完整
-`Z_near`（每秩复制），再按串行块算法构造。施加走
-`apply_mpi_preconditioner!` 的复制式回退（每秩完整 SpMV，结果一致）。
+从 MPI MLFMA 算子构造分布式逐块 SAI：按块所有者分布构造（仅交换所需行），
+施加走 `apply_mpi_preconditioner!`（SpMV + Allreduce）。
 """
-function SPAIPreconditioner(op::MLFMAOperatorMPI)
-    Z = _gather_full_znear(op)
-    cubes = op.octree.levels[op.octree.nLevels].cubes
-    return SPAIPreconditioner(Z, cubes, i -> op.sorted_ids[i])
+function DistributedSPAIPreconditioner(op::MLFMAOperatorMPI)
+    comm = op.comm
+    rank = MPI.Comm_rank(comm)
+    P = MPI.Comm_size(comm)
+    Z_local = op.Z_near_local
+    CT = eltype(Z_local)
+    sorted_ids = op.sorted_ids
+    N = size(Z_local, 1)
+    leaf = op.octree.levels[op.octree.nLevels].cubes
+
+    owned = Int[]   # 本秩拥有的非空 cube 编号
+    for (ic, c) in enumerate(leaf)
+        isempty(c.bfInterval) && continue
+        (ic - 1) % P == rank && push!(owned, ic)
+    end
+
+    # 1. 排序位置 → 拥有者秩（一次遍历叶层建立查找表）
+    pos_owner = fill(Int32(-1), N)
+    for (ic, c) in enumerate(leaf)
+        isempty(c.bfInterval) && continue
+        o = Int32((ic - 1) % P)
+        for s in c.bfInterval
+            pos_owner[s] = o
+        end
+    end
+
+    # 2. 本秩所需的全局行 = 所有 owned cube 的 neibfs ∪ neisNeibfs
+    needed_pos = Int[]                       # 排序位置（用于查拥有者）
+    cube_sets = Dict{Int,Tuple{Vector{Int},Vector{Int},Vector{Int}}}()  # ic => (cbfs, neibfs, neisNeibfs) 排序位置
+    for ic in owned
+        cube = leaf[ic]
+        cbfs_s = collect(cube.bfInterval)
+        neibfs_s = sort!(unique!(vcat(cbfs_s,
+            [collect(leaf[i].bfInterval) for i in cube.neighbors]...)))
+        # 列集 = 本块 ∪ N(N(c))（本块显式包含，保证 cbfsInCnnei 总能找到）
+        neis_s = sort!(unique!(vcat(
+            collect(cube.bfInterval),
+            [collect(leaf[j].bfInterval) for i in cube.neighbors
+             for j in leaf[i].neighbors]...)))
+        cube_sets[ic] = (cbfs_s, neibfs_s, neis_s)
+        append!(needed_pos, neibfs_s)
+        append!(needed_pos, neis_s)
+    end
+    sort!(needed_pos)
+    unique!(needed_pos)
+
+    # 3. 按拥有者分组请求全局行号；Alltoall 请求 + Alltoallv 回传行非零元
+    req_rows = [Int[] for _ = 1:P]           # 向 rank q 请求的全局行号
+    for s in needed_pos
+        push!(req_rows[pos_owner[s] + 1], sorted_ids[s])
+    end
+    foreach(req_rows) do r
+        sort!(r)
+        unique!(r)
+    end
+
+    scounts = Int32[length(req_rows[q]) for q = 1:P]
+    rcounts = MPI.Alltoallv!(MPI.VBuffer(scounts, fill(Int32(1), P)), MPI.VBuffer(Vector{Int32}(undef, P), fill(Int32(1), P)), comm)
+    send_rows = reduce(vcat, req_rows; init = Int[])
+    recv_rows = MPI.Alltoallv!(MPI.VBuffer(send_rows, scounts),
+                               MPI.VBuffer(Vector{Int}(undef, sum(rcounts)), rcounts), comm)
+
+    # 打包应答：每行 [全局行号, nnz] + 列号(Int32) + 值(ComplexF64)
+    hdr_out = [Int32[] for _ = 1:P]
+    col_out = [Int32[] for _ = 1:P]
+    val_out = [ComplexF64[] for _ = 1:P]
+    off = 0
+    for q = 1:P
+        for k = 1:rcounts[q]
+            g = recv_rows[off + k]
+            col, val = findnz(Z_local[g, :])
+            push!(hdr_out[q], Int32(g), Int32(length(col)))
+            append!(col_out[q], col)
+            append!(val_out[q], val)
+        end
+        off += rcounts[q]
+    end
+
+    hcounts = Int32[length(hdr_out[q]) for q = 1:P]
+    ccounts = Int32[length(col_out[q]) for q = 1:P]
+    vcounts = Int32[length(val_out[q]) for q = 1:P]
+    rh = MPI.Alltoallv!(MPI.VBuffer(hcounts, fill(Int32(1), P)), MPI.VBuffer(Vector{Int32}(undef, P), fill(Int32(1), P)), comm)
+    rc = MPI.Alltoallv!(MPI.VBuffer(ccounts, fill(Int32(1), P)), MPI.VBuffer(Vector{Int32}(undef, P), fill(Int32(1), P)), comm)
+    rv = MPI.Alltoallv!(MPI.VBuffer(vcounts, fill(Int32(1), P)), MPI.VBuffer(Vector{Int32}(undef, P), fill(Int32(1), P)), comm)
+    hdr_in = MPI.Alltoallv!(MPI.VBuffer(reduce(vcat, hdr_out; init = Int32[]), hcounts),
+                            MPI.VBuffer(Vector{Int32}(undef, sum(rh)), rh), comm)
+    col_in = MPI.Alltoallv!(MPI.VBuffer(reduce(vcat, col_out; init = Int32[]), ccounts),
+                            MPI.VBuffer(Vector{Int32}(undef, sum(rc)), rc), comm)
+    val_in = MPI.Alltoallv!(MPI.VBuffer(reduce(vcat, val_out; init = ComplexF64[]), vcounts),
+                            MPI.VBuffer(Vector{ComplexF64}(undef, sum(rv)), rv), comm)
+
+    # 4. 用收到的行非零元拼出 Z_sub（仅含所需行的稀疏子块，全局编号）
+    I_sub = Int[]
+    J_sub = Int[]
+    V_sub = ComplexF64[]
+    hoff = 0
+    coff = 0
+    voff = 0
+    for q = 1:P
+        for _ = 1:rh[q]÷2
+            g = hdr_in[hoff+1]
+            nnz = hdr_in[hoff+2]
+            for t = 1:nnz
+                push!(I_sub, g)
+                push!(J_sub, col_in[coff+t])
+                push!(V_sub, val_in[voff+t])
+            end
+            hoff += 2
+            coff += nnz
+            voff += nnz
+        end
+    end
+    Z_sub = sparse(I_sub, J_sub, V_sub, N, N)
+
+    # 5. 逐 owned cube 做块最小二乘（与串行 SPAIPreconditioner 同款算法）
+    IM = Int[]
+    JM = Int[]
+    VM = ComplexF64[]
+    for ic in owned
+        cbfs_s, neibfs_s, neis_s = cube_sets[ic]
+        cbfs = sorted_ids[cbfs_s]
+        neibfs = sorted_ids[neibfs_s]
+        neis = sorted_ids[neis_s]
+        Znn = Matrix{CT}(Z_sub[neibfs, neis])
+        ZnnHZnn = Znn * Znn'
+        # 列下标：cbfs 的排序位置在 neis_s（排序位置向量）中的局部列号
+        PH = lu!(ZnnHZnn) \ view(Znn, :, [searchsortedfirst(neis_s, b) for b in cbfs_s])
+        PHt = PH'
+        for (a, r) in enumerate(cbfs)
+            for (bidx, c) in enumerate(neibfs)
+                v = PHt[a, bidx]
+                if abs(v) > 1e-12
+                    push!(IM, r)
+                    push!(JM, c)
+                    push!(VM, v)
+                end
+            end
+        end
+    end
+
+    M_local = sparse(IM, JM, VM, N, N)
+    return DistributedSPAIPreconditioner{CT}(M_local, comm)
+end
+
+function apply_mpi_preconditioner!(
+    y::AbstractVector{CT},
+    P::DistributedSPAIPreconditioner,
+    x::AbstractVector{CT},
+) where {CT}
+    mul!(y, P.M_local, x)
+    MPI.Allreduce!(y, +, P.comm)
+    return y
 end
 
 """
