@@ -6,6 +6,7 @@
 # 未指定时依次探测常见 MSYS2 路径与 PATH；找不到时 scalapack_lu_solve 抛清晰错误。
 
 using MPI
+using Libdl
 
 """
     _detect_scalapack_lib() → Union{String,Nothing}
@@ -43,17 +44,28 @@ end
 const SCALAPACK_LIB = _detect_scalapack_lib()
 
 """
-    _scalapack_lib() → String
+    _scalapack_lib() → Ptr{Cvoid}
 
-返回 ScaLAPACK 库路径（运行时优先 `SCALAPACK_LIB_PATH`）；未配置且未探测到时
-抛出带安装指引的清晰错误（不静默 fallback）。
+`dlopen` ScaLAPACK 库并返回句柄（首次调用时加载并缓存；运行时优先
+`SCALAPACK_LIB_PATH`）。未配置且未探测到时抛出带安装指引的清晰错误
+（不静默 fallback）。
+
+!!! note
+    Julia ≥1.12 的 `ccall` 不允许库名为任意表达式（`(:sym, f())` 会在
+    预编译时报 `TypeError: in ccall library name, expected Symbol`），
+    因此统一走「dlopen 句柄 + dlsym 函数指针」形式（`_scalapack_sym`）。
 """
+const _SCALAPACK_HANDLE = Ref{Ptr{Cvoid}}(C_NULL)
+
 function _scalapack_lib()
-    if haskey(ENV, "SCALAPACK_LIB_PATH")
+    _SCALAPACK_HANDLE[] != C_NULL && return _SCALAPACK_HANDLE[]
+    path = if haskey(ENV, "SCALAPACK_LIB_PATH")
         p = ENV["SCALAPACK_LIB_PATH"]
-        isempty(p) || return p
+        isempty(p) ? nothing : p
+    else
+        SCALAPACK_LIB
     end
-    SCALAPACK_LIB === nothing && error(
+    path === nothing && error(
         "未找到 ScaLAPACK 动态库。请安装 ScaLAPACK 或设置环境变量 SCALAPACK_LIB_PATH 指向库文件。\n" *
         "  Windows/MSYS2: pacman -S mingw-w64-x86_64-scalapack  (mingw64，MSMPI 版)\n" *
         "                  或 mingw-w64-ucrt-x86_64-scalapack (ucrt64)\n" *
@@ -61,8 +73,13 @@ function _scalapack_lib()
         "  也可在启动前指定: SCALAPACK_LIB_PATH=/path/to/libscalapack.so julia --project=. ...\n" *
         "  分布式稠密直接求解仅此路径（自研 1D MPI LU 因性能不足已移除）。",
     )
-    return SCALAPACK_LIB
+    h = Libdl.dlopen(path, Libdl.RTLD_LAZY | Libdl.RTLD_GLOBAL)
+    _SCALAPACK_HANDLE[] = h
+    return h
 end
+
+"按符号名从 ScaLAPACK 库解析函数指针（`ccall` 的 Ptr 形式，预编译安全）。"
+_scalapack_sym(s::Symbol) = Libdl.dlsym(_scalapack_lib(), s)
 
 """
     ScaLAPACKGrid
@@ -83,7 +100,7 @@ end
 function _blacs_gridinit!(ictxt::Ref{Int32}, nprow::Int32, npcol::Int32)
     layout = Ref{UInt8}(UInt8('R'))
     ccall(
-        (:blacs_gridinit_, _scalapack_lib()),
+        (_scalapack_sym(:blacs_gridinit_)),
         Cvoid,
         (Ref{Int32}, Ref{UInt8}, Ref{Int32}, Ref{Int32}),
         ictxt, layout, Ref(nprow), Ref(npcol),
@@ -100,7 +117,7 @@ end
 function _blacs_system_context()
     ictxt = Ref{Int32}(0)
     ccall(
-        (:blacs_get_, _scalapack_lib()),
+        (_scalapack_sym(:blacs_get_)),
         Cvoid,
         (Ref{Int32}, Ref{Int32}, Ref{Int32}),
         Ref{Int32}(-1), Ref{Int32}(0), ictxt,
@@ -112,7 +129,7 @@ function _blacs_gridinfo!(ictxt::Int32)
     nprow = Ref{Int32}(0); npcol = Ref{Int32}(0)
     myrow = Ref{Int32}(0); mycol = Ref{Int32}(0)
     ccall(
-        (:blacs_gridinfo_, _scalapack_lib()),
+        (_scalapack_sym(:blacs_gridinfo_)),
         Cvoid,
         (Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}),
         Ref(ictxt), nprow, npcol, myrow, mycol,
@@ -121,7 +138,7 @@ function _blacs_gridinfo!(ictxt::Int32)
 end
 
 _blacs_gridexit!(ictxt::Int32) = ccall(
-    (:blacs_gridexit_, _scalapack_lib()), Cvoid, (Ref{Int32},), Ref(ictxt)
+    (_scalapack_sym(:blacs_gridexit_)), Cvoid, (Ref{Int32},), Ref(ictxt)
 )
 
 """
@@ -226,7 +243,7 @@ function pzgesv!(Aloc::Matrix{CT}, bloc::Vector{CT}, grid::ScaLAPACKGrid; MB::In
     descb = zeros(Int32, 9)
     info = Ref{Int32}(0)
     ccall(
-        (:descinit_, _scalapack_lib()),
+        (_scalapack_sym(:descinit_)),
         Cvoid,
         (Ptr{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}),
         desc, Ref(Int32(N)), Ref(Int32(N)), Ref(Int32(MB)), Ref(Int32(NB)),
@@ -234,7 +251,7 @@ function pzgesv!(Aloc::Matrix{CT}, bloc::Vector{CT}, grid::ScaLAPACKGrid; MB::In
     )
     info[] == 0 || error("descinit failed: info=", info[])
     ccall(
-        (:descinit_, _scalapack_lib()),
+        (_scalapack_sym(:descinit_)),
         Cvoid,
         (Ptr{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}, Ref{Int32}),
         descb, Ref(Int32(N)), Ref(nrhs), Ref(Int32(MB)), Ref(Int32(NB)),
@@ -243,7 +260,7 @@ function pzgesv!(Aloc::Matrix{CT}, bloc::Vector{CT}, grid::ScaLAPACKGrid; MB::In
     info[] == 0 || error("descinit(b) failed: info=", info[])
     ipiv = zeros(Int32, N)
     ccall(
-        (:pzgesv_, _scalapack_lib()),
+        (_scalapack_sym(:pzgesv_)),
         Cvoid,
         (Ref{Int32}, Ref{Int32}, Ptr{CT}, Ref{Int32}, Ref{Int32}, Ptr{Int32}, Ptr{Int32},
          Ptr{CT}, Ref{Int32}, Ref{Int32}, Ptr{Int32}, Ptr{Int32}),
