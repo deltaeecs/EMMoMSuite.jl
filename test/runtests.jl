@@ -55,4 +55,7 @@ using Test
     
     # Phase 21.3: Numerical validation (frequency sweeps)
     include("test_integral_equations_frequency.jl")
+
+    # Volume material binding (Physical Volume → tet tag → material)
+    include("test_volume_material_binding.jl")
 end

@@ -182,8 +182,8 @@ function SWGBasis(mesh::TetrahedraMesh{IT,FT}) where {IT,FT}
                 IT(length(functions) + 1),
                 false,
                 area,
-                SVector(f1[4], f2[4]),
-                SVector(f1[5], f2[5]),
+                SVector{2,IT}(f1[4], f2[4]),
+                SVector{2,IT}(f1[5], f2[5]),
                 SVector(1, -1),
                 SVector{3,FT}(center),
             )
@@ -205,8 +205,8 @@ function SWGBasis(mesh::TetrahedraMesh{IT,FT}) where {IT,FT}
                 IT(length(functions) + 1),
                 true,
                 area,
-                SVector(f1[4], 0),
-                SVector(f1[5], 0),
+                SVector{2,IT}(f1[4], 0),
+                SVector{2,IT}(f1[5], 0),
                 SVector(1, 0),
                 SVector{3,FT}(center),
             )

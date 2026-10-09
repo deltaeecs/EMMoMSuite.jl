@@ -1,6 +1,79 @@
 using ..CoreModule
 
 """
+    _parse_physical_names(lines) → Dict{Int,Tuple{Int,String}}
+
+Parse the `\$PhysicalNames` section of a Gmsh 4.1 ASCII file.
+Returns `physicalTag => (dim, name)`.
+"""
+function _parse_physical_names(lines)
+    start = findfirst(==("\$PhysicalNames"), lines)
+    result = Dict{Int,Tuple{Int,String}}()
+    isnothing(start) && return result
+    n = parse(Int, strip(lines[start+1]))
+    for i = 1:n
+        m = match(r"^\s*(\d+)\s+(-?\d+)\s+\"(.*)\"\s*$", lines[start+1+i])
+        isnothing(m) && error("GmshIO: cannot parse \$PhysicalNames line: $(lines[start+1+i])")
+        result[parse(Int, m.captures[2])] = (parse(Int, m.captures[1]), String(m.captures[3]))
+    end
+    return result
+end
+
+"""
+    _parse_entities(lines) → Dict{Int,Vector{Int}}
+
+Parse the `\$Entities` section of a Gmsh 4.1 ASCII file and return, for
+three-dimensional (volume) entities only, `entityTag => physicalTags`.
+"""
+function _parse_entities(lines)
+    start = findfirst(==("\$Entities"), lines)
+    result = Dict{Int,Vector{Int}}()
+    isnothing(start) && return result
+    stop = findfirst(==("\$EndEntities"), lines)
+    isnothing(stop) && error("GmshIO: unterminated \$Entities section.")
+    toks = String[]
+    for i = (start+1):(stop-1)
+        append!(toks, split(lines[i]))
+    end
+    cursor = 1
+    peek() = parse(Int, toks[cursor])
+    advance() = (cursor += 1)
+    num_points = peek(); advance()
+    num_curves = peek(); advance()
+    num_surfaces = peek(); advance()
+    num_volumes = peek(); advance()
+
+    # points: tag x y z nPhys phys... nBounding ...
+    for _ = 1:num_points
+        advance()                          # tag
+        for _ = 1:3; advance(); end        # x y z
+        nphys = peek(); advance()
+        for _ = 1:nphys; advance(); end
+        nbound = peek(); advance()
+        for _ = 1:nbound; advance(); end
+    end
+    # curves/surfaces/volumes: tag + 6 bbox + nPhys phys... + nBounding bound...
+    for section = 1:3
+        count = section == 1 ? num_curves : section == 2 ? num_surfaces : num_volumes
+        for _ = 1:count
+            tag = peek(); advance()
+            for _ = 1:6; advance(); end    # bbox
+            nphys = peek(); advance()
+            phys = Int[]
+            for _ = 1:nphys
+                push!(phys, peek()); advance()
+            end
+            nbound = peek(); advance()
+            for _ = 1:nbound; advance(); end
+            if section == 3
+                result[tag] = phys
+            end
+        end
+    end
+    return result
+end
+
+"""
     read_msh_mesh(pathname::String; FT=Float64)
 
 Read a Gmsh (.msh) mesh file (version 4.1 ASCII format).
@@ -12,7 +85,7 @@ Supports the following element types:
 Priority when multiple types present: hexas > tetras > triangles.
 Surface triangles are ignored when volume elements exist.
 """
-function read_msh_mesh(pathname::String; FT = Float64)
+function read_msh_mesh(pathname::String; FT = Float64, remap_physical::Bool = false)
     if !endswith(pathname, ".msh")
         error("Only .msh files are supported.")
     end
@@ -178,8 +251,43 @@ function read_msh_mesh(pathname::String; FT = Float64)
         if num_triangles > 0
             @warn "GmshIO: Surface triangles ($num_triangles) ignored; returning TetrahedraMesh."
         end
+        if remap_physical
+            phys_names = _parse_physical_names(lines)
+            ent2phys = _parse_entities(lines)
+            # volume entity → first physical tag; entities not in any Physical
+            # Volume group get tag 0 so validate_bindings can intercept them
+            for i = 1:num_tetras
+                if haskey(ent2phys, tet_tags[i])
+                    tags = ent2phys[tet_tags[i]]
+                    tet_tags[i] = isempty(tags) ? 0 : tags[1]
+                end
+            end
+        end
         return TetrahedraMesh(num_tetras, node, tetras, tet_tags)
     else
         return TriangleMesh(num_triangles, node, triangles, tri_tags)
     end
+end
+
+"""
+    read_msh_volume(pathname::String; FT=Float64) → (TetrahedraMesh, Dict{String,Int})
+
+Read a Gmsh 4.1 ASCII mesh containing tetrahedra and remap per-tetrahedron tags
+from volume *entity* tags to *Physical Volume* tags (unmapped tets get tag 0).
+Returns the `TetrahedraMesh` and a region map `Physical Volume name => physicalTag`.
+Errors if the file contains no tetrahedra.
+"""
+function read_msh_volume(pathname::String; FT = Float64)
+    mesh = read_msh_mesh(pathname; FT = FT, remap_physical = true)
+    mesh isa TetrahedraMesh || error("read_msh_volume: no tetrahedra found in $pathname")
+    lines = readlines(pathname)
+    phys_names = _parse_physical_names(lines)
+    regions = Dict{String,Int}()
+    for (ptag, (dim, name)) in phys_names
+        dim == 3 || continue
+        haskey(regions, name) &&
+            error("GmshIO: duplicate Physical Volume name \"$name\" in $pathname")
+        regions[name] = ptag
+    end
+    return mesh, regions
 end
