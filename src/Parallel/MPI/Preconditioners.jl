@@ -157,6 +157,41 @@ function apply_mpi_preconditioner!(
 end
 
 """
+    _gather_full_znear(op::MLFMAOperatorMPI) -> SparseMatrixCSC
+
+将各秩的 `Z_near_local` 非零元 Allgatherv 汇总为完整 `Z_near`（每秩复制）。
+SAI 块构造需要邻块行，`Z_near_local` 只含本秩 cube 的行，因此分布式 SAI
+采用「汇总构造 + 复制式施加」（与串行预条件的复制式回退一致：施加本身就是
+每秩完整 SpMV）。
+"""
+function _gather_full_znear(op::MLFMAOperatorMPI)
+    comm = op.comm
+    I_loc, J_loc, V_loc = findnz(op.Z_near_local)
+    n_loc = length(I_loc)
+    counts = MPI.Allgather(Int32(n_loc), comm)
+    Is = MPI.Allgatherv!(I_loc, counts, comm)
+    Js = MPI.Allgatherv!(J_loc, counts, comm)
+    # 值统一为 ComplexF64 再汇总
+    V_loc64 = ComplexF64.(V_loc)
+    Vs = MPI.Allgatherv!(V_loc64, counts, comm)
+    N = size(op.Z_near_local, 1)
+    return sparse(Is, Js, Vs, N, N)
+end
+
+"""
+    SPAIPreconditioner(op::MLFMAOperatorMPI)
+
+从 MPI MLFMA 算子构造逐八叉树块 SAI 预条件：先 `_gather_full_znear` 汇总完整
+`Z_near`（每秩复制），再按串行块算法构造。施加走
+`apply_mpi_preconditioner!` 的复制式回退（每秩完整 SpMV，结果一致）。
+"""
+function SPAIPreconditioner(op::MLFMAOperatorMPI)
+    Z = _gather_full_znear(op)
+    cubes = op.octree.levels[op.octree.nLevels].cubes
+    return SPAIPreconditioner(Z, cubes, i -> op.sorted_ids[i])
+end
+
+"""
     DistributedDiagonalPreconditioner(A, comm)
 
 从全量（或本地行）对角提取构造。`A` 需支持 `A[i,i]`。

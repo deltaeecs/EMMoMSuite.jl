@@ -382,6 +382,127 @@ function SPAIPreconditioner(A::SparseMatrixCSC{T,Int}) where {T}
     return SPAIPreconditioner{T}(M)
 end
 
+"""
+    SPAIPreconditioner(Z_near::SparseMatrixCSC{T,Int}, cubes, row_map = identity)
+
+逐八叉树块的 SAI 构造（恢复自 MoM_Kernels `sparseApproximateInversePl`，
+左稀疏近似逆，论文式 (2-63)~(2-68) 的分块路线）。
+
+对每个八叉树块（cube）`c`：
+
+1. 列块 `neibfs`：`c` 及其所有邻块的基函数行号（经 `row_map` 映射到 `Z_near`
+   的行/列号，已排序去重）；
+2. 行块 `neisNeibfs`：所有邻块再各自邻块（`c + N(c) + N(N(c))`）的基函数行号；
+3. 组装稠密子块 `Znn = Z_near[neibfs, neisNeibfs]`，求解块最小二乘
+
+```math
+\\min_\\ik \\| \\bm{Z}_{nn} \\bm{p}_k - \\bm{e}_k \\|_2
+\\;\\Longleftrightarrow\\;
+\\bm{P} = (\\bm{Z}_{nn}\\bm{Z}_{nn}^{H})^{-1} \\bm{Z}_{nn}[:, c]
+```
+
+通过 `lu!(Znn*Znn')` 后 `ldiv!` 求解（MoM_Kernels 的 LU 路线），结果写入
+`M[cbfs, neibfs] = Pᴴ`。相比逐列构造（上一方法），每个最小二乘问题由整个
+块一次分解解决，分解次数从 O(N) 降为 O(块数)，且列块更大、预条件质量更好。
+
+# Arguments
+- `Z_near`: 近场稀疏阻抗矩阵。
+- `cubes`: 八叉树叶层 cube 数组，元素需提供 `.bfInterval`（排序基函数序号
+  的 `UnitRange`）与 `.neighbors`（邻块编号向量），即 `Level.CubeInfo`。
+- `row_map`: 将 bfInterval 中的排序序号映射到 `Z_near` 行号的函数（默认恒等；
+  MLFMA 算子的 `Z_near` 按全局基函数号索引时传 `i -> op.sorted_ids[i]`）。
+
+# Returns
+- `SPAIPreconditioner`：`M` 与 `Z_near` 同稀疏模式，施加时 `y = M * x`。
+"""
+function SPAIPreconditioner(
+    Z_near::SparseMatrixCSC{T,Int},
+    cubes::AbstractVector,
+    row_map::F = identity,
+) where {T,F}
+    n = size(Z_near, 1)
+    nCubes = length(cubes)
+
+    # 本函数内的 BLAS 设为单线程，避免与 @threads 嵌套过订阅
+    nthds = BLAS.get_num_threads()
+    BLAS.set_num_threads(1)
+
+    # 每线程三元组缓冲（结果写入 M[cbfs, neibfs]）
+    max_tid = Threads.maxthreadid()
+    I_M_thread = [Int[] for _ = 1:max_tid]
+    J_M_thread = [Int[] for _ = 1:max_tid]
+    V_M_thread = [T[] for _ = 1:max_tid]
+    # 每线程工作空间：neibfs / neisNeibfs / 稠密子块与解缓冲
+    neibfs_ts = [Int[] for _ = 1:max_tid]
+    neisNeibfs_ts = [Int[] for _ = 1:max_tid]
+
+    Threads.@threads :static for iCube = 1:nCubes
+        tid = Threads.threadid()
+        cube = cubes[iCube]
+        isempty(cube.bfInterval) && continue
+
+        # 1. 本块及其邻块的基函数行号（排序去重；MoM_Kernels 同款：neibfs 含自身块）
+        neibfs = neibfs_ts[tid]
+        empty!(neibfs)
+        append!(neibfs, row_map.(collect(cube.bfInterval)))
+        for iN in cube.neighbors
+            append!(neibfs, row_map.(collect(cubes[iN].bfInterval)))
+        end
+        isempty(neibfs) && continue
+        sort!(neibfs)
+        unique!(neibfs)
+
+        # 2. 邻块的邻块（含自身）的基函数行号
+        neisNeibfs = neisNeibfs_ts[tid]
+        empty!(neisNeibfs)
+        for iN in cube.neighbors
+            for iNN in cubes[iN].neighbors
+                append!(neisNeibfs, row_map.(collect(cubes[iNN].bfInterval)))
+            end
+        end
+        sort!(neisNeibfs)
+        unique!(neisNeibfs)
+
+        nNeibfs = length(neibfs)
+        nNeisNeibfs = length(neisNeibfs)
+
+        # 3. 本块基函数在 neisNeibfs 中的局部列号
+        cbfs = row_map.(collect(cube.bfInterval))
+        cbfsInCnnei = [searchsortedfirst(neisNeibfs, b) for b in cbfs]
+
+        # 4. 组装稠密子块并做 LU 求解：(Znn Znnᴴ) P = Znn[:, cbfsInCnnei]
+        Znn = Matrix{T}(Z_near[neibfs, neisNeibfs])   # nNeibfs × nNeisNeibfs
+        ZnnHZnn = Znn * Znn'                          # nNeibfs × nNeibfs
+        PH = lu!(ZnnHZnn) \ view(Znn, :, cbfsInCnnei) # nNeibfs × |cbfs|
+        # M[cbfs, neibfs] = PH'（伴随，MoM_Kernels 同款写法）
+        PHt = PH'                                     # |cbfs| × nNeibfs
+
+        # 5. 写入三元组：M[cbfs, neibfs] = PHt
+        IM = I_M_thread[tid]
+        JM = J_M_thread[tid]
+        VM = V_M_thread[tid]
+        for (a, r) in enumerate(cbfs)
+            for (bidx, c) in enumerate(neibfs)
+                v = PHt[a, bidx]
+                if abs(v) > 1e-12
+                    push!(IM, r)
+                    push!(JM, c)
+                    push!(VM, v)
+                end
+            end
+        end
+    end
+
+    BLAS.set_num_threads(nthds)
+
+    I_M = reduce(vcat, I_M_thread)
+    J_M = reduce(vcat, J_M_thread)
+    V_M = reduce(vcat, V_M_thread)
+    M = sparse(I_M, J_M, V_M, n, n)
+    return SPAIPreconditioner{T}(M)
+end
+
+
 function LinearAlgebra.ldiv!(y::AbstractVector, P::SPAIPreconditioner, x::AbstractVector)
     mul!(y, P.M, x)
     return y

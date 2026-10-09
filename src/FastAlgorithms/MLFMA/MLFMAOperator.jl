@@ -10,7 +10,7 @@ using ....CoreModule: Constants
 using ....Geometry
 using ....BasisFunctions
 using ....IntegralEquations
-import ....Solvers: BlockJacobiPreconditioner
+import ....Solvers: BlockJacobiPreconditioner, SPAIPreconditioner
 using ..Octree
 using ..OctreeBuilder
 using ..Aggregation
@@ -377,6 +377,18 @@ end
 
 BlockJacobiPreconditioner(op::MLFMAOperator) = BlockJacobiPreconditioner(op.Z_near, _leaf_block_indices(op))
 BlockJacobiPreconditioner(op::MLFMAOperator, ::Any) = BlockJacobiPreconditioner(op)
+
+"""
+    SPAIPreconditioner(op::MLFMAOperator)
+
+从 MLFMA 算子构造逐八叉树块 SAI 预条件（左预条件）：块 = 叶层 cube 及其
+邻块（含邻块之邻块），`Z_near` 按全局基函数号索引，行映射
+`i -> op.sorted_ids[i]`。
+"""
+function SPAIPreconditioner(op::MLFMAOperator)
+    cubes = op.octree.levels[op.octree.nLevels].cubes
+    return SPAIPreconditioner(op.Z_near, cubes, i -> op.sorted_ids[i])
+end
 
 function Base.:*(A::MLFMAOperator, x::AbstractVector)
     y = similar(x)
