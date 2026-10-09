@@ -275,8 +275,9 @@ if "B1" ∈ enabled
     eps_r = 4.0
     set_frequency!(freq)
 
-    # 小球面网格（~200 个三角形）
-    mesh  = generate_sphere_mesh(0.1, 12, 16)
+    # gmsh 几何文件网格（r=0.1 m 球，~324 个三角形）
+    geo_sphere = joinpath(@__DIR__, "..", "cases", "geo", "sphere_r0p1.geo")
+    mesh  = generate_gmsh_from_file(geo_sphere; mesh_size = 0.05, dim = 2)
     basis = RWGBasis(mesh)
     N     = num_basis(basis)
     @printf("  RWG 未知量: %d (2N=%d)\n", N, 2N)
@@ -340,7 +341,8 @@ if "B2" ∈ enabled
     eps_r = 4.0
     set_frequency!(freq)
 
-    mesh  = generate_sphere_mesh(0.1, 12, 16)
+    geo_sphere = joinpath(@__DIR__, "..", "cases", "geo", "sphere_r0p1.geo")
+    mesh  = generate_gmsh_from_file(geo_sphere; mesh_size = 0.05, dim = 2)
     basis = RWGBasis(mesh)
     N     = num_basis(basis)
     @printf("  RWG 未知量: %d (2N=%d)\n", N, 2N)

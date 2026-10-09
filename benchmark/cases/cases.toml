@@ -1,0 +1,253 @@
+# EMMoMSuite gmsh-driven RCS case family
+# Each case: geometry file -> gmsh surface mesh -> MoM solve -> RCS (+ Mie
+# reference when mie_radius is set) -> far-field plots -> per-case report.
+#
+# Format (S2): materials are declared once under [material.<name>] and each
+# case describes its surfaces as [[case.interface]] blocks. Convention for an
+# interface on a closed surface meshed with outward normals (verified at run
+# time via the mesh signed volume):
+#     plus  = the side the mesh triangle normal n̂ points to (outside)
+#     minus = the opposite side (inside)
+#   name        : unique case id
+#   geo         : .geo file under cases/geo/
+#   mesh_size   : global gmsh mesh size [m]
+#   dim         : 2 = surface triangulation (PEC surface)
+#   freq        : operating frequency [Hz]
+#   ie          : "auto" (PMCHW if any dielectric side, else EFIE), or explicit
+#                 "EFIE" / "CFIE" / "PMCHW"
+#   alpha       : CFIE weighting (ignored for EFIE/PMCHW)
+#   theta_inc / phi_inc / pol : plane-wave incidence direction + polarization
+#   n_theta     : number of observation theta samples over [0, pi]
+#   phi_cuts    : observation phi cuts [rad]
+#   mie_radius  : optional sphere radius for the analytic Mie reference
+#                 (PEC sphere when only PEC interfaces, dielectric sphere when
+#                 a non-air dielectric side is present)
+
+# ── material registry ────────────────────────────────────────────────────────
+[material.pec]
+type = "pec"
+
+[material.air]           # free space (eps_r = mu_r = 1)
+eps_r = 1.0
+
+[material.eps4p0]        # lossless dielectric, eps_r = 4
+eps_r = 4.0
+
+[material.eps2p2_lossy]  # lossy dielectric, eps_r = 2.2 - 0.1j
+eps_r = 2.2
+eps_r_im = -0.1
+
+# ── PEC surface cases ────────────────────────────────────────────────────────
+[[case]]
+name        = "G1_sphere_CFIE_Mie"
+geo         = "sphere_r0p5.geo"
+mesh_size   = 0.15
+dim         = 2
+freq        = 3.0e8
+ie          = "CFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+mie_radius  = 0.5
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+[[case]]
+name        = "G2_sphere_EFIE_Mie"
+geo         = "sphere_r0p5.geo"
+mesh_size   = 0.15
+dim         = 2
+freq        = 3.0e8
+ie          = "EFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+mie_radius  = 0.5
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+[[case]]
+name        = "G3_box_EFIE"
+geo         = "box_1m.geo"
+mesh_size   = 0.15
+dim         = 2
+freq        = 3.0e8
+ie          = "EFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+[[case]]
+name        = "G4_cylinder_EFIE"
+geo         = "cylinder.geo"
+mesh_size   = 0.12
+dim         = 2
+freq        = 3.0e8
+ie          = "EFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+[[case]]
+name        = "G5_plate_EFIE"
+geo         = "plate.geo"
+mesh_size   = 0.12
+dim         = 2
+freq        = 3.0e8
+ie          = "EFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+[[case]]
+name        = "G6_ellipsoid_EFIE"
+geo         = "ellipsoid.geo"
+mesh_size   = 0.12
+dim         = 2
+freq        = 3.0e8
+ie          = "EFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+[[case]]
+name        = "G7_cone_EFIE"
+geo         = "cone.geo"
+mesh_size   = 0.12
+dim         = 2
+freq        = 3.0e8
+ie          = "EFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+[[case]]
+name        = "G9_box_CFIE"
+geo         = "box_1m.geo"
+mesh_size   = 0.15
+dim         = 2
+freq        = 3.0e8
+ie          = "CFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"
+
+# ── dielectric (PMCHW) cases ─────────────────────────────────────────────────
+[[case]]
+name        = "G10_sphere_PMCHW_Mie"
+geo         = "sphere_r0p15.geo"
+mesh_size   = 0.02
+dim         = 2
+freq        = 6.0e8
+ie          = "PMCHW"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+mie_radius  = 0.15
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "eps4p0"
+
+[[case]]
+name        = "G11_lossy_sphere_PMCHW_Mie"
+geo         = "sphere_r0p15.geo"
+mesh_size   = 0.02
+dim         = 2
+freq        = 3.0e8
+ie          = "PMCHW"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+mie_radius  = 0.15
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "eps2p2_lossy"
+
+[[case]]
+name        = "G8_torus_EFIE"
+geo         = "torus.geo"
+mesh_size   = 0.08
+dim         = 2
+freq        = 3.0e8
+ie          = "EFIE"
+alpha       = 0.5
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.interface]]
+surface = "body"
+plus    = "air"
+minus   = "pec"

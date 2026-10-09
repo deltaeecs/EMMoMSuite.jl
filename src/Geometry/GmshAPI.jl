@@ -136,6 +136,9 @@ Returns a `TetrahedraMesh` if 3-D tetrahedra are present, otherwise a
 - `geo_file`  : path to a `.geo` file (Gmsh geometry script)
 - `mesh_size` : global mesh size override (`0` = use file-defined sizes)
 - `FT`        : floating-point type for node coordinates
+- `dim`       : meshing dimension (`0` = auto-detect highest dim; `2` = force
+  surface triangulation — required for closed solids whose `.geo` defines a
+  volume but the target problem is a PEC surface; `3` = volume tetrahedra)
 
 # Errors
 Throws `ErrorException` if the file does not exist.
@@ -144,9 +147,11 @@ function generate_gmsh_from_file(
     geo_file::AbstractString;
     mesh_size::Real = 0.1,
     FT::Type{<:AbstractFloat} = Float64,
+    dim::Int = 0,
 )
     isfile(geo_file) || error("File not found: $geo_file")
     _ms = Float64(mesh_size)
+    (dim in (0, 2, 3)) || error("GmshAPI: dim must be 0 (auto), 2 or 3; got $dim")
     return _with_gmsh() do gmsh
         gmsh.initialize(["gmsh", "-nopopup"])
         try
@@ -156,9 +161,9 @@ function generate_gmsh_from_file(
             try gmsh.model.occ.synchronize() catch; end
             try gmsh.model.geo.synchronize() catch; end
             _ms > 0 && _set_mesh_size!(gmsh, _ms)
-            dim = _highest_dim_with_entities(gmsh)
-            gmsh.model.mesh.generate(dim)
-            return dim == 3 ? _extract_tet_mesh(gmsh, FT) : _extract_triangle_mesh(gmsh, FT)
+            _dim = dim == 0 ? _highest_dim_with_entities(gmsh) : dim
+            gmsh.model.mesh.generate(_dim)
+            return _dim == 3 ? _extract_tet_mesh(gmsh, FT) : _extract_triangle_mesh(gmsh, FT)
         finally
             gmsh.finalize()
         end
