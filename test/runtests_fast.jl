@@ -38,6 +38,10 @@ using Test
         include("test_fft_interp.jl")
     end
 
+    @testset "SAI 块预条件" begin
+        include("test_sai_block.jl")
+    end
+
     @testset "Fast Algorithms (P3 AIM/IE-FFT)" begin
         include("test_aim_operator.jl")
     end

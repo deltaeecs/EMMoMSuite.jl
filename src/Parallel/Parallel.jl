@@ -26,6 +26,7 @@ export assemble_impedance_matrix_parallel
 export mpi_gmres!, mpi_gmres
 export scalapack_lu_solve
 export DistributedBlockJacobiPreconditioner, DistributedDiagonalPreconditioner
+export DistributedSPAIPreconditioner
 export apply_mpi_preconditioner!
 
 end
