@@ -780,7 +780,11 @@ function _write_report(res::CaseResult, rcs_dB, mie_dB, mie_ok)
             @printf(buf, "| %.1f° | %.3f |\n", _deg(φ), res.mie_rmse[j])
         end
     else
-        println(buf, "No analytic reference for this geometry; RCS provided as-is.")
+        println(buf, "No analytic reference for this geometry.")
+        println(buf, "Verification method: mesh convergence — compare the RCS cuts")
+        println(buf, "(`rcs.csv` / `rcs_cuts.png`) against the refined twin case on the")
+        println(buf, "same observation grid; agreement within ~1 dB indicates a")
+        println(buf, "mesh-converged solution.")
     end
     println(buf)
     println(buf, "## Artifacts")
@@ -846,7 +850,11 @@ function _write_report_volume(res::CaseResult, rcs_dB, mie_dB, mie_ok,
             @printf(buf, "| %.1f° | %.3f |\n", _deg(φ), res.mie_rmse[j])
         end
     else
-        println(buf, "No analytic reference for this geometry; RCS provided as-is.")
+        println(buf, "No analytic reference for this geometry.")
+        println(buf, "Verification method: mesh convergence — compare the RCS cuts")
+        println(buf, "(`rcs.csv` / `rcs_cuts.png`) against the refined twin case on the")
+        println(buf, "same observation grid; agreement within ~1 dB indicates a")
+        println(buf, "mesh-converged solution.")
     end
     println(buf)
     println(buf, "## Artifacts")

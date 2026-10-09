@@ -294,3 +294,42 @@ mie_radius  = 0.5
 [[case.region]]
 surface  = "body"
 material = "pec"
+
+# G12: uniform dielectric cube (volume). No analytic reference exists for a
+# cuboid, so accuracy is established by mesh convergence: compare against the
+# refined twin case `G12b_dielectric_cube_fine` on the same observation grid.
+# Note: gmsh's sizing floor on this geometry collapses mesh_size ≳ 0.04 to the
+# same mesh, hence the coarse/fine pair 0.03/0.025.
+[[case]]
+name        = "G12_dielectric_cube"
+geo         = "cube_r0p1.geo"
+mesh_size   = 0.03
+dim         = 3
+freq        = 6.0e8
+ie          = "auto"
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.region]]
+surface  = "body"
+material = "eps4p0"
+
+[[case]]
+name        = "G12b_dielectric_cube_fine"
+geo         = "cube_r0p1.geo"
+mesh_size   = 0.025
+dim         = 3
+freq        = 6.0e8
+ie          = "auto"
+theta_inc   = 1.5707963267948966
+phi_inc     = 3.141592653589793
+pol         = [0.0, 0.0, 1.0]
+n_theta     = 181
+phi_cuts    = [0.0, 1.5707963267948966]
+
+[[case.region]]
+surface  = "body"
+material = "eps4p0"
