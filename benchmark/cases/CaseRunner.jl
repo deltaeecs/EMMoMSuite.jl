@@ -466,6 +466,7 @@ _deg(x) = round(rad2deg(x); digits = 1)
 struct CaseResult
     spec::CaseSpec
     outdir::String
+    mesh::Any                       # kept for the geometry views in the report
     trinum::Int
     num_nodes::Int
     num_basis::Int
@@ -563,7 +564,7 @@ function run_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT)
     t_plots = time() - t0
     @printf("  plots: %.1f s\n", t_plots)
 
-    res = CaseResult(spec, outdir, trinum, nnodes, nbasis,
+    res = CaseResult(spec, outdir, mesh, trinum, nnodes, nbasis,
                      t_mesh, t_assembly, t_solve, t_rcs, t_plots,
                      mie_ok, rmse)
     _write_report(res, rcs_dB, mie_dB, mie_ok)
@@ -658,7 +659,7 @@ function _run_volume_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT)
     t_plots = time() - t0
     @printf("  plots: %.1f s\n", t_plots)
 
-    res = CaseResult(spec, outdir, tetnum, nnodes, nbasis,
+    res = CaseResult(spec, outdir, mesh, tetnum, nnodes, nbasis,
                      t_mesh, t_assembly, t_solve, t_rcs, t_plots,
                      mie_ok, rmse)
     _write_report_volume(res, rcs_dB, mie_dB, mie_ok, region_tags, ctx)
@@ -730,54 +731,294 @@ function _plot_farfield(spec, outdir, θa, ϕs, FF)
     return path
 end
 
-function _write_report(res::CaseResult, rcs_dB, mie_dB, mie_ok)
+# ─────────────────────────────────────────────────────────────────────────────
+# publication report: geometry views + performance metrics + conclusions
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    _boundary_tris(mesh) -> 3×M Matrix{Int}
+
+Node-index triangles of the visible (boundary) surface: identity for a
+`TriangleMesh`; for a `TetrahedraMesh` the faces shared by exactly one
+tetrahedron.
+"""
+function _boundary_tris(mesh)
+    if isdefined(mesh, :trinum)
+        return mesh.triangles
+    end
+    cnt = Dict{Tuple{Int,Int,Int},Int}()
+    F = (i, j, k) -> tuple(sort!([i, j, k])...)
+    for t in 1:mesh.tetnum
+        a, b, c, d = mesh.tetras[:, t]
+        for f in (F(a, b, c), F(a, b, d), F(a, c, d), F(b, c, d))
+            cnt[f] = get(cnt, f, 0) + 1
+        end
+    end
+    out = Matrix{Int}(undef, 3, count(x -> x == 1, values(cnt)))
+    m = 0
+    for (f, n) in cnt
+        n == 1 || continue
+        m += 1
+        out[:, m] .= collect(f)
+    end
+    return out
+end
+
+"Orbit-camera projection: yaw `az`, pitch `el` (both radians) → screen (px, py) and depth."
+function _proj_view(x, y, z, az, el)
+    ca, sa = cos(az), sin(az)
+    ce, se = cos(el), sin(el)
+    x1 =  ca .* x .+ sa .* y
+    y1 = -sa .* x .+ ca .* y
+    return x1, ce .* z .- se .* y1, se .* z .+ ce .* y1   # px, py, depth
+end
+
+const _GEO_VIEWS = [  # (label, azimuth, elevation, aspect)
+    ("top view (x–y)",   0.0,      pi / 2),
+    ("front view (x–z)", 0.0,      0.0),
+    ("side view (y–z)",  pi / 2,   0.0),
+]
+
+"""
+    _plot_geometry_views(spec, mesh, outdir) -> path
+
+Publication-style geometry figure: three orthographic views + one pseudo-3D
+isometric view of the boundary triangles (filled, depth-sorted in the 3D view).
+"""
+function _plot_geometry_views(spec, mesh, outdir)
+    tri = _boundary_tris(mesh)
+    X, Y, Z = mesh.node[1, :], mesh.node[2, :], mesh.node[3, :]
+    ntri = size(tri, 2)
+
+    # NaN-separated polygon arrays for one :shape series call
+    polys(px, py) = begin
+        xs = Float64[]; ys = Float64[]
+        for t in 1:ntri
+            append!(xs, px[tri[1, t]], px[tri[2, t]], px[tri[3, t]], px[tri[1, t]], NaN)
+            append!(ys, py[tri[1, t]], py[tri[2, t]], py[tri[3, t]], py[tri[1, t]], NaN)
+        end
+        return xs, ys
+    end
+
+    plots = Plots.Plot[]
+    for (lbl, az, el) in _GEO_VIEWS
+        px, py, _ = _proj_view(X, Y, Z, az, el)
+        xs, ys = polys(px, py)
+        p = plot(xs, ys; seriestype = :shape, fillcolor = :steelblue,
+                 fillalpha = 0.25, linecolor = :grey25, lw = 0.4,
+                 title = lbl, aspect_ratio = :equal, legend = false,
+                 ticks = false)
+        push!(plots, p)
+    end
+    # pseudo-3D isometric, painter's algorithm (far → near)
+    az, el = pi / 4, pi / 6
+    px, py, dep = _proj_view(X, Y, Z, az, el)
+    order = sortperm([mean(dep[tri[:, t]]) for t in 1:ntri]; rev = true)
+    tri_s = tri[:, order]
+    xs = Float64[]; ys = Float64[]
+    for t in 1:ntri
+        append!(xs, px[tri_s[1, t]], px[tri_s[2, t]], px[tri_s[3, t]], px[tri_s[1, t]], NaN)
+        append!(ys, py[tri_s[1, t]], py[tri_s[2, t]], py[tri_s[3, t]], py[tri_s[1, t]], NaN)
+    end
+    p3 = plot(xs, ys; seriestype = :shape, fillcolor = :steelblue,
+              fillalpha = 0.35, linecolor = :grey15, lw = 0.4,
+              title = "isometric view (pseudo-3D)", aspect_ratio = :equal,
+              legend = false, ticks = false)
+    p = plot(plots..., p3, layout = (2, 2), size = (1000, 950),
+             plot_title = "$(spec.name) — computational geometry",
+             titlefontsize = 9, plot_titlefontsize = 12)
+    path = joinpath(outdir, "geometry_views.png")
+    savefig(p, path)
+    return path
+end
+
+"Throughput/efficiency metrics from the recorded stage timings."
+function _perf_metrics(res::CaseResult)
+    n = res.num_basis
+    n2 = Float64(n)^2
+    n3 = Float64(n)^3
+    return (
+        unknowns          = n,
+        asm_rate_gm       = res.t_assembly > 0 ? n2 / res.t_assembly / 1e9 : NaN,   # 10⁹ interactions/s
+        solve_gflops      = res.t_solve     > 0 ? (2 / 3) * n3 / res.t_solve / 1e9 : NaN, # dense LU
+        total             = res.t_mesh + res.t_assembly + res.t_solve + res.t_rcs + res.t_plots,
+    )
+end
+
+function _write_perf_csv(res::CaseResult)
+    m = _perf_metrics(res)
+    path = joinpath(res.outdir, "perf.csv")
+    open(path, "w") do io
+        println(io, "metric,value")
+        println(io, "unknowns,", m.unknowns)
+        println(io, "elements,", res.trinum)
+        println(io, "nodes,", res.num_nodes)
+        println(io, "t_mesh_s,", @sprintf("%.2f", res.t_mesh))
+        println(io, "t_assembly_s,", @sprintf("%.2f", res.t_assembly))
+        println(io, "t_solve_s,", @sprintf("%.2f", res.t_solve))
+        println(io, "t_rcs_s,", @sprintf("%.2f", res.t_rcs))
+        println(io, "t_plots_s,", @sprintf("%.2f", res.t_plots))
+        println(io, "t_total_s,", @sprintf("%.2f", m.total))
+        println(io, "assembly_rate_Ginteractions_per_s,", @sprintf("%.3f", m.asm_rate_gm))
+        println(io, "solve_Gflops,", @sprintf("%.2f", m.solve_gflops))
+    end
+    return path
+end
+
+
+_write_report(res::CaseResult, rcs_dB, mie_dB, mie_ok) =
+    _publication_report(res, rcs_dB, mie_dB, mie_ok; geometry = :surface)
+
+"thin wrapper keeping the historical volume signature"
+_write_report_volume(res::CaseResult, rcs_dB, mie_dB, mie_ok,
+                     region_tags::Dict{String,Int}, ctx::VolumeMaterialContext) =
+    _publication_report(res, rcs_dB, mie_dB, mie_ok; geometry = :volume,
+                        region_tags = region_tags, ctx = ctx)
+
+"""
+    _key_conclusions(res, mie_ok, rcs_dB, m) -> Vector{String}
+
+Auto-generated "Key conclusions" bullets for the publication report.
+"""
+function _key_conclusions(res::CaseResult, mie_ok, rcs_dB, m)
     s = res.spec
+    λ = 3e8 / s.freq
+    c = String[]
+    push!(c, "Electric resolution: mesh size $(s.mesh_size) m = " *
+             "$(round(s.mesh_size / λ; digits = 3)) λ at f = $(s.freq/1e6) MHz " *
+             "($(_deg(s.theta_inc))°, $(_deg(s.phi_inc))° plane-wave incidence).")
+    if mie_ok
+        worst = maximum(res.mie_rmse)
+        push!(c, "Accuracy: worst-cut RMSE vs analytic Mie reference = " *
+                 "$(round(worst; digits = 3)) dB over $(length(s.phi_cuts)) cuts → " *
+                 "**$(worst ≤ 0.5 ? "PASS" : "CHECK")** against the 0.5 dB acceptance line.")
+    else
+        push!(c, "No analytic reference exists for this geometry; verification is by " *
+                 "mesh convergence against the refined twin case (see §4).")
+    end
+    push!(c, "Throughput: impedance assembly $( round(m.asm_rate_gm; sigdigits = 3)) G-interactions/s, " *
+             "dense LU $(round(m.solve_gflops; digits = 1)) Gflop/s at N = $(m.unknowns) unknowns.")
+    stages = ("gmsh meshing" => res.t_mesh, "matrix assembly" => res.t_assembly,
+              "LU solve" => res.t_solve, "RCS post-processing" => res.t_rcs,
+              "plots" => res.t_plots)
+    (dname, dtime) = stages[argmax(last.(stages))]
+    push!(c, "Dominant cost: $(dname) — $(round(dtime; digits = 1)) s " *
+             "($(round(100 * dtime / m.total; digits = 0))% of the $(round(m.total; digits = 1)) s total).")
+    fin = filter(!isnan, vec(rcs_dB))
+    isempty(fin) || push!(c, "Bistatic RCS dynamic range over the observed cuts: " *
+             "$(round(minimum(fin); digits = 1)) … $(round(maximum(fin); digits = 1)) dBsm.")
+    return c
+end
+
+"""
+    _publication_report(res, rcs_dB, mie_dB, mie_ok; geometry, region_tags, ctx)
+
+Publication-grade report: geometry views (three orthographic + pseudo-3D),
+simulation configuration, performance & efficiency, results comparison and
+auto-generated key conclusions. Table rows `| geometry |`, `| formulation |`
+and the timing row keep the exact formats `write_index` parses.
+"""
+function _publication_report(res::CaseResult, rcs_dB, mie_dB, mie_ok;
+                             geometry::Symbol, region_tags = nothing, ctx = nothing)
+    s = res.spec
+    m = _perf_metrics(res)
     buf = IOBuffer()
-    println(buf, "# Case report — `$(s.name)`")
+
+    println(buf, "# EMMoMSuite Validation Report — `$(s.name)`")
     println(buf)
-    println(buf, "*Generated: $(Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS"))*")
+    println(buf, "| | |")
+    println(buf, "|---|---|")
+    println(buf, "| solver | EMMoMSuite v$(pkgversion(EMMoMSuite)) (Julia $(VERSION)) |")
+    println(buf, "| generated | $(Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS")) |")
+    println(buf, "| pipeline | geometry → gmsh mesh → MoM solve → RCS / far-field → this report |")
     println(buf)
-    println(buf, "## Inputs")
+
+    println(buf, "## 1 · Geometry")
+    println(buf)
+    gpath = _plot_geometry_views(s, res.mesh, res.outdir)
+    println(buf, "![geometry views](geometry_views.png)")
+    println(buf)
+    println(buf, "Boundary discretization: **$(res.trinum) $(geometry === :volume ? "boundary triangles (of $(res.trinum) tetrahedra)" : "triangles")**, " *
+                 "$(res.num_nodes) nodes; geometry source `cases/geo/$(s.geo)` (gmsh/OpenCASCADE).")
+    println(buf)
+
+    println(buf, "## 2 · Simulation Configuration")
     println(buf)
     println(buf, "| item | value |")
     println(buf, "|---|---|")
     println(buf, "| geometry | `cases/geo/$(s.geo)` |")
     println(buf, "| mesh size | $(s.mesh_size) m |")
-    println(buf, "| mesh dim | $(s.dim) (surface triangulation) |")
-    println(buf, "| frequency | $(s.freq/1e6) MHz (λ = $(round(3e8/s.freq; digits=3)) m) |")
-    # formulation + interface/material table
-    iestr = s.ie == "CFIE" ? "CFIE" : (any(itf.minus isa Dielectric || itf.plus isa Dielectric
-                                            for itf in s.interfaces) ? "PMCHW" : "EFIE")
-    println(buf, "| formulation | $(iestr)" * (iestr == "CFIE" ? " (α = $(s.alpha))" : "") * " |")
-    println(buf, "| interfaces (n̂ = mesh triangle normal) | plus side (n̂) | minus side |")
-    println(buf, "|---|---|---|")
-    for itf in s.interfaces
-        println(buf, "| `$(itf.surface)`$(itf.closed ? " (closed)" : " (open)")$(itf.flip ? " [flipped]" : "") | $(itf.plus) | $(itf.minus) |")
+    println(buf, "| mesh dim | $(s.dim) ($(geometry === :volume ? "tetrahedral volume mesh" : "surface triangulation")) |")
+    println(buf, "| frequency | $(s.freq/1e6) MHz (λ = $(round(3e8/s.freq; digits = 3)) m) |")
+    if geometry === :volume
+        kind = ctx.boundary_fallback ? "EFIE (all-PEC fallback, surface extracted)" :
+               "VEFIE (SWG volume discretization)"
+        println(buf, "| formulation | $(kind) |")
+        println(buf, "| regions (Physical Volume) | material | tag |")
+        println(buf, "|---|---|---|")
+        for r in s.regions
+            println(buf, "| `$(r.surface)` | $(r.material) | $(get(region_tags, r.surface, "—")) |")
+        end
+    else
+        _nonair(d::Dielectric) = !(isapprox(d.eps_r, AIR.eps_r) && isapprox(d.mu_r, AIR.mu_r))
+        iestr = s.ie == "CFIE" ? "CFIE" :
+                (any((itf.minus isa Dielectric && _nonair(itf.minus)) ||
+                     (itf.plus  isa Dielectric && _nonair(itf.plus)) for itf in s.interfaces) ?
+                 "PMCHW" : "EFIE")
+        println(buf, "| formulation | $(iestr)" * (iestr == "CFIE" ? " (α = $(s.alpha))" : "") * " |")
+        println(buf, "| interfaces (n̂ = mesh triangle normal) | plus side (n̂) | minus side |")
+        println(buf, "|---|---|---|")
+        for itf in s.interfaces
+            println(buf, "| `$(itf.surface)`$(itf.closed ? " (closed)" : " (open)")$(itf.flip ? " [flipped]" : "") | $(itf.plus) | $(itf.minus) |")
+        end
     end
     println(buf, "| incidence | θᵢ = $(_deg(s.theta_inc))°, φᵢ = $(_deg(s.phi_inc))°, pol = [$(join(s.pol, ", "))] |")
+    println(buf, "| observation | θ ∈ [0°, 180°] ($(s.n_theta) samples), φ cuts = " *
+                 "$(join(_deg.(s.phi_cuts), "°, "))° |")
     if s.mie_radius !== nothing
-        has_diel = any(itf -> itf.minus isa Dielectric && itf.minus !== AIR ||
-                              itf.plus isa Dielectric && itf.plus !== AIR, s.interfaces)
-        println(buf, has_diel ?
-            "| Mie reference | dielectric sphere r = $(s.mie_radius) m |" :
-            "| Mie reference | PEC sphere r = $(s.mie_radius) m |")
+        kind_mie = geometry === :volume ?
+            (ctx.boundary_fallback ? "PEC" : "dielectric") :
+            (any(itf -> (itf.minus isa Dielectric && _nonair(itf.minus)) ||
+                        (itf.plus  isa Dielectric && _nonair(itf.plus)), s.interfaces) ?
+             "dielectric" : "PEC")
+        println(buf, "| reference | analytic Mie series, $(kind_mie) sphere r = $(s.mie_radius) m |")
     end
     println(buf)
-    println(buf, "## Mesh & solve")
+
+    println(buf, "## 3 · Performance & Efficiency")
     println(buf)
-    println(buf, "| triangles | nodes | RWG unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |")
+    println(buf, "| triangles/tets | nodes | unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |")
     println(buf, "|---|---|---|---|---|---|---|---|")
     @printf(buf, "| %d | %d | %d | %.1f s | %.1f s | %.1f s | %.1f s | %.1f s |\n",
             res.trinum, res.num_nodes, res.num_basis,
             res.t_mesh, res.t_assembly, res.t_solve, res.t_rcs, res.t_plots)
     println(buf)
-    println(buf, "## RCS accuracy")
+    println(buf, "| total time | assembly rate | LU throughput |")
+    println(buf, "|---|---|---|")
+    @printf(buf, "| %.1f s | %.3g × 10⁹ interactions/s | %.1f Gflop/s |\n",
+            m.total, m.asm_rate_gm, m.solve_gflops)
+    println(buf)
+    println(buf, "*Assembly rate counts N² impedance-matrix interactions; LU throughput " *
+                 "uses the dense (2/3)·N³ flop model (single node, default BLAS threads).*")
+    println(buf, "Machine-readable: `perf.csv`, `rcs.csv`.")
+    println(buf)
+
+    println(buf, "## 4 · Results & Comparison")
+    println(buf)
+    println(buf, "Bistatic RCS — MoM vs analytic reference:")
+    println(buf)
+    println(buf, "![RCS cuts](rcs_cuts.png)")
+    println(buf)
+    println(buf, "Normalized far-field |E| pattern:")
+    println(buf)
+    println(buf, "![Far-field polar](farfield_polar.png)")
     println(buf)
     if mie_ok
-        println(buf, "| phi cut | RMSE vs Mie [dB] |")
-        println(buf, "|---|---|")
+        println(buf, "| phi cut | RMSE vs Mie [dB] | verdict |")
+        println(buf, "|---|---|---|")
         for (j, φ) in enumerate(s.phi_cuts)
-            @printf(buf, "| %.1f° | %.3f |\n", _deg(φ), res.mie_rmse[j])
+            r = res.mie_rmse[j]
+            @printf(buf, "| %.1f° | %.3f | %s |\n", _deg(φ), r, r ≤ 0.5 ? "pass" : "CHECK")
         end
     else
         println(buf, "No analytic reference for this geometry.")
@@ -787,92 +1028,27 @@ function _write_report(res::CaseResult, rcs_dB, mie_dB, mie_ok)
         println(buf, "mesh-converged solution.")
     end
     println(buf)
+
+    println(buf, "## 5 · Key Conclusions")
+    println(buf)
+    foreach(c -> println(buf, "- ", c), _key_conclusions(res, mie_ok, rcs_dB, m))
+    println(buf)
+
     println(buf, "## Artifacts")
     println(buf)
-    println(buf, "- RCS data: `rcs.csv`")
-    println(buf, "- RCS curves:")
-    println(buf, "  ![RCS cuts](rcs_cuts.png)")
-    println(buf, "- Far-field pattern:")
-    println(buf, "  ![Far-field polar](farfield_polar.png)")
+    println(buf, "- geometry: `geometry_views.png` · RCS data: `rcs.csv` · performance: `perf.csv`")
+    println(buf, "- plots: `rcs_cuts.png`, `farfield_polar.png`")
     open(joinpath(res.outdir, "report.md"), "w") do io
         print(io, String(take!(buf)))
     end
+    _write_perf_csv(res)
     return nothing
 end
 
-"report writer for volume (tetrahedral) cases; keeps the same table layout as
-the surface report so `write_index` can parse it"
-function _write_report_volume(res::CaseResult, rcs_dB, mie_dB, mie_ok,
-                              region_tags::Dict{String,Int},
-                              ctx::VolumeMaterialContext)
-    s = res.spec
-    buf = IOBuffer()
-    println(buf, "# Case report — `$(s.name)`")
-    println(buf)
-    println(buf, "*Generated: $(Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS"))*")
-    println(buf)
-    println(buf, "## Inputs")
-    println(buf)
-    println(buf, "| item | value |")
-    println(buf, "|---|---|")
-    println(buf, "| geometry | `cases/geo/$(s.geo)` |")
-    println(buf, "| mesh size | $(s.mesh_size) m |")
-    println(buf, "| mesh dim | $(s.dim) (tetrahedral volume mesh) |")
-    println(buf, "| frequency | $(s.freq/1e6) MHz (λ = $(round(3e8/s.freq; digits=3)) m) |")
-    kind = ctx.boundary_fallback ? "EFIE (all-PEC fallback, surface extracted)" :
-           "VEFIE (SWG volume discretization)"
-    println(buf, "| formulation | $(kind) |")
-    println(buf, "| regions (Physical Volume) | material | tag |")
-    println(buf, "|---|---|---|")
-    for r in s.regions
-        println(buf, "| `$(r.surface)` | $(r.material) | $(get(region_tags, r.surface, "—")) |")
-    end
-    println(buf, "| incidence | θᵢ = $(_deg(s.theta_inc))°, φᵢ = $(_deg(s.phi_inc))°, pol = [$(join(s.pol, ", "))] |")
-    if s.mie_radius !== nothing
-        kind_mie = ctx.boundary_fallback ? "PEC" : "dielectric"
-        println(buf, "| Mie reference | $(kind_mie) sphere r = $(s.mie_radius) m |")
-    end
-    println(buf)
-    println(buf, "## Mesh & solve")
-    println(buf)
-    println(buf, "| tetrahedra | nodes | unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |")
-    println(buf, "|---|---|---|---|---|---|---|---|")
-    @printf(buf, "| %d | %d | %d | %.1f s | %.1f s | %.1f s | %.1f s | %.1f s |\n",
-            res.trinum, res.num_nodes, res.num_basis,
-            res.t_mesh, res.t_assembly, res.t_solve, res.t_rcs, res.t_plots)
-    println(buf)
-    println(buf, "## RCS accuracy")
-    println(buf)
-    if mie_ok
-        println(buf, "| phi cut | RMSE vs Mie [dB] |")
-        println(buf, "|---|---|")
-        for (j, φ) in enumerate(s.phi_cuts)
-            @printf(buf, "| %.1f° | %.3f |\n", _deg(φ), res.mie_rmse[j])
-        end
-    else
-        println(buf, "No analytic reference for this geometry.")
-        println(buf, "Verification method: mesh convergence — compare the RCS cuts")
-        println(buf, "(`rcs.csv` / `rcs_cuts.png`) against the refined twin case on the")
-        println(buf, "same observation grid; agreement within ~1 dB indicates a")
-        println(buf, "mesh-converged solution.")
-    end
-    println(buf)
-    println(buf, "## Artifacts")
-    println(buf)
-    println(buf, "- RCS data: `rcs.csv`")
-    println(buf, "- RCS curves:")
-    println(buf, "  ![RCS cuts](rcs_cuts.png)")
-    println(buf, "- Far-field pattern:")
-    println(buf, "  ![Far-field polar](farfield_polar.png)")
-    open(joinpath(res.outdir, "report.md"), "w") do io
-        print(io, String(take!(buf)))
-    end
-    return nothing
-end
 
 function write_index(outroot::AbstractString = RESULT_ROOT)
     path = joinpath(outroot, "index.md")
-    rows = Tuple{String,String,String,Int,Int,String}[]  # name, geo, ie, tris, unknowns, mie
+    rows = Tuple{String,String,String,Int,Int,String,Float64,Float64}[]  # name, geo, ie, tris, unknowns, mie, total, gflops
     for d in sort(readdir(outroot; join = true))
         isdir(d) || continue
         rep = joinpath(d, "report.md")
@@ -886,22 +1062,31 @@ function write_index(outroot::AbstractString = RESULT_ROOT)
         meshrow = only([l for l in lines if occursin(r"^\|\s*\d+ \| \d+ \| \d+ \|", l)])
         f = split(strip(meshrow, ['|']), '|')
         tris = parse(Int, strip(f[1])); unk = parse(Int, strip(f[3]))
+        tvals = [parse(Float64, strip(strip(x), ['s', ' '])) for x in f[4:end]]
+        total = sum(tvals)
+        gf = NaN
+        pf = joinpath(d, "perf.csv")
+        isfile(pf) && for l in eachline(pf)
+            occursin("solve_Gflops", l) && (gf = parse(Float64, split(l, ',')[2]))
+        end
         mie = "—"
         acc = [l for l in lines if occursin(r"^\|\s*[\d.]+° \| -?\d", l)]
         isempty(acc) || (mie = join([strip(split(strip(l, ['|']), '|')[2]) for l in acc], " / "))
-        push!(rows, (name, geom, ie, tris, unk, mie))
+        push!(rows, (name, geom, ie, tris, unk, mie, total, gf))
     end
     open(path, "w") do io
-        println(io, "# gmsh-driven RCS case family — index")
+        println(io, "# EMMoMSuite gmsh-driven RCS case family — index")
+        println(io)
+        println(io, "![](../../docs/assets/logo.svg)")
         println(io)
         println(io, "*Generated: $(Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS"))*")
         println(io)
-        println(io, "Pipeline: geometry file → gmsh mesh → RWG MoM solve → RCS → far-field plots → report.")
+        println(io, "Pipeline: geometry file → gmsh mesh → MoM solve → RCS → far-field plots → publication report.")
         println(io)
-        println(io, "| case | geometry | IE | tris | unknowns | Mie RMSE [dB] | report |")
-        println(io, "|---|---|---|---|---|---|---|")
-        for (name, geom, ie, tris, unk, mie) in rows
-            println(io, "| [`$(name)`]($(name)/report.md) | $(geom) | $(ie) | $(tris) | $(unk) | $(mie) | [report.md]($(name)/report.md) |")
+        println(io, "| case | geometry | IE | elements | unknowns | Mie RMSE [dB] | total [s] | LU [Gflop/s] | report |")
+        println(io, "|---|---|---|---|---|---|---|---|---|")
+        for (name, geom, ie, tris, unk, mie, total, gf) in rows
+            println(io, "| [`$(name)`]($(name)/report.md) | $(geom) | $(ie) | $(tris) | $(unk) | $(mie) | $(round(total; digits=1)) | $(isnan(gf) ? "—" : round(gf; digits=1)) | [report.md]($(name)/report.md) |")
         end
     end
     println("index: ", path)

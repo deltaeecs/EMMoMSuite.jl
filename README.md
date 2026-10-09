@@ -1,5 +1,9 @@
 # EMMoMSuite.jl
 
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="EMMoMSuite logo" width="180">
+</p>
+
 [![CI](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/deltaeecs/EMMoMSuite.jl/actions/workflows/CI.yml)
 [![Coverage (master)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/deltaeecs/EMMoMSuite.jl)
 [![文档](https://img.shields.io/badge/docs-%E6%96%87%E6%A1%A3-9558B2.svg)](https://deltaeecs.github.io/EMMoMSuite.jl/)
