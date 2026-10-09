@@ -131,6 +131,9 @@ export TriangleMesh,
     generate_gmsh_sphere,
     generate_gmsh_box,
     generate_gmsh_from_file,
+    generate_gmsh_volume,
+    read_msh_volume,
+    bind_regions,
     surface_mesh_gmsh,
     surface_mesh,
     mesh_face_labels,
@@ -220,6 +223,9 @@ export AbstractPMCHWBackend,
     recover_trial_coefficients,
     weak_form,
     strong_form
+export is_pec_material, relative_permittivity, relative_permeability,
+    volume_permittivities, is_all_pec, build_volume_system,
+    derive_formulation, farfield_from_rcs
 
 # Re-export Solvers symbols
 using .Solvers

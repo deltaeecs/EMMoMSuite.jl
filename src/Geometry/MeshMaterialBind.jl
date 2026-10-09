@@ -15,7 +15,7 @@ Exported functions:
   element_material   — retrieve material for a specific element index
 """
 
-export BoundMesh, bind_materials, validate_bindings, element_material
+export BoundMesh, bind_materials, bind_regions, validate_bindings, element_material
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BoundMesh
@@ -65,6 +65,37 @@ function bind_materials(
 ) where {T}
     material_map = Dict{Int, T}(Int(k) => v for (k, v) in bindings)
     return BoundMesh{typeof(mesh), T}(mesh, material_map)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# bind_regions
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    bind_regions(mesh, region_tags::Dict{String,Int},
+                 region_materials::Dict{String,T}) → BoundMesh
+
+Bind materials by *region name* instead of raw tag IDs. `region_tags` maps
+`Physical Volume` names to physical tags (as returned by
+[`read_msh_volume`](@ref) / [`generate_gmsh_volume`](@ref));
+`region_materials` maps the same names to material models.
+
+Errors if a region name in `region_materials` has no counterpart in
+`region_tags`. Tags present in the mesh but not covered by any named region
+must still be caught with `validate_bindings`.
+"""
+function bind_regions(
+    mesh::AbstractMesh,
+    region_tags::Dict{String,Int},
+    region_materials::Dict{String,T},
+) where {T}
+    bindings = Dict{Int,T}()
+    for (name, mat) in region_materials
+        haskey(region_tags, name) ||
+            error("bind_regions: unknown region \"$name\" (not a Physical Volume of this mesh)")
+        bindings[region_tags[name]] = mat
+    end
+    return bind_materials(mesh, bindings)
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
