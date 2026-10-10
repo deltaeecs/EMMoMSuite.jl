@@ -1110,7 +1110,8 @@ function _render_mesh_views(tris, opp, node, face_rgb, path, ptitle;
             end
             col = _hex(key ./ 25)
             plot!(p, xs, ys; seriestype = :shape, fillcolor = col, fillalpha = 1.0,
-                  linecolor = edges ? "#0d1a2e" : col, lw = edges ? 0.3 : 0.0,
+                  linecolor = edges ? "#0d1a2e" : col,   # same-color lw closes
+                  lw = edges ? 0.3 : 0.8,                # hairline seams between fills
                   label = "")
         end
         # legend proxies
@@ -1168,6 +1169,132 @@ _lighting(n̂) = clamp(0.35 + 0.55 * max(dot(n̂, _LIGHT_KEY), 0.0) +
                           0.25 * max(dot(n̂, _LIGHT_FILL), 0.0), 0.0, 1.0)
 
 """
+    _native_geometry_tris(geo_file; nu = 64) -> (node, tris, surfid, surfnames)
+
+Sample the *native CAD surfaces* of a .geo file through gmsh's parametric
+evaluation (`getParametrizationBounds` + `getValue`) — no meshing involved, so
+a sphere renders as the exact analytic sphere. Returns the sampled nodes
+(3×N), quad-split triangles (3×M), the owning-surface index per triangle and a
+display name per surface (its owning physical volume, or "surface").
+Winding of each patch is oriented outward against the global centroid so the
+shared renderer's backface culling works.
+"""
+function _native_geometry_tris(geo_file; nu = 64)
+    return EMMoMSuite.Geometry._with_gmsh() do gmsh
+        gmsh.initialize(["gmsh", "-nopopup"])
+        try
+            gmsh.option.setNumber("General.Verbosity", 0)
+            gmsh.model.add("native")
+            gmsh.open(geo_file)
+            # map surface tag → owning physical volume name (volume cases):
+            # getAdjacencies(2, surf) gives the upward-adjacent volume entity,
+            # whose physical groups carry the region names
+            p2n = Dict(ptag => gmsh.model.getPhysicalName(3, ptag)
+                       for (_, ptag) in gmsh.model.getPhysicalGroups(3))
+            volname = Dict{Int,String}()
+            for (_, stag) in gmsh.model.getEntities(2)
+                up, _ = gmsh.model.getAdjacencies(2, stag)
+                for vtag in up, ptag in gmsh.model.getPhysicalGroupsForEntity(3, vtag)
+                    volname[stag] = get(p2n, ptag, "region$ptag")
+                end
+            end
+            pts = Vector{Vector{Float64}}()
+            tris = Matrix{Int}(undef, 3, 0)
+            surfid = Int[]
+            names = String[]
+            for (_, stag) in gmsh.model.getEntities(2)
+                b = gmsh.model.getParametrizationBounds(2, stag)
+                umin, vmin = b[1]          # min = [u_min, v_min]
+                umax, vmax = b[2]          # max = [u_max, v_max]
+                us = range(umin, umax; length = nu)
+                vs = range(vmin, vmax; length = nu)
+                par = Float64[]
+                for v in vs, u in us
+                    push!(par, u, v)
+                end
+                xyz = gmsh.model.getValue(2, stag, par)
+                base = length(pts)
+                for k in 1:(nu * nu)
+                    push!(pts, Float64[xyz[3k-2], xyz[3k-1], xyz[3k]])
+                end
+                sid = length(names) + 1
+                push!(names, get(volname, stag, "surface"))
+                m0 = size(tris, 2)
+                t2 = Matrix{Int}(undef, 3, 2 * (nu - 1)^2)
+                c = 0
+                for j in 1:(nu - 1), i in 1:(nu - 1)
+                    a = base + (j - 1) * nu + i
+                    c += 1; t2[1, c], t2[2, c], t2[3, c] = a, a + 1, a + nu
+                    c += 1; t2[1, c], t2[2, c], t2[3, c] = a + 1, a + nu + 1, a + nu
+                end
+                tris = hcat(tris, t2)
+                append!(surfid, fill(sid, size(t2, 2)))
+            end
+            isempty(tris) && error("no CAD surfaces in $geo_file")
+            # orient every patch outward w.r.t. the global centroid:
+            # majority vote over non-degenerate triangles (skip pole slivers)
+            P = reduce(hcat, pts)
+            ctr = vec(mean(P; dims = 2))
+            for sid in unique(surfid)
+                sel = findall(==(sid), surfid)
+                s = 0.0
+                for t in sel
+                    a, b2, c = tris[1, t], tris[2, t], tris[3, t]
+                    nw = cross(P[:, b2] .- P[:, a], P[:, c] .- P[:, a])
+                    nn = norm(nw)
+                    nn == 0 && continue
+                    s += sign(dot(nw, P[:, a] .- ctr))
+                end
+                s < 0 && (tris[:, sel] .= tris[[1, 3, 2], sel])
+            end
+            return P, tris, surfid, names
+        finally
+            gmsh.finalize()
+        end
+    end
+end
+
+"""
+    _plot_native_geometry_views(spec, geo_file, outdir) -> Union{String,Nothing}
+
+`geometry_views.png` rendered from the analytic CAD surfaces (no mesh):
+three orthographic views + pseudo-3D isometric, Lambert-shaded with backface
+culling. Returns `nothing` when native sampling is unavailable (the caller
+falls back to the mesh-based render). One material color per surface, legend
+labels mirror the mesh figure.
+"""
+function _plot_native_geometry_views(spec, geo_file, outdir)
+    try
+        node, tris, surfid, snames = _native_geometry_tris(geo_file)
+        mats = String[]
+        for nm in snames
+            if isempty(spec.regions)
+                if isempty(spec.interfaces)
+                    push!(mats, "object")
+                else
+                    itf = spec.interfaces[1]
+                    push!(mats, "$(itf.surface): $(_mat_str(itf.minus)) | n̂: $(_mat_str(itf.plus))")
+                end
+            else
+                r = findfirst(r -> r.surface == nm, spec.regions)
+                push!(mats, r === nothing ? nm : _mat_str(spec.regions[r].material))
+            end
+        end
+        cols = _material_color_assignment(mats)
+        labels = unique!([(m, c) for (m, c) in zip(mats, cols)])
+        frgb = [_hextorgb(cols[surfid[t]]) for t in 1:size(tris, 2)]
+        return _render_mesh_views(tris, zeros(Int, size(tris, 2)), node, frgb,
+                                  joinpath(outdir, "geometry_views.png"),
+                                  "$(spec.name) — geometry & materials (native CAD)";
+                                  edges = false, shading = true, nsub = 0,
+                                  labels = labels)
+    catch e
+        @warn "native geometry render failed, falling back to mesh" exception = e
+        return nothing
+    end
+end
+
+"""
     _plot_geometry_and_mesh(spec, mesh, outdir; region_tags) -> (geo, meshp)
 
 Two separate figures: `geometry_views.png` (CAD-like material rendering, no
@@ -1182,9 +1309,13 @@ function _plot_geometry_and_mesh(spec, mesh, outdir; region_tags = nothing)
                                             region_tags)
     frgb = _hextorgb.(facecol)
     title = "$(spec.name) — geometry & materials"
-    geo = _render_mesh_views(tris, opp, mesh.node, frgb,
-                             joinpath(outdir, "geometry_views.png"), title;
-                             edges = false, shading = true, nsub = 2, labels = labels)
+    geo_file = isabspath(spec.geo) ? spec.geo : joinpath(GEO_DIR, spec.geo)
+    geo = _plot_native_geometry_views(spec, geo_file, outdir)
+    if geo === nothing
+        geo = _render_mesh_views(tris, opp, mesh.node, frgb,
+                                 joinpath(outdir, "geometry_views.png"), title;
+                                 edges = false, shading = true, nsub = 2, labels = labels)
+    end
     # mesh figure: same material colors, wireframe edges on
     meshp = _render_mesh_views(tris, opp, mesh.node, frgb,
                                joinpath(outdir, "mesh_views.png"),
