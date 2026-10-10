@@ -126,6 +126,7 @@ function _run_volume_case_mpi(spec, comm, rank, P, outdir)
         mlfma_ok = false
         mlfma_rmse = Float64[]
         t_lu = NaN
+        rcs_lu = nothing
         try
             t0 = time()
             Z = assemble_impedance_matrix(op, swg)
@@ -146,10 +147,13 @@ function _run_volume_case_mpi(spec, comm, rank, P, outdir)
         # ---- 5. far field + plots + report --------------------------------
         t0 = time()
         FF = postprocess_farfield(ctx, θa, ϕs, I, swg, source, nbasis)
-        _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB,
-                       fill(NaN, length(θa), length(ϕs)), false)
-        _plot_rcs(spec, outdir, θa, ϕs, rcs_dB,
-                  fill(NaN, length(θa), length(ϕs)), false)
+        # rcs_dB 是分布式 MLFMA 主解；把稠密 LU 作为对比曲线/列写入
+        nan2 = fill(NaN, length(θa), length(ϕs))
+        lu_dB = mlfma_ok ? rcs_lu : nothing
+        _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, nan2, false; mlfma_dB = lu_dB)
+        _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, nan2, false;
+                  mlfma_dB = lu_dB, main_label = "MLFMA (MPI)",
+                  mlfma_label = "MoM (dense LU)")
         _plot_farfield(spec, outdir, θa, ϕs, FF)
         t_plots = time() - t0
         @printf("  plots: %.1f s\n", t_plots)
@@ -308,6 +312,7 @@ function main()
             mlfma_ok = false
             mlfma_rmse = Float64[]
             t_lu = NaN
+            rcs_lu = nothing
             try
                 t0 = time()
                 Z = assemble_impedance_matrix(op, basis)
@@ -328,8 +333,13 @@ function main()
             # ---- 5. far field + plots -------------------------------------
             t0 = time()
             FF = postprocess_farfield(ctx, θa, ϕs, I, basis, source, nbasis)
-            _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
-            _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
+            # rcs_dB 是分布式 MLFMA 主解；把稠密 LU 作为对比曲线/列写入
+            lu_dB = mlfma_ok ? rcs_lu : nothing
+            _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok;
+                           mlfma_dB = lu_dB)
+            _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok;
+                      mlfma_dB = lu_dB, main_label = "MLFMA (MPI)",
+                      mlfma_label = "MoM (dense LU)")
             _plot_farfield(spec, outdir, θa, ϕs, FF)
             try   # surface-current distribution (J part only; PMCHW M ignored here)
                 I_j = ctx.layout === :jm ? I[1:nbasis] : I

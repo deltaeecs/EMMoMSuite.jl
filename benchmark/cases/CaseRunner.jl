@@ -671,36 +671,35 @@ function _run_surface_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT
         end
     end
 
-    # ---- 4b. no analytic reference → MoM(LU) vs MLFMA(GMRES) cross-check --
+    # ---- 4b. MoM(LU) vs MLFMA(GMRES) cross-check (always; also plotted) ---
     mlfma_ok = false
     mlfma_rmse = Float64[]
     t_mlfma = NaN
-    if spec.mie_radius === nothing
-        try
-            t0 = time()
-            λ = 3e8 / spec.freq
-            mop = MLFMAOperator(op, basis, λ / 2)
-            P = BlockJacobiPreconditioner(mop)
-            solver = GMRESSolver(restart = 200, maxiter = 400, tol = 1e-6)
-            I_f = solve!(solver, mop, V; Pl = P)
-            rcs_f = postprocess_rcs(ctx, θa, ϕs, I_f, basis)
-            mlfma_rmse = [sqrt(mean((rcs_dB[:, j] .- rcs_f[:, j]).^2)) for j in eachindex(ϕs)]
-            t_mlfma = time() - t0
-            mlfma_ok = true
-            for (j, φ) in enumerate(ϕs)
-                @printf("  MoM vs MLFMA, phi=%6.1f°: RMSE = %.3f dB (GMRES %.1f s)\n",
-                        _deg(φ), mlfma_rmse[j], t_mlfma)
-            end
-        catch err
-            @warn "MLFMA cross-check failed" spec.name err
+    mlfma_dB = nothing
+    try
+        t0 = time()
+        λ = 3e8 / spec.freq
+        mop = MLFMAOperator(op, basis, λ / 2)
+        P = BlockJacobiPreconditioner(mop)
+        solver = GMRESSolver(restart = 200, maxiter = 400, tol = 1e-6)
+        I_f = solve!(solver, mop, V; Pl = P)
+        mlfma_dB = postprocess_rcs(ctx, θa, ϕs, I_f, basis)
+        mlfma_rmse = [sqrt(mean((rcs_dB[:, j] .- mlfma_dB[:, j]).^2)) for j in eachindex(ϕs)]
+        t_mlfma = time() - t0
+        mlfma_ok = true
+        for (j, φ) in enumerate(ϕs)
+            @printf("  MoM vs MLFMA, phi=%6.1f°: RMSE = %.3f dB (GMRES %.1f s)\n",
+                    _deg(φ), mlfma_rmse[j], t_mlfma)
         end
+    catch err
+        @warn "MLFMA cross-check failed" spec.name err
     end
 
     # ---- 5. far field + plots ---------------------------------------------
     t0 = time()
     FF = postprocess_farfield(ctx, θa, ϕs, I, basis, source, nbasis)
-    _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
-    _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
+    _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok; mlfma_dB = mlfma_dB)
+    _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok; mlfma_dB = mlfma_dB)
     _plot_farfield(spec, outdir, θa, ϕs, FF)
     try   # surface-current distribution (J part only; PMCHW M ignored here)
         I_j = ctx.layout === :jm ? I[1:nbasis] : I
@@ -798,18 +797,42 @@ function _run_volume_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT)
         end
     end
 
+    # ---- 4b. MoM(LU) vs MLFMA(GMRES) cross-check (SWG, also plotted) ------
+    mlfma_ok = false
+    mlfma_rmse = Float64[]
+    t_mlfma = NaN
+    mlfma_dB = nothing
+    try
+        t0 = time()
+        λ = 3e8 / spec.freq
+        mop = MLFMAOperator(op, basis, λ / 2)
+        P = BlockJacobiPreconditioner(mop)
+        solver = GMRESSolver(restart = 200, maxiter = 400, tol = 1e-6)
+        I_f = solve!(solver, mop, V; Pl = P)
+        mlfma_dB = postprocess_rcs(ctx, θa, ϕs, I_f, basis)
+        mlfma_rmse = [sqrt(mean((rcs_dB[:, j] .- mlfma_dB[:, j]).^2)) for j in eachindex(ϕs)]
+        t_mlfma = time() - t0
+        mlfma_ok = true
+        for (j, φ) in enumerate(ϕs)
+            @printf("  MoM vs MLFMA, phi=%6.1f°: RMSE = %.3f dB (GMRES %.1f s)\n",
+                    _deg(φ), mlfma_rmse[j], t_mlfma)
+        end
+    catch err
+        @warn "MLFMA cross-check failed" spec.name err
+    end
+
     # ---- 5. far field + plots ---------------------------------------------
     t0 = time()
     FF = postprocess_farfield(ctx, θa, ϕs, I, basis, source, nbasis)
-    _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
-    _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
+    _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok; mlfma_dB = mlfma_dB)
+    _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok; mlfma_dB = mlfma_dB)
     _plot_farfield(spec, outdir, θa, ϕs, FF)
     t_plots = time() - t0
     @printf("  plots: %.1f s\n", t_plots)
 
     res = CaseResult(spec, outdir, mesh, tetnum, nnodes, nbasis,
                      t_mesh, t_assembly, t_solve, t_rcs, t_plots,
-                     mie_ok, rmse, false, Float64[], NaN)
+                     mie_ok, rmse, mlfma_ok, mlfma_rmse, t_mlfma)
     _write_report_volume(res, rcs_dB, mie_dB, mie_ok, region_tags, ctx)
     println("  report: ", joinpath(outdir, "report.md"))
     return res
@@ -832,13 +855,17 @@ end
 # artifacts
 # ---------------------------------------------------------------------------
 
-function _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
+function _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok;
+                        mlfma_dB = nothing)
+    hasmlf = mlfma_dB !== nothing
     path = joinpath(outdir, "rcs.csv")
     open(path, "w") do io
-        println(io, "theta_deg,phi_deg,rcs_dBsm" * (mie_ok ? ",mie_dBsm" : ""))
+        println(io, "theta_deg,phi_deg,rcs_dBsm" *
+                    (mie_ok ? ",mie_dBsm" : "") * (hasmlf ? ",mlfma_dBsm" : ""))
         for (j, φ) in enumerate(ϕs), (i, θ) in enumerate(θa)
             line = @sprintf("%.2f,%.2f,%.4f", _deg(θ), _deg(φ), rcs_dB[i, j])
             mie_ok && (line *= @sprintf(",%.4f", mie_dB[i, j]))
+            hasmlf && (line *= @sprintf(",%.4f", mlfma_dB[i, j]))
             println(io, line)
         end
     end
@@ -847,7 +874,8 @@ end
 
 const _PUBFONT = "times"   # GR built-in serif alias
 
-function _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
+function _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok;
+                   mlfma_dB = nothing, main_label = "MoM", mlfma_label = "MLFMA")
     θdeg = _deg.(θa)
     cols = ["#1f4e79", "#c0392b", "#1e8449", "#7d3c98"]
     p = plot(title = "$(spec.name) bistatic RCS",
@@ -860,11 +888,15 @@ function _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
              xlims = (0, 180), xticks = 0:30:180)
     for (j, φ) in enumerate(ϕs)
         plot!(p, θdeg, rcs_dB[:, j];
-              label = @sprintf("MoM, φ = %.0f°", _deg(φ)), lw = 2.2,
+              label = @sprintf("%s, φ = %.0f°", main_label, _deg(φ)), lw = 2.2,
               linecolor = cols[mod1(j, length(cols))])
         mie_ok && plot!(p, θdeg, mie_dB[:, j];
                         label = @sprintf("Mie, φ = %.0f°", _deg(φ)),
                         ls = :dash, lw = 1.6,
+                        linecolor = cols[mod1(j, length(cols))])
+        mlfma_dB !== nothing && plot!(p, θdeg, mlfma_dB[:, j];
+                        label = @sprintf("%s, φ = %.0f°", mlfma_label, _deg(φ)),
+                        ls = :dashdot, lw = 1.6,
                         linecolor = cols[mod1(j, length(cols))])
     end
     path = joinpath(outdir, "rcs_cuts.png")
@@ -1236,11 +1268,12 @@ function rebuild_report(name::AbstractString; outroot::AbstractString = RESULT_R
     end
     g(key, default = NaN) = get(perf, key, default)
 
-    # rcs.csv → rcs_dB / mie_dB matrices
+    # rcs.csv → rcs_dB / mie_dB / mlfma_dB matrices
     rows = collect(eachline(joinpath(outdir, "rcs.csv")))
     hasmie = occursin("mie_dBsm", rows[1])
+    hasmlf = occursin("mlfma_dBsm", rows[1])
     θs = Float64[]; θs_deg = Float64[]; ϕs = Float64[]
-    rcs_v = Float64[]; mie_v = Float64[]
+    rcs_v = Float64[]; mie_v = Float64[]; mlf_v = Float64[]
     for line in rows[2:end]
         f = split(line, ',')
         θ = parse(Float64, f[1])
@@ -1250,25 +1283,32 @@ function rebuild_report(name::AbstractString; outroot::AbstractString = RESULT_R
         push!(rcs_v, parse(Float64, f[3]))
         (φ in ϕs) || push!(ϕs, φ)
         hasmie && push!(mie_v, parse(Float64, f[4]))
+        hasmlf && push!(mlf_v, parse(Float64, f[hasmie ? 5 : 4]))
     end
     nθ, nϕ = length(θs_deg) ÷ max(length(ϕs), 1), length(ϕs)
     # rcs.csv is written per phi cut (θ fastest) → column j = cut j
     rcs_dB = reshape(rcs_v, nθ, nϕ)
     mie_dB = hasmie ? reshape(mie_v, nθ, nϕ) : fill(NaN, nθ, nϕ)
     mie_ok = hasmie
+    mlfma_dB = hasmlf ? reshape(mlf_v, nθ, nϕ) : nothing
     rmse = [mie_ok ? sqrt(mean((rcs_dB[:, j] .- mie_dB[:, j]).^2)) : NaN for j in 1:nϕ]
-    # MLFMA RMSE is not in the CSVs; recover per-cut rows from case.log if present
+    # MLFMA RMSE: prefer the mlfma CSV column, else recover per-cut rows from case.log
     mlfma_rmse = Float64[]; mlfma_ok = false; t_mlfma = NaN
     logpath = joinpath(outdir, "case.log")
-    if isfile(logpath)
-        for line in eachline(logpath)
-            m = match(r"MoM vs MLFMA, phi=\s*([\d.]+)°: RMSE = ([\d.]+) dB \(GMRES ([\d.]+) s\)", line)
-            if m !== nothing
-                push!(mlfma_rmse, parse(Float64, m[2]))
-                t_mlfma = parse(Float64, m[3])
+    if mlfma_dB !== nothing
+        mlfma_rmse = [sqrt(mean((rcs_dB[:, j] .- mlfma_dB[:, j]).^2)) for j in 1:nϕ]
+        mlfma_ok = true
+    else
+        if isfile(logpath)
+            for line in eachline(logpath)
+                m = match(r"(?:MoM vs MLFMA|MPI GMRES vs dense LU), phi=\s*([\d.]+)°: RMSE = ([\d.]+) dB \((?:GMRES|LU) ([\d.]+) s\)", line)
+                if m !== nothing
+                    push!(mlfma_rmse, parse(Float64, m[2]))
+                    t_mlfma = parse(Float64, m[3])
+                end
             end
+            mlfma_ok = !isempty(mlfma_rmse)
         end
-        mlfma_ok = !isempty(mlfma_rmse)
     end
 
     res = CaseResult(spec, outdir, nothing, Int(g("elements")), Int(g("nodes")),
