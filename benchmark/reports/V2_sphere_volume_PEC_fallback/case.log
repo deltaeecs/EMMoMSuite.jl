@@ -1,0 +1,12 @@
+=== Case V2_sphere_volume_PEC_fallback (volume) ===
+  mesh: 5199 tetrahedra, 1176 nodes, regions = body (218.7 s)
+  assembly (EFIE, 1875 unknowns): 3.8 s
+  LU solve: 1.5 s
+  RCS vs Mie, phi=   0.0°: RMSE = 0.082 dB
+  RCS vs Mie, phi=  90.0°: RMSE = 0.058 dB
+Assembling Near Field Matrix (Optimized) with 1 threads...
+  Non-empty Cubes: 259, est nnz/thread: 10000000
+Progress: 0 / 259 cubesProgress: 200 / 259 cubes  MoM vs MLFMA, phi=   0.0°: RMSE = 0.010 dB (GMRES 290.8 s)
+  MoM vs MLFMA, phi=  90.0°: RMSE = 0.006 dB (GMRES 290.8 s)
+  plots: 7.6 s
+  report: C:\Users\12253\OneDrive\MoM\EMMoMSuite\test_results\cases\V2_sphere_volume_PEC_fallback\report.md

@@ -1,8 +1,8 @@
 name = "G10_sphere_PMCHW_Mie"
 geo = "sphere_r0p15.geo"
-mesh_size = 0.02
+mesh_size = 0.015
 dim = 2
-freq = 6.0e8
+freq = 2.0e9
 ie = "PMCHW"
 alpha = 0.5
 theta_inc = 1.5707963267948966

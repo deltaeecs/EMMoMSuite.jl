@@ -681,7 +681,7 @@ function _run_surface_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT
         λ = 3e8 / spec.freq
         mop = MLFMAOperator(op, basis, λ / 2)
         P = BlockJacobiPreconditioner(mop)
-        solver = GMRESSolver(restart = 200, maxiter = 400, tol = 1e-6)
+        solver = GMRESSolver(restart = 200, maxiter = 400, tol = 1e-3)
         I_f = solve!(solver, mop, V; Pl = P)
         mlfma_dB = postprocess_rcs(ctx, θa, ϕs, I_f, basis)
         mlfma_rmse = [sqrt(mean((rcs_dB[:, j] .- mlfma_dB[:, j]).^2)) for j in eachindex(ϕs)]
@@ -807,7 +807,7 @@ function _run_volume_case(spec::CaseSpec; outroot::AbstractString = RESULT_ROOT)
         λ = 3e8 / spec.freq
         mop = MLFMAOperator(op, basis, λ / 2)
         P = BlockJacobiPreconditioner(mop)
-        solver = GMRESSolver(restart = 200, maxiter = 400, tol = 1e-6)
+        solver = GMRESSolver(restart = 200, maxiter = 400, tol = 1e-3)
         I_f = solve!(solver, mop, V; Pl = P)
         mlfma_dB = postprocess_rcs(ctx, θa, ϕs, I_f, basis)
         mlfma_rmse = [sqrt(mean((rcs_dB[:, j] .- mlfma_dB[:, j]).^2)) for j in eachindex(ϕs)]

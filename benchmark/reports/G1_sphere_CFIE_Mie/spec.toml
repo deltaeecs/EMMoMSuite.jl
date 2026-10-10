@@ -1,8 +1,8 @@
 name = "G1_sphere_CFIE_Mie"
 geo = "sphere_r0p5.geo"
-mesh_size = 0.1
+mesh_size = 0.05
 dim = 2
-freq = 3.0e8
+freq = 1.2e9
 ie = "CFIE"
 alpha = 0.5
 theta_inc = 1.5707963267948966

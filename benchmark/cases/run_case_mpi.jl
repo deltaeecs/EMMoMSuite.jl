@@ -98,7 +98,7 @@ function _run_volume_case_mpi(spec, comm, rank, P, outdir)
     rank == 0 && @printf("  distributed MLFMA near-field assembly (leaf %.4f m): %.1f s\n",
                          leaf_main, t_assembly)
 
-    gmres_tol = parse(Float64, get(ENV, "EMMOM_GMRES_TOL", "1e-6"))
+    gmres_tol = parse(Float64, get(ENV, "EMMOM_GMRES_TOL", "1e-3"))
     pname, I, t_solve, rel_res = _mpi_gmres_volume(op_mpi, V, comm, rank, P,
                                                    gmres_tol, leaf_main)
 
@@ -268,8 +268,8 @@ function main()
             P_mpi = DistributedSPAIPreconditioner(op_mpi)
         end
         pwrap = FuncPrecond((y, t) -> apply_mpi_preconditioner!(y, P_mpi, t))
-        # GMRES 收敛阈值：默认 1e-6；可用环境变量 EMMOM_GMRES_TOL 覆盖（如 1e-3 对比实验）
-        gmres_tol = parse(Float64, get(ENV, "EMMOM_GMRES_TOL", "1e-6"))
+        # GMRES 收敛阈值：默认 1e-3；可用环境变量 EMMOM_GMRES_TOL 覆盖
+        gmres_tol = parse(Float64, get(ENV, "EMMOM_GMRES_TOL", "1e-3"))
         solver = GMRESSolver(restart = 200, maxiter = 400, tol = gmres_tol,
                              verbose = rank == 0)
         I = solve!(solver, op_mpi, V; Pl = pwrap)

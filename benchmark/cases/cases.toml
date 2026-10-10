@@ -47,9 +47,9 @@ eps_r_im = -0.1
 [[case]]
 name        = "G1_sphere_CFIE_Mie"
 geo         = "sphere_r0p5.geo"
-mesh_size   = 0.10
+mesh_size   = 0.05
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "CFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -67,9 +67,9 @@ minus   = "pec"
 [[case]]
 name        = "G2_sphere_EFIE_Mie"
 geo         = "sphere_r0p5.geo"
-mesh_size   = 0.15
+mesh_size   = 0.05
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "EFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -87,9 +87,9 @@ minus   = "pec"
 [[case]]
 name        = "G3_box_EFIE"
 geo         = "box_1m.geo"
-mesh_size   = 0.15
+mesh_size   = 0.06
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "EFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -106,9 +106,9 @@ minus   = "pec"
 [[case]]
 name        = "G4_cylinder_EFIE"
 geo         = "cylinder.geo"
-mesh_size   = 0.12
+mesh_size   = 0.06
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "EFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -125,9 +125,9 @@ minus   = "pec"
 [[case]]
 name        = "G5_plate_EFIE"
 geo         = "plate.geo"
-mesh_size   = 0.12
+mesh_size   = 0.06
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "EFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -144,9 +144,9 @@ minus   = "pec"
 [[case]]
 name        = "G6_ellipsoid_EFIE"
 geo         = "ellipsoid.geo"
-mesh_size   = 0.12
+mesh_size   = 0.06
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "EFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -163,9 +163,9 @@ minus   = "pec"
 [[case]]
 name        = "G7_cone_EFIE"
 geo         = "cone.geo"
-mesh_size   = 0.12
+mesh_size   = 0.06
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "EFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -182,9 +182,9 @@ minus   = "pec"
 [[case]]
 name        = "G9_box_CFIE"
 geo         = "box_1m.geo"
-mesh_size   = 0.15
+mesh_size   = 0.06
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "CFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -202,9 +202,9 @@ minus   = "pec"
 [[case]]
 name        = "G10_sphere_PMCHW_Mie"
 geo         = "sphere_r0p15.geo"
-mesh_size   = 0.02
+mesh_size   = 0.015
 dim         = 2
-freq        = 6.0e8
+freq        = 2.0e9
 ie          = "PMCHW"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -222,9 +222,9 @@ minus   = "eps4p0"
 [[case]]
 name        = "G11_lossy_sphere_PMCHW_Mie"
 geo         = "sphere_r0p15.geo"
-mesh_size   = 0.02
+mesh_size   = 0.015
 dim         = 2
-freq        = 3.0e8
+freq        = 2.0e9
 ie          = "PMCHW"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -242,9 +242,9 @@ minus   = "eps2p2_lossy"
 [[case]]
 name        = "G8_torus_EFIE"
 geo         = "torus.geo"
-mesh_size   = 0.08
+mesh_size   = 0.05
 dim         = 2
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "EFIE"
 alpha       = 0.5
 theta_inc   = 1.5707963267948966
@@ -259,6 +259,11 @@ plus    = "air"
 minus   = "pec"
 
 # ── volume (tetrahedral) cases ───────────────────────────────────────────────
+# NOTE: volume (SWG/VEFIE) cases stay at their original frequencies — raising
+# them would blow up the SWG unknown count beyond the dense-LU cross-check.
+# Their MLFMA cross-check therefore remains in the near-field-dominated regime
+# (documented in each report); the accuracy statement rests on the dense-LU /
+# mesh-convergence comparison instead.
 [[case]]
 name        = "V1_sphere_VEFIE_Mie"
 geo         = "sphere_r0p15.geo"
@@ -280,9 +285,9 @@ material = "eps4p0"
 [[case]]
 name        = "V2_sphere_volume_PEC_fallback"
 geo         = "sphere_r0p5.geo"
-mesh_size   = 0.15
+mesh_size   = 0.08
 dim         = 3
-freq        = 3.0e8
+freq        = 1.2e9
 ie          = "auto"
 theta_inc   = 1.5707963267948966
 phi_inc     = 3.141592653589793
