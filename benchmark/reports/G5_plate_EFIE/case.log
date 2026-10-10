@@ -1,0 +1,10 @@
+=== Case G5_plate_EFIE ===
+  mesh: 470 triangles, 237 nodes, 705 RWG unknowns (196.5 s)
+  assembly (EFIE): 0.7 s
+  LU solve: 0.1 s
+Assembling Near Field Matrix (Optimized) with 1 threads...
+  Non-empty Cubes: 17, est nnz/thread: 3132900
+Progress: 0 / 17 cubes  MoM vs MLFMA, phi=   0.0°: RMSE = 0.140 dB (GMRES 60.7 s)
+  MoM vs MLFMA, phi=  90.0°: RMSE = 0.087 dB (GMRES 60.7 s)
+  plots: 0.5 s
+  report: C:\Users\12253\OneDrive\MoM\EMMoMSuite\test_results\cases\G5_plate_EFIE\report.md

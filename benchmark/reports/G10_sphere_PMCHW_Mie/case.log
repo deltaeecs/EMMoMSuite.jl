@@ -1,0 +1,8 @@
+=== Case G10_sphere_PMCHW_Mie ===
+  mesh: 1784 triangles, 894 nodes, 2676 RWG unknowns (144.4 s)
+  assembly (PMCHW): 10.8 s
+  LU solve: 1.9 s
+  RCS vs Mie, phi=   0.0°: RMSE = 0.044 dB
+  RCS vs Mie, phi=  90.0°: RMSE = 0.013 dB
+  plots: 9.7 s
+  report: C:\Users\12253\OneDrive\MoM\EMMoMSuite\test_results\cases\G10_sphere_PMCHW_Mie\report.md

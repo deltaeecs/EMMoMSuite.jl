@@ -1,0 +1,8 @@
+=== Case G1_sphere_CFIE_Mie ===
+  mesh: 790 triangles, 397 nodes, 1185 RWG unknowns (235.9 s)
+  assembly (CFIE): 3.1 s
+  LU solve: 0.8 s
+  RCS vs Mie, phi=   0.0°: RMSE = 0.162 dB
+  RCS vs Mie, phi=  90.0°: RMSE = 0.137 dB
+  plots: 13.3 s
+  report: C:\Users\12253\OneDrive\MoM\EMMoMSuite\test_results\cases\G1_sphere_CFIE_Mie\report.md

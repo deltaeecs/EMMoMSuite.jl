@@ -1,0 +1,13 @@
+metric,value
+unknowns,4782
+elements,3188
+nodes,1596
+t_mesh_s,160.69
+t_assembly_s,18.82
+t_solve_s,44.34
+t_rcs_s,2.03
+t_plots_s,10.76
+t_total_s,236.64
+t_mlfma_s,16.26
+assembly_rate_Ginteractions_per_s,0.001
+solve_Gflops,1.64

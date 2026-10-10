@@ -1,0 +1,16 @@
+name = "G12_dielectric_cube"
+geo = "cube_r0p1.geo"
+mesh_size = 0.03
+dim = 3
+freq = 6.0e8
+ie = "auto"
+alpha = 0.5
+theta_inc = 1.5707963267948966
+phi_inc = 3.141592653589793
+pol = [0.0, 0.0, 1.0]
+n_theta = 181
+phi_cuts = [0.0, 1.5707963267948966]
+
+[[region]]
+surface = "body"
+material = "dielectric:4:0:1"

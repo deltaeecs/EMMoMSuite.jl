@@ -1,0 +1,20 @@
+name = "G11_lossy_sphere_PMCHW_Mie"
+geo = "sphere_r0p15.geo"
+mesh_size = 0.015
+dim = 2
+freq = 2.0e9
+ie = "PMCHW"
+alpha = 0.5
+theta_inc = 1.5707963267948966
+phi_inc = 3.141592653589793
+pol = [0.0, 0.0, 1.0]
+n_theta = 181
+phi_cuts = [0.0, 1.5707963267948966]
+mie_radius = 0.15
+
+[[interface]]
+surface = "body"
+plus = "dielectric:1:0:1"
+minus = "dielectric:2.2:-0.1:1"
+closed = true
+flip = false
