@@ -765,32 +765,38 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 
 """
-    _boundary_tris(mesh) -> 3×M Matrix{Int}
+    _boundary_tris(mesh) -> (tris::3×M Matrix{Int}, opp::Vector{Int})
 
 Node-index triangles of the visible (boundary) surface: identity for a
-`TriangleMesh`; for a `TetrahedraMesh` the faces shared by exactly one
-tetrahedron.
+`TriangleMesh` (`opp` all zero — orientation comes from the triangle
+winding); for a `TetrahedraMesh` the faces shared by exactly one tetrahedron,
+with `opp[t]` = the tetrahedron's opposite node (used to orient the face
+normal outward regardless of the gmsh vertex ordering).
 """
 function _boundary_tris(mesh)
     if isdefined(mesh, :trinum)
-        return mesh.triangles
+        return mesh.triangles, zeros(Int, mesh.trinum)
     end
-    cnt = Dict{Tuple{Int,Int,Int},Int}()
+    cnt = Dict{Tuple{Int,Int,Int},Tuple{Int,Int}}()   # face => (n, opposite node)
     F = (i, j, k) -> tuple(sort!([i, j, k])...)
     for t in 1:mesh.tetnum
         a, b, c, d = mesh.tetras[:, t]
-        for f in (F(a, b, c), F(a, b, d), F(a, c, d), F(b, c, d))
-            cnt[f] = get(cnt, f, 0) + 1
+        for (f, o) in ((F(a, b, c), d), (F(a, b, d), c), (F(a, c, d), b), (F(b, c, d), a))
+            n, _ = get(cnt, f, (0, o))
+            cnt[f] = (n + 1, o)
         end
     end
-    out = Matrix{Int}(undef, 3, count(x -> x == 1, values(cnt)))
-    m = 0
-    for (f, n) in cnt
+    m = count(x -> x[1] == 1, values(cnt))
+    out = Matrix{Int}(undef, 3, m)
+    opp = zeros(Int, m)
+    i = 0
+    for (f, (n, o)) in cnt
         n == 1 || continue
-        m += 1
-        out[:, m] .= collect(f)
+        i += 1
+        out[:, i] .= collect(f)
+        opp[i] = o
     end
-    return out
+    return out, opp
 end
 
 "Orbit-camera projection: yaw `az`, pitch `el` (both radians) → screen (px, py) and depth."
@@ -820,7 +826,7 @@ face normals), opaque Lambert-shaded fill binned into grayscale-blue shades
 and drawn far-to-near, so hidden surfaces are not visible through the body.
 """
 function _plot_geometry_views(spec, mesh, outdir)
-    tri = _boundary_tris(mesh)
+    tri, opp = _boundary_tris(mesh)
     X, Y, Z = mesh.node[1, :], mesh.node[2, :], mesh.node[3, :]
     ntri = size(tri, 2)
     V3 = [mesh.node[:, t] for t in 1:size(mesh.node, 2)]   # Vector{Vector{Float64}}
@@ -837,6 +843,10 @@ function _plot_geometry_views(spec, mesh, outdir)
             n = cross(V3[b] - V3[a], V3[c] - V3[a])
             ln = norm(n)
             ln == 0 && continue
+            if opp[t] > 0             # orient outward via owning tet centroid
+                c4 = (V3[a] .+ V3[b] .+ V3[c] .+ V3[opp[t]]) ./ 4
+                dot(n, (V3[a] .+ V3[b] .+ V3[c]) ./ 3 .- c4) < 0 && (n = -n)
+            end
             d = dot(n / ln, t̂)
             d <= 0 && continue        # backface culling
             bright[t] = clamp(0.25 + 0.75 * d, 0.0, 1.0)
