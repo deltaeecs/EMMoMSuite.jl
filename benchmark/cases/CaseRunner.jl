@@ -463,6 +463,20 @@ end
 
 _deg(x) = round(rad2deg(x); digits = 1)
 
+"""Human-readable material label for report tables (`AIR` prints as `air`)."""
+function _mat_str(m::Material)
+    m isa PEC && return "PEC"
+    if m isa Dielectric && isapprox(m.eps_r, AIR.eps_r) && isapprox(m.mu_r, AIR.mu_r)
+        return "air"
+    end
+    er, ei = reim(m.eps_r); mr, mi = reim(m.mu_r)
+    s = "εᵣ = $(round(er; digits = 3))"
+    abs(ei) > 1e-12 && (s *= " + $(round(ei; digits = 3))i")
+    s *= ", μᵣ = $(round(mr; digits = 3))"
+    abs(mi) > 1e-12 && (s *= " + $(round(mi; digits = 3))i")
+    return "Dielectric($s)"
+end
+
 struct CaseResult
     spec::CaseSpec
     outdir::String
@@ -988,7 +1002,7 @@ function _publication_report(res::CaseResult, rcs_dB, mie_dB, mie_ok;
         println(buf, "| regions (Physical Volume) | material | tag |")
         println(buf, "|---|---|---|")
         for r in s.regions
-            println(buf, "| `$(r.surface)` | $(r.material) | $(get(region_tags, r.surface, "—")) |")
+            println(buf, "| `$(r.surface)` | $(_mat_str(r.material)) | $(get(region_tags, r.surface, "—")) |")
         end
     else
         _nonair(d::Dielectric) = !(isapprox(d.eps_r, AIR.eps_r) && isapprox(d.mu_r, AIR.mu_r))
@@ -1000,7 +1014,7 @@ function _publication_report(res::CaseResult, rcs_dB, mie_dB, mie_ok;
         println(buf, "| interfaces (n̂ = mesh triangle normal) | plus side (n̂) | minus side |")
         println(buf, "|---|---|---|")
         for itf in s.interfaces
-            println(buf, "| `$(itf.surface)`$(itf.closed ? " (closed)" : " (open)")$(itf.flip ? " [flipped]" : "") | $(itf.plus) | $(itf.minus) |")
+            println(buf, "| `$(itf.surface)`$(itf.closed ? " (closed)" : " (open)")$(itf.flip ? " [flipped]" : "") | $(_mat_str(itf.plus)) | $(_mat_str(itf.minus)) |")
         end
     end
     println(buf, "| incidence | θᵢ = $(_deg(s.theta_inc))°, φᵢ = $(_deg(s.phi_inc))°, pol = [$(join(s.pol, ", "))] |")

@@ -23,7 +23,7 @@ Boundary discretization: **1784 triangles**, 894 nodes; geometry source `cases/g
 | formulation | PMCHW |
 | interfaces (n̂ = mesh triangle normal) | plus side (n̂) | minus side |
 |---|---|---|
-| `body` (closed) | Dielectric(εᵣ=1.0 + 0.0im, μᵣ=1.0 + 0.0im) | Dielectric(εᵣ=4.0 + 0.0im, μᵣ=1.0 + 0.0im) |
+| `body` (closed) | air | Dielectric(εᵣ = 4.0, μᵣ = 1.0) |
 | incidence | θᵢ = 90.0°, φᵢ = 180.0°, pol = [0.0, 0.0, 1.0] |
 | observation | θ ∈ [0°, 180°] (181 samples), φ cuts = 0.0°, 90.0° |
 | reference | analytic Mie series, dielectric sphere r = 0.15 m |

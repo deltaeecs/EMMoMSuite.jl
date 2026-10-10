@@ -23,7 +23,7 @@ Boundary discretization: **1602 boundary triangles (of 1602 tetrahedra)**, 463 n
 | formulation | VEFIE (SWG volume discretization) |
 | regions (Physical Volume) | material | tag |
 |---|---|---|
-| `body` | Dielectric(εᵣ=4.0 + 0.0im, μᵣ=1.0 + 0.0im) | 1 |
+| `body` | Dielectric(εᵣ = 4.0, μᵣ = 1.0) | 1 |
 | incidence | θᵢ = 90.0°, φᵢ = 180.0°, pol = [0.0, 0.0, 1.0] |
 | observation | θ ∈ [0°, 180°] (181 samples), φ cuts = 0.0°, 90.0° |
 

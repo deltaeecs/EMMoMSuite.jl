@@ -23,7 +23,7 @@ Boundary discretization: **380 triangles**, 192 nodes; geometry source `cases/ge
 | formulation | CFIE (α = 0.5) |
 | interfaces (n̂ = mesh triangle normal) | plus side (n̂) | minus side |
 |---|---|---|
-| `body` (closed) | Dielectric(εᵣ=1.0 + 0.0im, μᵣ=1.0 + 0.0im) | PEC() |
+| `body` (closed) | air | PEC |
 | incidence | θᵢ = 90.0°, φᵢ = 180.0°, pol = [0.0, 0.0, 1.0] |
 | observation | θ ∈ [0°, 180°] (181 samples), φ cuts = 0.0°, 90.0° |
 | reference | analytic Mie series, PEC sphere r = 0.5 m |
