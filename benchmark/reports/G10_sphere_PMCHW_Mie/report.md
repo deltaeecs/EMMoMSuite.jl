@@ -3,12 +3,14 @@
 | | |
 |---|---|
 | solver | EMMoMSuite v0.3.1 (Julia 1.12.3) |
-| generated | 2026-10-10 09:42:47 |
+| generated | 2026-10-10 12:02:20 |
 | pipeline | geometry → gmsh mesh → MoM solve → RCS / far-field → this report |
 
-## 1 · Geometry
+## 1 · Geometry & Mesh
 
 ![geometry views](geometry_views.png)
+
+![mesh views](mesh_views.png)
 
 Boundary discretization: **1784 triangles**, 894 nodes; geometry source `cases/geo/sphere_r0p15.geo` (gmsh/OpenCASCADE).
 
@@ -32,11 +34,11 @@ Boundary discretization: **1784 triangles**, 894 nodes; geometry source `cases/g
 
 | triangles/tets | nodes | unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |
 |---|---|---|---|---|---|---|---|
-| 1784 | 894 | 2676 | 180.2 s | 9.7 s | 1.5 s | 1.4 s | 0.5 s |
+| 1784 | 894 | 2676 | 144.4 s | 10.8 s | 1.9 s | 2.1 s | 9.7 s |
 
 | total time | assembly rate | LU throughput |
 |---|---|---|
-| 193.2 s | 0.000736 × 10⁹ interactions/s | 8.6 Gflop/s |
+| 168.9 s | 0.000664 × 10⁹ interactions/s | 6.6 Gflop/s |
 
 *Assembly rate counts N² impedance-matrix interactions; LU throughput uses the dense (2/3)·N³ flop model (single node, default BLAS threads).*
 Machine-readable: `perf.csv`, `rcs.csv`.
@@ -51,6 +53,10 @@ Normalized far-field |E| pattern:
 
 ![Far-field polar](farfield_polar.png)
 
+Surface-current magnitude |J| (dB, normalized to peak):
+
+![Current distribution](current_views.png)
+
 | phi cut | RMSE vs Mie [dB] | verdict |
 |---|---|---|
 | 0.0° | 0.044 | pass |
@@ -60,8 +66,8 @@ Normalized far-field |E| pattern:
 
 - Electric resolution: mesh size 0.02 m = 0.04 λ at f = 600.0 MHz (90.0°, 180.0° plane-wave incidence).
 - Accuracy: worst-cut RMSE vs analytic Mie reference = 0.044 dB over 2 cuts → **PASS** against the 0.5 dB acceptance line.
-- Throughput: impedance assembly 0.000736 G-interactions/s, dense LU 8.6 Gflop/s at N = 2676 unknowns.
-- Dominant cost: gmsh meshing — 180.2 s (93.0% of the 193.2 s total).
+- Throughput: impedance assembly 0.000664 G-interactions/s, dense LU 6.6 Gflop/s at N = 2676 unknowns.
+- Dominant cost: gmsh meshing — 144.4 s (86.0% of the 168.9 s total).
 - Bistatic RCS dynamic range over the observed cuts: -12.0 … -6.3 dBsm.
 
 ## Artifacts

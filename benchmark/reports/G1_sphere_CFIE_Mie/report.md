@@ -3,21 +3,23 @@
 | | |
 |---|---|
 | solver | EMMoMSuite v0.3.1 (Julia 1.12.3) |
-| generated | 2026-10-10 09:35:19 |
+| generated | 2026-10-10 11:51:29 |
 | pipeline | geometry → gmsh mesh → MoM solve → RCS / far-field → this report |
 
-## 1 · Geometry
+## 1 · Geometry & Mesh
 
 ![geometry views](geometry_views.png)
 
-Boundary discretization: **380 triangles**, 192 nodes; geometry source `cases/geo/sphere_r0p5.geo` (gmsh/OpenCASCADE).
+![mesh views](mesh_views.png)
+
+Boundary discretization: **790 triangles**, 397 nodes; geometry source `cases/geo/sphere_r0p5.geo` (gmsh/OpenCASCADE).
 
 ## 2 · Simulation Configuration
 
 | item | value |
 |---|---|
 | geometry | `cases/geo/sphere_r0p5.geo` |
-| mesh size | 0.15 m |
+| mesh size | 0.1 m |
 | mesh dim | 2 (surface triangulation) |
 | frequency | 300.0 MHz (λ = 1.0 m) |
 | formulation | CFIE (α = 0.5) |
@@ -32,11 +34,11 @@ Boundary discretization: **380 triangles**, 192 nodes; geometry source `cases/ge
 
 | triangles/tets | nodes | unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |
 |---|---|---|---|---|---|---|---|
-| 380 | 192 | 570 | 190.5 s | 4.1 s | 2.3 s | 2.0 s | 10.9 s |
+| 790 | 397 | 1185 | 235.9 s | 3.1 s | 0.8 s | 1.2 s | 13.3 s |
 
 | total time | assembly rate | LU throughput |
 |---|---|---|
-| 209.8 s | 7.84e-05 × 10⁹ interactions/s | 0.1 Gflop/s |
+| 254.3 s | 0.000458 × 10⁹ interactions/s | 1.3 Gflop/s |
 
 *Assembly rate counts N² impedance-matrix interactions; LU throughput uses the dense (2/3)·N³ flop model (single node, default BLAS threads).*
 Machine-readable: `perf.csv`, `rcs.csv`.
@@ -51,18 +53,22 @@ Normalized far-field |E| pattern:
 
 ![Far-field polar](farfield_polar.png)
 
+Surface-current magnitude |J| (dB, normalized to peak):
+
+![Current distribution](current_views.png)
+
 | phi cut | RMSE vs Mie [dB] | verdict |
 |---|---|---|
-| 0.0° | 0.353 | pass |
-| 90.0° | 0.297 | pass |
+| 0.0° | 0.162 | pass |
+| 90.0° | 0.137 | pass |
 
 ## 5 · Key Conclusions
 
-- Electric resolution: mesh size 0.15 m = 0.15 λ at f = 300.0 MHz (90.0°, 180.0° plane-wave incidence).
-- Accuracy: worst-cut RMSE vs analytic Mie reference = 0.353 dB over 2 cuts → **PASS** against the 0.5 dB acceptance line.
-- Throughput: impedance assembly 7.84e-5 G-interactions/s, dense LU 0.1 Gflop/s at N = 570 unknowns.
-- Dominant cost: gmsh meshing — 190.5 s (91.0% of the 209.8 s total).
-- Bistatic RCS dynamic range over the observed cuts: -6.9 … 1.4 dBsm.
+- Electric resolution: mesh size 0.1 m = 0.1 λ at f = 300.0 MHz (90.0°, 180.0° plane-wave incidence).
+- Accuracy: worst-cut RMSE vs analytic Mie reference = 0.162 dB over 2 cuts → **PASS** against the 0.5 dB acceptance line.
+- Throughput: impedance assembly 0.000458 G-interactions/s, dense LU 1.3 Gflop/s at N = 1185 unknowns.
+- Dominant cost: gmsh meshing — 235.9 s (93.0% of the 254.3 s total).
+- Bistatic RCS dynamic range over the observed cuts: -6.7 … 1.5 dBsm.
 
 ## Artifacts
 
