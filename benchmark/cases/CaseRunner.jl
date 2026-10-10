@@ -1356,7 +1356,7 @@ and the timing row keep the exact formats `write_index` parses.
 """
 function _publication_report(res::CaseResult, rcs_dB, mie_dB, mie_ok;
                              geometry::Symbol, region_tags = nothing, ctx = nothing,
-                             plots::Bool = true)
+                             plots::Bool = true, mpi = nothing)
     s = res.spec
     m = _perf_metrics(res)
     buf = IOBuffer()
@@ -1368,6 +1368,7 @@ function _publication_report(res::CaseResult, rcs_dB, mie_dB, mie_ok;
     println(buf, "| solver | EMMoMSuite v$(pkgversion(EMMoMSuite)) (Julia $(VERSION)) |")
     println(buf, "| generated | $(Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS")) |")
     println(buf, "| pipeline | geometry → gmsh mesh → MoM solve → RCS / far-field → this report |")
+    mpi === nothing || println(buf, "| parallel | $(mpi) |")
     println(buf)
 
     println(buf, "## 1 · Geometry & Mesh")
@@ -1469,9 +1470,15 @@ function _publication_report(res::CaseResult, rcs_dB, mie_dB, mie_ok;
     end
     if res.mlfma_ok
         println(buf)
-        println(buf, "Cross-method validation — dense MoM (LU) vs MLFMA (GMRES, " *
-                     "leaf = λ/2, block-Jacobi preconditioned, restart = 200, tol = 10⁻⁶), " *
-                     "total $(round(res.t_mlfma; digits = 1)) s:")
+        if mpi === nothing
+            println(buf, "Cross-method validation — dense MoM (LU) vs MLFMA (GMRES, " *
+                         "leaf = λ/2, block-Jacobi preconditioned, restart = 200, tol = 10⁻⁶), " *
+                         "total $(round(res.t_mlfma; digits = 1)) s:")
+        else
+            println(buf, "Cross-method validation — MLFMA distributed GMRES ($mpi; " *
+                         "leaf = λ/2, restart = 200, tol = 10⁻⁶) vs dense MoM (LU) reference, " *
+                         "LU total $(round(res.t_mlfma; digits = 1)) s:")
+        end
         println(buf)
         println(buf, "| phi cut | RMSE MoM vs MLFMA [dB] | verdict |")
         println(buf, "|---|---|---|")
