@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| solver | EMMoMSuite v0.3.0 (Julia 1.12.3) |
-| generated | 2026-10-09 23:12:38 |
+| solver | EMMoMSuite v0.3.1 (Julia 1.12.3) |
+| generated | 2026-10-10 09:39:32 |
 | pipeline | geometry → gmsh mesh → MoM solve → RCS / far-field → this report |
 
 ## 1 · Geometry
@@ -31,11 +31,12 @@ Boundary discretization: **470 triangles**, 237 nodes; geometry source `cases/ge
 
 | triangles/tets | nodes | unknowns | t_mesh | t_assemble | t_solve | t_RCS | t_plots |
 |---|---|---|---|---|---|---|---|
-| 470 | 237 | 705 | 198.8 s | 0.5 s | 0.4 s | 0.3 s | 0.1 s |
+| 470 | 237 | 705 | 206.7 s | 1.4 s | 0.8 s | 1.4 s | 7.2 s |
 
 | total time | assembly rate | LU throughput |
 |---|---|---|
-| 200.2 s | 0.00 × 10⁹ interactions/s | 0.5 Gflop/s |
+| 217.4 s | 0.000364 × 10⁹ interactions/s | 0.3 Gflop/s |
+
 *Assembly rate counts N² impedance-matrix interactions; LU throughput uses the dense (2/3)·N³ flop model (single node, default BLAS threads).*
 Machine-readable: `perf.csv`, `rcs.csv`.
 
@@ -59,8 +60,8 @@ mesh-converged solution.
 
 - Electric resolution: mesh size 0.12 m = 0.12 λ at f = 300.0 MHz (90.0°, 180.0° plane-wave incidence).
 - No analytic reference exists for this geometry; verification is by mesh convergence against the refined twin case (see §4).
-- Throughput: impedance assembly 0.0 G-interactions/s, dense LU 0.5 Gflop/s at N = 705 unknowns.
-- Dominant cost: gmsh meshing — 198.8 s (99.0% of the 200.2 s total).
+- Throughput: impedance assembly 0.000364 G-interactions/s, dense LU 0.3 Gflop/s at N = 705 unknowns.
+- Dominant cost: gmsh meshing — 206.7 s (95.0% of the 217.4 s total).
 - Bistatic RCS dynamic range over the observed cuts: -38.4 … -19.4 dBsm.
 
 ## Artifacts

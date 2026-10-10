@@ -697,17 +697,27 @@ function _write_rcs_csv(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
     return path
 end
 
+const _PUBFONT = "times"   # GR built-in serif alias
+
 function _plot_rcs(spec, outdir, θa, ϕs, rcs_dB, mie_dB, mie_ok)
     θdeg = _deg.(θa)
-    p = plot(title = "$(spec.name) bistatic RCS  (f = $(spec.freq/1e6) MHz)",
-             xlabel = "theta [deg]", ylabel = "RCS [dBsm]",
-             legend = :bottomleft, size = (760, 520))
+    cols = ["#1f4e79", "#c0392b", "#1e8449", "#7d3c98"]
+    p = plot(title = "$(spec.name) bistatic RCS",
+             xlabel = "θ [deg]", ylabel = "RCS [dBsm]",
+             legend = :bottomleft, size = (900, 640), dpi = 300,
+             fontfamily = _PUBFONT, palette = cols,
+             grid = true, gridalpha = 0.35, minorgrid = true, minorgridalpha = 0.2,
+             linewidth = 2, legendfontsize = 11, guidefontsize = 13,
+             titlefontsize = 14, tickfontsize = 11, framestyle = :box,
+             xlims = (0, 180), xticks = 0:30:180)
     for (j, φ) in enumerate(ϕs)
-        lbl = @sprintf("MoM phi=%.0f°", _deg(φ))
-        plot!(p, θdeg, rcs_dB[:, j]; label = lbl, lw = 2)
+        plot!(p, θdeg, rcs_dB[:, j];
+              label = @sprintf("MoM, φ = %.0f°", _deg(φ)), lw = 2.2,
+              linecolor = cols[mod1(j, length(cols))])
         mie_ok && plot!(p, θdeg, mie_dB[:, j];
-                        label = @sprintf("Mie  phi=%.0f°", _deg(φ)),
-                        ls = :dash, lw = 1.5)
+                        label = @sprintf("Mie, φ = %.0f°", _deg(φ)),
+                        ls = :dash, lw = 1.6,
+                        linecolor = cols[mod1(j, length(cols))])
     end
     path = joinpath(outdir, "rcs_cuts.png")
     savefig(p, path)
@@ -717,14 +727,19 @@ end
 function _plot_farfield(spec, outdir, θa, ϕs, FF)
     # normalized |E| pattern (co-pol: total power) per phi cut, mirrored to 2π
     mag = sqrt.(abs2.(FF[1, :, :]) .+ abs2.(FF[2, :, :]))  # [nθ, nϕ]
-    p = plot(proj = :polar, title = "$(spec.name) far-field |E| (norm., dB)",
-             legend = :bottomleft, size = (640, 640), lims = (-60, 0))
+    cols = ["#1f4e79", "#c0392b", "#1e8449", "#7d3c98"]
+    p = plot(proj = :polar, title = "$(spec.name) far-field |E| (normalized, dB)",
+             legend = :bottomleft, size = (760, 760), dpi = 300,
+             fontfamily = _PUBFONT, lims = (-60, 0), yticks = -60:10:0,
+             linewidth = 1.8, legendfontsize = 11, titlefontsize = 14,
+             tickfontsize = 10, gridalpha = 0.35, framestyle = :box)
     for (j, φ) in enumerate(ϕs)
         d = mag[:, j] ./ maximum(mag[:, j])
         db = 20 .* log10.(max.(d, 1e-6))              # clamp at -120 dB
         ang = vcat(θa, 2pi .- reverse(θa))            # mirror θ -> [0, 2π)
         val = vcat(db, reverse(db))
-        plot!(p, ang .+ pi / 2, val; label = @sprintf("phi=%.0f°", _deg(φ)), lw = 1.8)
+        plot!(p, ang .+ pi / 2, val; label = @sprintf("φ = %.0f°", _deg(φ)),
+              lw = 2.0, linecolor = cols[mod1(j, length(cols))])
     end
     path = joinpath(outdir, "farfield_polar.png")
     savefig(p, path)
@@ -773,60 +788,76 @@ function _proj_view(x, y, z, az, el)
     return x1, ce .* z .- se .* y1, se .* z .+ ce .* y1   # px, py, depth
 end
 
-const _GEO_VIEWS = [  # (label, azimuth, elevation, aspect)
+const _GEO_VIEWS = [  # (label, azimuth, elevation)
     ("top view (x–y)",   0.0,      pi / 2),
     ("front view (x–z)", 0.0,      0.0),
     ("side view (y–z)",  pi / 2,   0.0),
 ]
 
+# camera axis (toward viewer) for the orbit projection in _proj_view
+_cam_axis(az, el) = (-sin(az) * cos(el), cos(az) * cos(el), sin(el))
+
 """
     _plot_geometry_views(spec, mesh, outdir) -> path
 
 Publication-style geometry figure: three orthographic views + one pseudo-3D
-isometric view of the boundary triangles (filled, depth-sorted in the 3D view).
+isometric view. Front-facing boundary triangles only (backface culling via
+face normals), opaque Lambert-shaded fill binned into grayscale-blue shades
+and drawn far-to-near, so hidden surfaces are not visible through the body.
 """
 function _plot_geometry_views(spec, mesh, outdir)
     tri = _boundary_tris(mesh)
     X, Y, Z = mesh.node[1, :], mesh.node[2, :], mesh.node[3, :]
     ntri = size(tri, 2)
+    V3 = [mesh.node[:, t] for t in 1:size(mesh.node, 2)]   # Vector{Vector{Float64}}
 
-    # NaN-separated polygon arrays for one :shape series call
-    polys(px, py) = begin
-        xs = Float64[]; ys = Float64[]
+    _hex(v) = string("#", join((@sprintf("%02x", round(Int, 255 * clamp(v, 0, 1)))) for v in v))
+
+    function view_plot(az, el, lbl)
+        px, py, dep = _proj_view(X, Y, Z, az, el)
+        t̂ = _cam_axis(az, el)
+        bright = fill(NaN, ntri)      # Lambert brightness of front faces
+        fdep = fill(NaN, ntri)
         for t in 1:ntri
-            append!(xs, px[tri[1, t]], px[tri[2, t]], px[tri[3, t]], px[tri[1, t]], NaN)
-            append!(ys, py[tri[1, t]], py[tri[2, t]], py[tri[3, t]], py[tri[1, t]], NaN)
+            a, b, c = tri[1, t], tri[2, t], tri[3, t]
+            n = cross(V3[b] - V3[a], V3[c] - V3[a])
+            ln = norm(n)
+            ln == 0 && continue
+            d = dot(n / ln, t̂)
+            d <= 0 && continue        # backface culling
+            bright[t] = clamp(0.25 + 0.75 * d, 0.0, 1.0)
+            fdep[t] = (dep[a] + dep[b] + dep[c]) / 3
         end
-        return xs, ys
+        idx = findall(!isnan, bright)
+        sort!(idx; by = t -> fdep[t], rev = true)      # far → near
+        # bin into 8 shade levels → one opaque :shape series per bin
+        nb = 8
+        p = plot()
+        for b in 1:nb
+            blo, bhi = (b - 1) / nb, b / nb
+            sel = [t for t in idx if blo <= bright[t] <= (b == nb ? 1.0 : bhi)]
+            isempty(sel) && continue
+            xs = Float64[]; ys = Float64[]
+            for t in sel
+                a, bb, c = tri[1, t], tri[2, t], tri[3, t]
+                append!(xs, px[a], px[bb], px[c], px[a], NaN)
+                append!(ys, py[a], py[bb], py[c], py[a], NaN)
+            end
+            g = (blo + bhi) / 2
+            col = _hex((0.16 + 0.55g, 0.35 + 0.35g, 0.55 + 0.30g))
+            plot!(p, xs, ys; seriestype = :shape, fillcolor = col, fillalpha = 1.0,
+                  linecolor = "#0d1a2e", lw = 0.3, legend = false)
+        end
+        plot!(p; title = lbl, aspect_ratio = :equal, ticks = false,
+              titlefontsize = 9)
+        return p
     end
 
-    plots = Plots.Plot[]
-    for (lbl, az, el) in _GEO_VIEWS
-        px, py, _ = _proj_view(X, Y, Z, az, el)
-        xs, ys = polys(px, py)
-        p = plot(xs, ys; seriestype = :shape, fillcolor = :steelblue,
-                 fillalpha = 0.25, linecolor = :grey25, lw = 0.4,
-                 title = lbl, aspect_ratio = :equal, legend = false,
-                 ticks = false)
-        push!(plots, p)
-    end
-    # pseudo-3D isometric, painter's algorithm (far → near)
-    az, el = pi / 4, pi / 6
-    px, py, dep = _proj_view(X, Y, Z, az, el)
-    order = sortperm([mean(dep[tri[:, t]]) for t in 1:ntri]; rev = true)
-    tri_s = tri[:, order]
-    xs = Float64[]; ys = Float64[]
-    for t in 1:ntri
-        append!(xs, px[tri_s[1, t]], px[tri_s[2, t]], px[tri_s[3, t]], px[tri_s[1, t]], NaN)
-        append!(ys, py[tri_s[1, t]], py[tri_s[2, t]], py[tri_s[3, t]], py[tri_s[1, t]], NaN)
-    end
-    p3 = plot(xs, ys; seriestype = :shape, fillcolor = :steelblue,
-              fillalpha = 0.35, linecolor = :grey15, lw = 0.4,
-              title = "isometric view (pseudo-3D)", aspect_ratio = :equal,
-              legend = false, ticks = false)
-    p = plot(plots..., p3, layout = (2, 2), size = (1000, 950),
+    plots = [view_plot(az, el, lbl) for (lbl, az, el) in _GEO_VIEWS]
+    push!(plots, view_plot(pi / 4, pi / 6, "isometric view (pseudo-3D)"))
+    p = plot(plots..., layout = (2, 2), size = (1000, 950), dpi = 300,
              plot_title = "$(spec.name) — computational geometry",
-             titlefontsize = 9, plot_titlefontsize = 12)
+             plot_titlefontsize = 12)
     path = joinpath(outdir, "geometry_views.png")
     savefig(p, path)
     return path
